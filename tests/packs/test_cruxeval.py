@@ -31,7 +31,7 @@ HERE = Path(__file__).resolve().parent
 SAMPLE = HERE / "cruxeval_sample.jsonl"
 COMMITTED = Path(__file__).resolve().parents[2] / "packs" / "cruxeval"
 # Pinned: fails if any byte of the committed pack changes. Update on purpose only.
-PINNED_COMMITTED_HASH = "684687cf24941e6f1c79c1eb7aabb1c92299377853504a8ba6de4f00597c6d4c"
+PINNED_COMMITTED_HASH = "367b734e9cd4ed8aef59aefab07db0d6f6a371bbe927434d48b1f5ec5116018b"
 IMAGE = os.environ.get("ITERANT_TEST_IMAGE", "docker.io/library/python:3.12-slim")
 
 
@@ -172,6 +172,14 @@ def test_run_script_matches_in_process_canonicalizer(tmp_path: Path, answer: str
         ("[1, 2]", "```\n[1, 2]\n```", True),
         ("[1, 2]", "```python\n[1, 2]\n```\n", True),
         ("[1, 2]", "```py\n[1, 2]\n```", True),
+        ("[1, 2]", "```Python\n[1, 2]\n```", True),
+        # lone surrogates are not the code point their escapes spell
+        ("'\\ud83d\\ude00'", "'\\U0001F600'", False),
+        ("'\\U0001F600'", "'\\ud83d\\ude00'", False),
+        ("'\\ud83d\\ude00'", "'\\ud83d\\ude00'", True),
+        ("'\\U0001F600'", "'\\U0001F600'", True),
+        ("'\\ud800'", "'\\ud800'", True),
+        ("'\\ud800'", "'\\ud801'", False),
         ("[1, 2]", "```[1, 2]```", True),
         ("[1, 2]", "```bash\n[1, 2]\n```", False),
         ("[1, 2]", "```\n```\n[1, 2]\n```\n```", False),
@@ -199,6 +207,56 @@ def test_run_script_matches_in_process_canonicalizer(tmp_path: Path, answer: str
 )
 def test_grading_semantics(tmp_path: Path, expected: str, answer: str, passes: bool) -> None:
     assert score(tmp_path, expected, answer.encode()) == (1.0 if passes else 0.0)
+
+
+def test_utf8_bom_is_accepted(tmp_path: Path) -> None:
+    assert score(tmp_path, "[1]", b"\xef\xbb\xbf[1]") == 1.0
+    assert score(tmp_path, "[1]", b"\xef\xbb\xbf```\n[1]\n```") == 1.0
+
+
+def test_planted_modules_in_the_out_dir_are_ignored(tmp_path: Path) -> None:
+    forged = b"import sys\nprint('FORGED')\nsys.exit(0)\n"
+    work = tmp_path / "out"
+    for name in ("json.py", "ast.py", "sys.py", "sitecustomize.py", "usercustomize.py"):
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir()
+        (work / name).write_bytes(forged)
+        (work / "answer.txt").write_bytes(b"[1]")
+        done = subprocess.run(
+            [sys.executable, "-I", "-"], input=RUN_PROGRAM.encode(), cwd=work, capture_output=True
+        )
+        assert done.stdout == b'{"answer":["list",["int","1"]]}\n', name
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX sh")
+def test_run_script_through_sh_with_a_stub_python3(tmp_path: Path) -> None:
+    """The heredoc path: ``sh run`` finds ``python3`` on PATH and feeds it the program."""
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    exe = Path(sys.executable).as_posix()
+    (stub / "python3").write_bytes(f'#!/bin/sh\nexec "{exe}" "$@"\n'.encode())
+    (stub / "python3").chmod(0o755)
+    run = tmp_path / "run"
+    run.write_bytes(cruxeval.run_script())
+    work = tmp_path / "work"
+    work.mkdir()
+    env = {**os.environ, "PATH": f"{stub.as_posix()}{os.pathsep}{os.environ['PATH']}"}
+
+    def sh(answer: bytes | None) -> subprocess.CompletedProcess[bytes]:
+        (work / "answer.txt").unlink(missing_ok=True)
+        if answer is not None:
+            (work / "answer.txt").write_bytes(answer)
+        return subprocess.run(
+            ["sh", run.as_posix()], cwd=work, env=env, capture_output=True, timeout=60
+        )
+
+    good = sh(b"{2, 1}")
+    if good.returncode == 127:
+        pytest.skip("stub python3 not runnable through sh on this platform")
+    assert good.returncode == 0
+    assert good.stdout.strip() == cruxeval_canon.encode_answer({1, 2}).encode()
+    assert sh(b"1 x").returncode == 1
+    assert sh(None).returncode == 1
 
 
 def test_missing_file_is_a_nonzero_exit(tmp_path: Path) -> None:

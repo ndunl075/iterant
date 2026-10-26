@@ -10,7 +10,7 @@ out dir. Each task's `run` script (identical for all 800, no expected values) re
 encoding of the dataset's expected output. Any failure (missing or oversized file, trailing junk,
 too deep, unsupported type) exits non-zero and scores 0.0.
 
-The encoding is type-tagged: equal iff Python `==`, except `True` != `1`, tuple != list,
+The encoding is type-tagged: equal iff Python `==`, except (stricter than upstream) `True` != `1`, tuple != list,
 set != list and `1` != `"1"` (`1 == 1.0`, `-0.0 == 0`, NaN equals NaN). Its single source is
 `iterant/packs/cruxeval_canon.py`; `run` embeds that file verbatim.
 
@@ -18,7 +18,9 @@ set != list and `1` != `"1"` (`1 == 1.0`, `-0.0 == 0`, NaN equals NaN). Its sing
 in `pack.toml`). Running the function would turn the benchmark into a test of the interpreter.
 Nothing enforces this yet.
 
-The target image needs `python3` (the grader's sandbox runs `run` with it).
+The target image needs `python3` (the grader's sandbox runs `run` with it). Without it every task silently scores 0.0 (exit 127); W2's startup check should verify it.
+
+**Not comparable with published numbers.** Upstream CRUXEval-O runs `assert {output} == {gold}` on the model's text, so `1` passes for `True` and expressions like `'a'*3` pass. Here the answer must be a plain literal and types are kept apart, so scores are not directly comparable with published CRUXEval-O results.
 
 ## Source
 - Repository: https://github.com/facebookresearch/cruxeval (MIT; see `LICENSE`, `NOTICE`)

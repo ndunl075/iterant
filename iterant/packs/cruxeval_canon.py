@@ -5,10 +5,13 @@ from ``iterant``, because the converter embeds its exact text into every task's 
 (executed by the grader in a sandbox) and also imports it host-side to compute ``check``.
 
 Two answers are equal exactly when their encodings are equal, and the encoding follows Python
-``==`` except where CRUXEval keeps types apart: ``True`` is not ``1``, a tuple is not a list, a
-set is not a list, ``1`` is not ``"1"``.
+``==`` except that this pack is stricter than upstream CRUXEval (which asserts ``output == gold``
+on evaluated code): ``True`` is not ``1``, a tuple is not a list, a set is not a list, ``1`` is
+not ``"1"``.
 
-* ``None`` -> ``["none"]``; ``bool`` -> ``["bool", "true"|"false"]``; ``str`` -> ``["str", s]``;
+* ``None`` -> ``["none"]``; ``bool`` -> ``["bool", "true"|"false"]``; ``str`` -> ``["str", s]``,
+  or ``["strx", utf-8 hex with surrogatepass]`` if ``s`` holds a lone surrogate (JSON escapes would
+  make a pair of lone surrogates equal to the one real code point they spell);
   ``bytes`` -> ``["bytes", hex]``.
 * ``int`` and ``float`` share a number space, as ``==`` does: a finite float with an integral
   value (so ``1.0`` and ``-0.0``) encodes as the ``int``; any other float is
@@ -37,7 +40,7 @@ from typing import Any, cast
 MAX_ANSWER_BYTES = 64 * 1024
 MAX_DEPTH = 20
 ANSWER_FILE = "answer.txt"
-_FENCE_TAGS = {"", "python", "py", "text"}
+_FENCE_TAGS = {"", "python", "py", "text"}  # compared lowercased
 
 
 def _dumps(value: Any) -> str:
@@ -67,6 +70,8 @@ def canonical(value: object, depth: int = 0) -> list[Any]:
             return _number(value.real)
         return ["complex", _number(value.real), _number(value.imag)]
     if isinstance(value, str):
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            return ["strx", value.encode("utf-8", "surrogatepass").hex()]
         return ["str", value]
     if isinstance(value, bytes):
         return ["bytes", value.hex()]
@@ -96,7 +101,7 @@ def _unfence(text: str) -> str:
     if text.startswith("```") and text.endswith("```") and len(text) >= 6:
         inner = text[3:-3]
         head, newline, rest = inner.partition("\n")
-        if newline and head.strip() in _FENCE_TAGS:
+        if newline and head.strip().lower() in _FENCE_TAGS:
             inner = rest
         return inner.strip()
     return text
@@ -106,7 +111,7 @@ def parse_answer(raw: bytes) -> object:
     """Literal value of the bytes of ``answer.txt``; raises on anything but one literal."""
     if len(raw) > MAX_ANSWER_BYTES:
         raise ValueError("too large")
-    return ast.literal_eval(_unfence(raw.decode("utf-8").strip()))  # pyright: ignore[reportAny]
+    return ast.literal_eval(_unfence(raw.decode("utf-8-sig").strip()))  # pyright: ignore[reportAny]
 
 
 def main() -> None:

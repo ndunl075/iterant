@@ -1,8 +1,9 @@
 """Container sandbox backends (``podman`` rootless; ``docker`` only with ``unsafe_container``).
 
 Isolation per ARCHITECTURE §5/§9: non-root user, read-only root fs, a size-capped tmpfs for
-work files, no host mounts, cpu/mem/pids caps, a ttl, and no network except (``proxy-only``)
-one relay to the proxy. Each sandbox gets its own internal network and its own relay.
+work files, no host mounts, cpu/mem/pids caps (verified after start), a ttl, and no network
+except (``proxy-only``) one relay to the proxy. Each sandbox gets its own internal network
+and its own relay.
 """
 
 from __future__ import annotations
@@ -25,17 +26,28 @@ WORK_DIR = "/work"
 SANDBOX_UID = 10001
 PIDS_LIMIT = 512
 TMP_TMPFS_MIB = 64
+SHM_SIZE = "1m"
 PROXY_ENV = "ITERANT_PROXY_URL"
 RELAY_PORT = 8080
 RELAY_GRACE_S = 30
-# TODO(contract): pin by digest; the relay needs `timeout` and `socat` (busybox-based image).
-DEFAULT_RELAY_IMAGE = "docker.io/alpine/socat:latest"
+# alpine/socat 1.8.1.3 (multi-arch index digest). Needs busybox `timeout` and `socat`.
+DEFAULT_RELAY_IMAGE = (
+    "docker.io/alpine/socat@sha256:603174b77eebaba25ba8f8ebb15e1234d6600409554e95d6fb203fd106150287"
+)
 
 _IO_TIMEOUT_S = 120.0
 _ADMIN_TIMEOUT_S = 60.0
+_PULL_TIMEOUT_S = 900.0
 _NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 _HOST_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _GONE_MARKERS = ("no such", "not found", "no container", "does not exist", "not known")
+
+# Run in the fresh container: needed tools exist, and the cgroup caps really applied
+# (rootless runtimes without cgroup-v2 delegation silently ignore --cpus/--pids-limit).
+_VERIFY_SCRIPT = (
+    "command -v setsid >/dev/null && command -v sleep >/dev/null || exit 3; "
+    "cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/pids.max /sys/fs/cgroup/memory.max"
+)
 
 
 class SandboxError(RuntimeError):
@@ -66,19 +78,30 @@ def _require_abs(path: str) -> None:
         raise ValueError(f"sandbox path must be absolute, got {path!r}")
 
 
-def _parse_proxy(proxy_url: str) -> tuple[str, str, int, str]:
+def _parse_proxy(proxy_url: str) -> tuple[str, int, str]:
     parts = urlsplit(proxy_url)
     host = parts.hostname or ""
     # The host lands in a socat address in the relay; accept only plain names/IPv4 so
-    # a crafted URL cannot inject socat options.
-    if parts.scheme not in ("http", "https") or not _HOST_RE.fullmatch(host):
-        raise ValueError(
-            f"proxy_url must be http(s)://<hostname-or-ipv4>[:port]/, got {proxy_url!r}"
-        )
+    # a crafted URL cannot inject socat options. http only: the proxy terminates TLS upstream.
+    if parts.scheme != "http" or not _HOST_RE.fullmatch(host):
+        raise ValueError(f"proxy_url must be http://<hostname-or-ipv4>[:port]/, got {proxy_url!r}")
     if parts.username or parts.password:
         raise ValueError("proxy_url must not carry credentials")
-    port = parts.port or (443 if parts.scheme == "https" else 80)
-    return parts.scheme, host, port, parts.path
+    return host, parts.port or 80, parts.path
+
+
+def _check_caps(stdout: str, cpu: float, mem: int) -> str | None:
+    """Return a problem description, or None if the cgroup limits match what was asked."""
+    lines = stdout.split("\n")
+    try:
+        quota, period = lines[0].split()
+        ok_cpu = quota != "max" and abs(int(quota) / int(period) - cpu) <= 0.01 * cpu + 0.001
+        ok_pids = int(lines[1]) == PIDS_LIMIT
+        ok_mem = int(lines[2]) == mem * 1024 * 1024
+    except (IndexError, ValueError, ZeroDivisionError):
+        return f"cgroup limits unreadable: {stdout!r}"
+    bad = [n for n, ok in (("cpu", ok_cpu), ("pids", ok_pids), ("memory", ok_mem)) if not ok]
+    return f"cgroup limits not applied: {', '.join(bad)}" if bad else None
 
 
 class ContainerSandbox:
@@ -106,6 +129,11 @@ class ContainerSandbox:
         self._timer = threading.Timer(ttl, self._expire)
         self._timer.daemon = True
 
+    @property
+    def resource_id(self) -> str:
+        """Value of the ``iterant.sandbox.id`` label on this sandbox's container/relay/network."""
+        return self._name
+
     def start_ttl(self) -> None:
         """Arm the ttl timer (called by the backend once the container is running)."""
         self._timer.start()
@@ -131,6 +159,10 @@ class ContainerSandbox:
     def _check(self, out: RunOutput, what: str) -> None:
         if out.returncode != 0:
             raise SandboxError(f"{what} failed ({out.returncode}): {_text(out.stderr).strip()}")
+
+    def _container_exists(self) -> bool:
+        out = self._run([self._rt, "container", "inspect", self._name], timeout=_ADMIN_TIMEOUT_S)
+        return out.returncode == 0
 
     def put(self, path: str, data: bytes) -> None:
         _require_abs(path)
@@ -164,22 +196,45 @@ class ContainerSandbox:
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
         self._alive()
+        pidfile = f"/tmp/.exec-{secrets.token_hex(6)}.pid"
+        # Each exec is its own session/process group (setsid); the inner shell records the
+        # group id, so a timeout can kill exactly this exec's processes and nothing else.
+        wrapper = f'echo $$ > {pidfile}; exec sh -c "$0"'
         start = time.monotonic()
         out = self._run(
-            [self._rt, "exec", "--workdir", WORK_DIR, self._name, "sh", "-c", cmd],
+            [
+                self._rt, "exec", "--workdir", WORK_DIR, self._name,
+                "setsid", "sh", "-c", wrapper, cmd,
+            ],
             timeout=timeout,
-        )
+        )  # fmt: skip
         wall = time.monotonic() - start
         if out.timed_out:
-            # Killing the host-side client does not stop the process in the container.
-            # Signal everything the sandbox user owns; pid 1 (sleep) ignores it.
-            self._run(
-                [self._rt, "exec", self._name, "sh", "-c", "kill -9 -1"], timeout=_ADMIN_TIMEOUT_S
-            )
+            if not self._kill_group(pidfile):
+                # Cannot prove the process is gone (e.g. pids limit hit): fail closed.
+                self._abort()
             return ExecResult(-1, _text(out.stdout), _text(out.stderr), True, wall)
-        if out.returncode == 125 and _gone(out):
-            raise SandboxError(f"sandbox {self._name} is gone: {_text(out.stderr).strip()}")
+        if out.returncode in (125, 126) and not self._container_exists():
+            raise SandboxError(f"sandbox {self._name} is gone")
         return ExecResult(out.returncode, _text(out.stdout), _text(out.stderr), False, wall)
+
+    def _kill_group(self, pidfile: str) -> bool:
+        script = (
+            f"p=$(cat {pidfile}) || exit 2; kill -9 -$p 2>/dev/null; i=0; "
+            "while kill -0 -$p 2>/dev/null; do i=$((i+1)); [ $i -gt 30 ] && exit 1; "
+            f"sleep 0.1; done; rm -f {pidfile}"
+        )
+        try:
+            out = self._run([self._rt, "exec", self._name, "sh", "-c", script], timeout=30)
+        except SandboxError:
+            return False
+        return out.returncode == 0 and not out.timed_out
+
+    def _abort(self) -> None:
+        try:
+            self.destroy()
+        except SandboxError:
+            log.exception("could not tear down %s after a failed kill", self._name)
 
     def destroy(self) -> None:
         with self._lock:
@@ -212,6 +267,7 @@ class ContainerBackend:
         proxy_url: str | None,
         relay_image: str,
         outer_network: str,
+        sandbox_extra_args: Sequence[str],
         relay_extra_args: Sequence[str],
         runner: Runner,
     ) -> None:
@@ -222,17 +278,31 @@ class ContainerBackend:
         self._runner = runner
         self._relay_image = relay_image
         self._outer_network = outer_network
+        self._sandbox_extra = list(sandbox_extra_args)
         self._relay_extra = list(relay_extra_args)
         self._proxy = _parse_proxy(proxy_url) if proxy_url is not None else None
 
-    def _run(self, argv: Sequence[str], what: str) -> RunOutput:
+    @property
+    def runtime(self) -> str:
+        return self._rt
+
+    def _run(self, argv: Sequence[str], what: str, timeout: float = _ADMIN_TIMEOUT_S) -> RunOutput:
         try:
-            out = self._runner(argv, timeout=_ADMIN_TIMEOUT_S)
+            out = self._runner(argv, timeout=timeout)
         except OSError as e:
             raise SandboxError(f"cannot run {self._rt}: {e}") from e
         if out.returncode != 0 or out.timed_out:
             raise SandboxError(f"{what} failed ({out.returncode}): {_text(out.stderr).strip()}")
         return out
+
+    def _ensure_image(self, image: str) -> None:
+        # Explicit pull with its own long timeout, instead of an implicit pull in `run`.
+        try:
+            have = self._runner([self._rt, "image", "inspect", image], timeout=_ADMIN_TIMEOUT_S)
+        except OSError as e:
+            raise SandboxError(f"cannot run {self._rt}: {e}") from e
+        if have.returncode != 0:
+            self._run([self._rt, "pull", "--quiet", image], f"pull {image}", _PULL_TIMEOUT_S)
 
     def create(
         self,
@@ -254,7 +324,10 @@ class ContainerBackend:
 
         base = f"{self._prefix}-{secrets.token_hex(4)}"
         name, relay, netname = base, f"{base}-relay", f"{base}-net"
-        label = ["--label", f"iterant.sandbox={self._prefix}"]
+        label = [
+            "--label", f"iterant.sandbox={self._prefix}",
+            "--label", f"iterant.sandbox.id={base}",
+        ]  # fmt: skip
         rt = self._rt
         teardown: list[list[str]] = [[rt, "rm", "-f", name]]
         env: list[str] = []
@@ -262,20 +335,27 @@ class ContainerBackend:
         proxy_url: str | None = None
 
         try:
+            self._ensure_image(image)
             if net == "proxy-only":
                 assert self._proxy is not None
-                scheme, host, port, path = self._proxy
+                host, port, path = self._proxy
                 network = netname
-                proxy_url = f"{scheme}://{relay}:{RELAY_PORT}{path}"
+                proxy_url = f"http://{relay}:{RELAY_PORT}{path}"
                 env = ["--env", f"{PROXY_ENV}={proxy_url}"]
                 teardown += [[rt, "rm", "-f", relay], [rt, "network", "rm", netname]]
+                self._ensure_image(self._relay_image)
                 self._run(
                     [rt, "network", "create", "--internal", *label, netname], "network create"
                 )
-                self._run(self.relay_argv(relay, netname, host, port, ttl, label), "relay create")
+                self._run(self.relay_argv(relay, netname, host, port, ttl, label), "relay run")
                 self._run([rt, "network", "connect", self._outer_network, relay], "relay connect")
-                self._run([rt, "start", relay], "relay start")
             self._run(self.run_argv(name, image, cpu, mem, disk, ttl, network, env, label), "run")
+            check = self._run([rt, "exec", name, "sh", "-c", _VERIFY_SCRIPT], "cap check")
+            problem = _check_caps(_text(check.stdout), cpu, mem)
+            if problem:
+                raise SandboxError(
+                    f"{problem} (rootless runtimes need cgroup-v2 delegation for cpu/pids limits)"
+                )
         except BaseException:
             for argv in reversed(teardown):
                 try:
@@ -295,6 +375,26 @@ class ContainerBackend:
         sandbox.start_ttl()
         return sandbox
 
+    def reap(self) -> None:
+        """Remove leftover containers and networks carrying this backend's ``name_prefix``
+        label (e.g. after a crash). Scoped by label, never global; it also removes sandboxes
+        of any other live process that uses the same prefix."""
+        selector = ["--filter", f"label=iterant.sandbox={self._prefix}"]
+        rt = self._rt
+        errors: list[str] = []
+        for kind, listing, remove in (
+            ("container", [rt, "ps", "-a", "--format", "{{.Names}}", *selector], [rt, "rm", "-f"]),
+            ("network", [rt, "network", "ls", "--format", "{{.Name}}", *selector],
+             [rt, "network", "rm"]),
+        ):  # fmt: skip
+            out = self._run(listing, f"list {kind}s")
+            for item in _text(out.stdout).split():
+                done = self._runner([*remove, item], timeout=_ADMIN_TIMEOUT_S)
+                if done.returncode != 0 and not _gone(done):
+                    errors.append(f"{kind} {item}: {_text(done.stderr).strip()}")
+        if errors:
+            raise SandboxError("reap incomplete: " + "; ".join(errors))
+
     def run_argv(
         self,
         name: str,
@@ -309,13 +409,14 @@ class ContainerBackend:
     ) -> list[str]:
         """The sandbox container. No host mounts: work files go in via ``put``/``get``."""
         return [
-            self._rt, "run", "--detach", "--rm", "--name", name, *label,
+            self._rt, "run", "--detach", "--rm", "--init", "--name", name, *label,
             "--user", f"{SANDBOX_UID}:{SANDBOX_UID}",
-            "--read-only",
+            "--read-only", *self._sandbox_extra,
             # exec so agents can run scripts they write; the tmpfs is the only writable disk.
             "--tmpfs", f"{WORK_DIR}:rw,exec,nosuid,nodev,size={disk}m,mode=0700,"
             f"uid={SANDBOX_UID},gid={SANDBOX_UID}",
             "--tmpfs", f"/tmp:rw,noexec,nosuid,nodev,size={TMP_TMPFS_MIB}m,mode=1777",
+            "--shm-size", SHM_SIZE,
             "--cap-drop=ALL", "--security-opt=no-new-privileges",
             "--cpus", f"{cpu:g}",
             "--memory", f"{mem}m", "--memory-swap", f"{mem}m",
@@ -323,16 +424,17 @@ class ContainerBackend:
             "--network", network,
             "--workdir", WORK_DIR, "--env", f"HOME={WORK_DIR}",
             *env,
-            # pid 1 is `sleep ttl`: the container ends itself even if the host process dies.
+            # `sleep ttl` is the main process: the container ends itself even if the host dies.
             "--entrypoint", "sleep", image, str(math.ceil(ttl)),
         ]  # fmt: skip
 
     def relay_argv(
         self, relay: str, netname: str, host: str, port: int, ttl: float, label: Sequence[str]
     ) -> list[str]:
-        """TCP relay: listens on the sandbox's private net, forwards to the one proxy endpoint."""
+        """TCP relay: listens on the sandbox's private net, forwards to the one proxy endpoint.
+        Started on the internal network only; the backend then connects the outer network."""
         return [
-            self._rt, "create", "--name", relay, *label,
+            self._rt, "run", "--detach", "--rm", "--name", relay, *label,
             "--network", netname,
             "--user", f"{SANDBOX_UID}:{SANDBOX_UID}",
             "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
@@ -361,6 +463,8 @@ class PodmanBackend(ContainerBackend):
             proxy_url=proxy_url,
             relay_image=relay_image,
             outer_network="podman",
+            # podman's --read-only otherwise leaves /run, /var/tmp writable (outside the disk cap)
+            sandbox_extra_args=("--read-only-tmpfs=false",),
             relay_extra_args=(),
             runner=runner,
         )
@@ -389,6 +493,7 @@ class DockerBackend(ContainerBackend):
             proxy_url=proxy_url,
             relay_image=relay_image,
             outer_network="bridge",
+            sandbox_extra_args=(),
             relay_extra_args=("--add-host", "host.docker.internal:host-gateway"),
             runner=runner,
         )

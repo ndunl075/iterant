@@ -11,7 +11,10 @@ export ``ITERANT_PROXY_URL`` inside ``proxy-only`` sandboxes, and the test image
 
 from __future__ import annotations
 
+import getpass
 import http.server
+import ipaddress
+import json
 import os
 import shutil
 import subprocess
@@ -20,11 +23,12 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from iterant.contracts import NetMode, Sandbox, SandboxBackend
-from iterant.sandbox import DockerBackend, PodmanBackend, slugify
+from iterant.sandbox import ContainerSandbox, DockerBackend, PodmanBackend, slugify
 
 BACKENDS = [
     pytest.param("podman", marks=pytest.mark.podman, id="podman"),
@@ -75,6 +79,7 @@ class Stub:
 @dataclass
 class Harness:
     backend: SandboxBackend
+    runtime: str  # CLI used to inspect what the backend left behind
     host_alias: str  # how a container reaches the host
     proxy: Stub
     other: Stub  # a second host service that proxy-only sandboxes must NOT reach
@@ -93,6 +98,48 @@ class Harness:
         sb = self.backend.create(image, cpu, mem, disk, ttl, net)
         self.created.append(sb)
         return sb
+
+    def cli(self, *args: str) -> str:
+        out = subprocess.run(
+            [self.runtime, *args], capture_output=True, text=True, timeout=60, check=True
+        )
+        return out.stdout
+
+    def rid(self, sb: Sandbox) -> str:
+        return cast(ContainerSandbox, sb).resource_id
+
+    def leftovers(self, sb: Sandbox) -> list[str]:
+        """Containers (sandbox, relay) and networks the runtime still has for this sandbox."""
+        sel = ["--filter", f"label=iterant.sandbox.id={self.rid(sb)}"]
+        return (
+            self.cli("ps", "-a", "--format", "{{.Names}}", *sel).split()
+            + self.cli("network", "ls", "--format", "{{.Name}}", *sel).split()
+        )
+
+    def wait_gone(self, sb: Sandbox, within: float) -> list[str]:
+        deadline = time.monotonic() + within
+        left = self.leftovers(sb)
+        while left and time.monotonic() < deadline:
+            time.sleep(0.5)
+            left = self.leftovers(sb)
+        return left
+
+    def addresses(self, sb: Sandbox) -> dict[str, str]:
+        """Internal-net gateway plus the relay's outer-net address and gateway (the host side)."""
+        rid = self.rid(sb)
+        net = json.loads(self.cli("network", "inspect", f"{rid}-net"))[0]
+        subnets = net.get("subnets") or net["IPAM"]["Config"]  # podman / docker
+        first = subnets[0]
+        cidr = ipaddress.ip_network(first.get("subnet") or first["Subnet"])
+        internal_gw = first.get("gateway") or first.get("Gateway") or str(cidr[1])
+        relay = json.loads(self.cli("container", "inspect", f"{rid}-relay"))[0]
+        nets = relay["NetworkSettings"]["Networks"]
+        outer = next(v for k, v in nets.items() if k != f"{rid}-net")
+        return {
+            "internal_gw": internal_gw,
+            "relay_outer_ip": outer["IPAddress"],
+            "outer_gw": outer["Gateway"],
+        }
 
 
 def _runtime_works(runtime: str) -> bool:
@@ -120,7 +167,7 @@ def harness(request: pytest.FixtureRequest) -> Iterator[Harness]:
         backend = DockerBackend(
             f"http://{alias}:{proxy.port}/", unsafe_container=True, name_prefix=prefix
         )
-    h = Harness(backend, alias, proxy, other)
+    h = Harness(backend, kind, alias, proxy, other)
     try:
         yield h
     finally:
@@ -138,8 +185,19 @@ import socket, sys
 try:
     socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=3).close()
     print("open")
+except socket.gaierror:
+    print("unresolved")  # never counts as "blocked": the connection was not even attempted
 except OSError:
     print("blocked")
+"""
+
+RESOLVE = """
+import socket, sys
+try:
+    socket.getaddrinfo(sys.argv[1], 80)
+    print("resolved")
+except OSError:
+    print("failed")
 """
 
 FETCH = """
@@ -185,24 +243,26 @@ def test_no_host_files_visible(harness: Harness, tmp_path: Path) -> None:
     marker.write_text("secret")
     sb = harness.create()
     assert sb.exec(f"test -e '{marker.as_posix()}'", 30).exit_code != 0
-    mounts = sb.exec("cat /proc/self/mountinfo", 30).stdout
-    for bad in ("/home", "/host", "docker.sock", "podman.sock", str(tmp_path)):
-        assert bad not in mounts, bad
+    assert sb.exec(f"ls -A /home | grep -qx '{getpass.getuser()}'", 30).exit_code != 0
+    for sock in ("/var/run/docker.sock", "/run/docker.sock", "/run/podman/podman.sock"):
+        assert sb.exec(f"test -e {sock}", 30).exit_code != 0, sock
 
 
 def test_write_outside_work_dir_fails(harness: Harness) -> None:
     sb = harness.create()
     assert sb.exec("touch /work/ok", 30).exit_code == 0
-    assert sb.exec("touch /usr/x", 30).exit_code != 0
-    assert sb.exec("touch /etc/x", 30).exit_code != 0
+    for path in ("/usr/x", "/etc/x", "/var/tmp/x", "/run/x"):
+        assert sb.exec(f"touch {path}", 30).exit_code != 0, path
     with pytest.raises(RuntimeError):
         sb.put("/usr/x", b"x")
 
 
-def test_disk_cap(harness: Harness) -> None:
+def test_disk_cap_covers_every_writable_path(harness: Harness) -> None:
     sb = harness.create(disk=16)
     assert sb.exec("dd if=/dev/zero of=/work/big bs=1M count=8", 60).exit_code == 0
     assert sb.exec("dd if=/dev/zero of=/work/big2 bs=1M count=64", 60).exit_code != 0
+    assert sb.exec("dd if=/dev/zero of=/dev/shm/big bs=1M count=8", 60).exit_code != 0
+    assert sb.exec("dd if=/dev/zero of=/tmp/big bs=1M count=100", 60).exit_code != 0
 
 
 def test_memory_cap(harness: Harness) -> None:
@@ -212,40 +272,51 @@ def test_memory_cap(harness: Harness) -> None:
     assert sb.exec("true", 30).exit_code == 0  # sandbox survives the OOM kill
 
 
-def test_cpu_and_pids_caps(harness: Harness) -> None:
-    sb = harness.create(cpu=0.5)
-    cpu = sb.exec("cat /sys/fs/cgroup/cpu.max", 30)
-    if cpu.exit_code != 0:
-        pytest.skip("cgroup v2 cpu.max not visible in the sandbox")
-    quota, period = cpu.stdout.split()
+def test_cpu_and_pids_caps_are_applied(harness: Harness) -> None:
+    sb = harness.create(cpu=0.5)  # create() itself fails if the caps did not apply
+    quota, period = sb.exec("cat /sys/fs/cgroup/cpu.max", 30).stdout.split()
     assert quota != "max" and int(quota) / int(period) == pytest.approx(0.5, abs=0.01)
     pids = sb.exec("cat /sys/fs/cgroup/pids.max", 30).stdout.strip()
     assert pids.isdigit() and int(pids) <= 4096
 
 
-def test_exec_timeout_kills_the_process(harness: Harness) -> None:
+def test_exec_timeout_kills_the_whole_process_group(harness: Harness) -> None:
     sb = harness.create()
     start = time.monotonic()
-    res = sb.exec("sleep 3; echo late > /work/late", 1)
+    res = sb.exec("(sleep 3; echo late > /work/late) & sleep 3; echo late2 > /work/late2", 1)
     assert res.timed_out and res.exit_code == -1
     assert time.monotonic() - start < 3
     time.sleep(4)
-    with pytest.raises(FileNotFoundError):
-        sb.get("/work/late")  # the process was killed, not just abandoned
+    for f in ("/work/late", "/work/late2"):
+        with pytest.raises(FileNotFoundError):
+            sb.get(f)  # killed, not just abandoned (including the backgrounded child)
     assert sb.exec("echo alive", 30).stdout.strip() == "alive"
 
 
-def test_ttl_expiry_destroys_unused_sandbox(harness: Harness) -> None:
-    sb = harness.create(ttl=3)
-    assert sb.exec("true", 30).exit_code == 0
-    time.sleep(5)
+def test_exec_timeout_does_not_touch_concurrent_execs(harness: Harness) -> None:
+    sb = harness.create()
+    box: list[str] = []
+    t = threading.Thread(target=lambda: box.append(sb.exec("sleep 4; echo done", 30).stdout))
+    t.start()
+    time.sleep(1)
+    assert sb.exec("sleep 30", 1).timed_out
+    t.join(timeout=30)
+    assert box == ["done\n"]
+
+
+def test_ttl_expiry_removes_container_relay_and_network(harness: Harness) -> None:
+    sb = harness.create(ttl=5, net="proxy-only")
+    assert len(harness.leftovers(sb)) == 3  # sandbox, relay, internal network
+    assert harness.wait_gone(sb, within=40) == []
     with pytest.raises(RuntimeError):
         sb.exec("true", 5)
 
 
-def test_destroy_is_idempotent(harness: Harness) -> None:
+def test_destroy_removes_everything_and_is_idempotent(harness: Harness) -> None:
     sb = harness.create(net="proxy-only")
+    assert len(harness.leftovers(sb)) == 3
     sb.destroy()
+    assert harness.leftovers(sb) == []
     sb.destroy()
     with pytest.raises(RuntimeError):
         sb.exec("true", 5)
@@ -254,16 +325,31 @@ def test_destroy_is_idempotent(harness: Harness) -> None:
 def test_default_deny_has_no_network(harness: Harness) -> None:
     sb = harness.create(net="default-deny")
     assert sb.exec("ls /sys/class/net", 30).stdout.split() == ["lo"]
-    for host, port in ((harness.host_alias, harness.proxy.port), ("1.1.1.1", 443)):
+    for host, port in (("1.1.1.1", 443), ("169.254.169.254", 80)):
         assert probe(sb, CONNECT, host, str(port)) == "blocked"
-    assert harness.proxy.hits == 0
+    assert probe(sb, RESOLVE, "example.com") == "failed"
 
 
 def test_proxy_only_reaches_only_the_proxy(harness: Harness) -> None:
     sb = harness.create(net="proxy-only")
     assert probe(sb, FETCH) == "proxy-stub"
     assert harness.proxy.hits >= 1
-    # Same host, different port: not the proxy, so unreachable. Nor is the internet.
-    assert probe(sb, CONNECT, harness.host_alias, str(harness.other.port)) == "blocked"
-    assert probe(sb, CONNECT, "1.1.1.1", "443") == "blocked"
+    addr = harness.addresses(sb)
+    targets = [
+        (addr["internal_gw"], harness.other.port),  # bridge gateway = the host
+        (addr["internal_gw"], harness.proxy.port),
+        (addr["outer_gw"], harness.other.port),
+        (addr["outer_gw"], harness.proxy.port),
+        (addr["relay_outer_ip"], harness.proxy.port),  # the relay, via its other network
+        (addr["relay_outer_ip"], 22),
+        ("169.254.169.254", 80),  # cloud metadata
+        ("1.1.1.1", 443),
+    ]
+    for host, port in targets:
+        assert probe(sb, CONNECT, host, str(port)) == "blocked", (host, port)
     assert harness.other.hits == 0
+    # DNS on the internal net must not forward upstream (an exfiltration channel).
+    assert probe(sb, RESOLVE, "example.com") == "failed"
+    url = cast(ContainerSandbox, sb).proxy_url
+    assert url is not None
+    assert probe(sb, RESOLVE, url.split("/")[2].split(":")[0]) == "resolved"

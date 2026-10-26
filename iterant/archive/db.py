@@ -18,10 +18,12 @@ from types import TracebackType
 from typing import Any, Final, Protocol, Self
 
 from iterant.archive.errors import (
+    ArchiveNotInitialized,
     PackHashMismatch,
     SchemaVersionError,
     UnknownRow,
     translate_integrity_error,
+    translate_operational_error,
 )
 from iterant.contracts import (
     ARCHIVE_DDL,
@@ -42,6 +44,8 @@ ARCHIVE_RELPATH: Final = Path(".iterant") / "archive.db"
 # Stored in ``PRAGMA user_version``. Bump it and add a migration step in
 # ``_ensure_schema`` when the DDL changes.
 SCHEMA_VERSION: Final = 1
+
+DEFAULT_BUSY_TIMEOUT: Final = 5.0
 
 RunSlot = tuple[str, str, int]  # (cand, task, rep): the resume key within a batch
 
@@ -65,6 +69,18 @@ class ProxyCallSink(Protocol):
     """What the proxy plugs in: called once per logged LLM call."""
 
     def __call__(self, call: ProxyCall) -> None: ...
+
+
+def _make_archive_dir(path: Path) -> None:
+    """Create ``.iterant/`` with a ``.gitignore`` of ``*`` so the archive (which holds
+    proxy logs) never shows in ``git status``, gets committed or is swept by ``git add -A``.
+    An existing ``.gitignore`` is left alone."""
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(path / ".gitignore", "x", encoding="utf-8") as f:
+            f.write("*\n")
+    except FileExistsError:
+        pass
 
 
 def _ensure_schema(con: sqlite3.Connection) -> None:
@@ -92,19 +108,44 @@ class Archive:
     # --- lifecycle -------------------------------------------------------------
 
     @classmethod
-    def open(cls, repo: str | os.PathLike[str]) -> Self:
+    def open(
+        cls, repo: str | os.PathLike[str], *, busy_timeout: float = DEFAULT_BUSY_TIMEOUT
+    ) -> Self:
         """Open (creating if needed) ``<repo>/.iterant/archive.db``."""
-        return cls.open_path(archive_path(repo))
+        return cls.open_path(archive_path(repo), busy_timeout=busy_timeout)
 
     @classmethod
-    def open_path(cls, db_path: str | os.PathLike[str], *, create_schema: bool = True) -> Self:
+    def open_path(
+        cls,
+        db_path: str | os.PathLike[str],
+        *,
+        create_schema: bool = True,
+        busy_timeout: float = DEFAULT_BUSY_TIMEOUT,
+    ) -> Self:
+        """Open the archive. ``busy_timeout`` is how long (seconds) a locked database
+        is waited on before ``ArchiveBusy``. With ``create_schema=False`` the file and
+        schema must already exist (``ArchiveNotInitialized`` otherwise); nothing is created.
+        """
         path = Path(db_path)
         if create_schema:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            _make_archive_dir(path.parent)
+        elif not path.is_file():
+            raise ArchiveNotInitialized(f"no archive at {path}")
         con = open_archive(path)
         try:
+            con.execute(f"PRAGMA busy_timeout = {int(busy_timeout * 1000)}")
             if create_schema:
                 _ensure_schema(con)
+            else:
+                row: Any = con.execute("PRAGMA user_version").fetchone()
+                if int(row[0]) < 1:
+                    raise ArchiveNotInitialized(f"{path} has no archive schema")
+        except sqlite3.OperationalError as exc:
+            con.close()
+            busy = translate_operational_error(exc)
+            if busy is not None:
+                raise busy from exc
+            raise
         except BaseException:
             con.close()
             raise
@@ -138,6 +179,8 @@ class Archive:
                 return self._con.execute(sql, params)
         except sqlite3.IntegrityError as exc:
             raise translate_integrity_error(exc) from exc
+        except sqlite3.OperationalError as exc:
+            raise _operational(exc) from exc
 
     # --- inserts (append-only) -------------------------------------------------
 
@@ -207,6 +250,45 @@ class Archive:
             ),
         )
 
+    def record_promotion(self, promo: Promotion) -> None:
+        """Record the promotion row and mark its candidate PROMOTED in ONE transaction.
+
+        Order on promote: git first (``gitrefs.promote``), then this call. If the process
+        dies in between, the gen tag exists but the DB doesn't know: on resume, for a
+        candidate that isn't PROMOTED, call ``gitrefs.find_promoted_commit``; if it
+        returns a commit, call this. Replaying an identical, already-recorded promotion
+        is a no-op.
+        """
+        existing = self.get_promotion(promo.gen)
+        cand = self.get_candidate(promo.cand)
+        if existing == promo and cand is not None and cand.status is Status.PROMOTED:
+            return
+        try:
+            with self._con:
+                self._con.execute(
+                    "INSERT INTO promotions"
+                    " (gen, cand, select_delta, select_p, holdout_delta, holdout_p)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        promo.gen,
+                        promo.cand,
+                        promo.select_delta,
+                        promo.select_p,
+                        promo.holdout_delta,
+                        promo.holdout_p,
+                    ),
+                )
+                cur = self._con.execute(
+                    "UPDATE candidates SET status = 'promoted', stage = 'promote' WHERE id = ?",
+                    (promo.cand,),
+                )
+                if cur.rowcount != 1:
+                    raise UnknownRow(f"no candidate {promo.cand!r}")
+        except sqlite3.IntegrityError as exc:
+            raise translate_integrity_error(exc) from exc
+        except sqlite3.OperationalError as exc:
+            raise _operational(exc) from exc
+
     def insert_proxy_call(self, call: ProxyCall) -> int:
         """Insert one proxy call and return its id.
 
@@ -237,8 +319,14 @@ class Archive:
     # --- candidate transitions -------------------------------------------------
 
     def advance_stage(self, cand_id: str, stage: Stage) -> None:
-        """Move an active candidate forward. Re-applying the same stage is a no-op
-        (convenient on resume); moving backwards raises ``InvalidTransition``."""
+        """Move an active candidate forward. Re-applying the current stage is a no-op
+        (even on a terminal candidate), which makes resume replays safe; moving
+        backwards, or forward on a terminal candidate, raises ``InvalidTransition``."""
+        current = self.get_candidate(cand_id)
+        if current is None:
+            raise UnknownRow(f"no candidate {cand_id!r}")
+        if current.stage is stage:
+            return
         cur = self._write("UPDATE candidates SET stage = ? WHERE id = ?", (stage.value, cand_id))
         self._require_one(cur, cand_id)
 
@@ -269,6 +357,8 @@ class Archive:
                 ).fetchone()
         except sqlite3.IntegrityError as exc:
             raise translate_integrity_error(exc) from exc
+        except sqlite3.OperationalError as exc:
+            raise _operational(exc) from exc
         if row is None:
             raise UnknownRow(f"no candidate {cand_id!r}")
         return int(row[0])
@@ -390,9 +480,9 @@ class Archive:
         return int(row[0])
 
     def holdout_warning_due(self, warn_after: int) -> bool:
-        """True once ``warn_after`` holdout queries have happened (default 20 in
-        ``AcceptanceThresholds.holdout_query_warn``)."""
-        return self.holdout_query_count() >= warn_after
+        """True once more than ``warn_after`` holdout queries have happened (§4: warn
+        *after* 20; ``AcceptanceThresholds.holdout_query_warn`` is 20)."""
+        return self.holdout_query_count() > warn_after
 
     def iter_candidates(self, status: Status | None = None) -> Iterator[Candidate]:
         sql = f"SELECT {_CAND_COLS} FROM candidates"
@@ -417,6 +507,10 @@ class ArchiveProxyLog:
     def __call__(self, call: ProxyCall) -> None:
         with closing(Archive.open_path(self._path, create_schema=False)) as archive:
             archive.insert_proxy_call(call)
+
+
+def _operational(exc: sqlite3.OperationalError) -> Exception:
+    return translate_operational_error(exc) or exc
 
 
 # --- row mappers -------------------------------------------------------------

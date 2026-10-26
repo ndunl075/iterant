@@ -264,12 +264,12 @@ def test_holdout_query_count_counts_batches(archive: Archive) -> None:
             for rep in (0, 1):
                 archive.insert_run(run(batch=b, c=c, rep=rep, split=Split.HOLDOUT))
         archive.insert_run(run(batch=b, split=Split.HOLDOUT, attempt=1))
-        if b == 19:
-            assert not archive.holdout_warning_due(20)
     assert archive.holdout_query_count() == 20
-    assert archive.holdout_warning_due(20)
+    assert not archive.holdout_warning_due(20)  # warn *after* 20
     archive.insert_run(run(batch=21, split=Split.SELECT))  # non-holdout doesn't count
     assert archive.holdout_query_count() == 20
+    archive.insert_run(run(batch=21, split=Split.HOLDOUT, task="t9"))
+    assert archive.holdout_warning_due(20)
 
 
 def test_proxy_call_insert_and_sink(tmp_path: Path) -> None:
@@ -310,3 +310,70 @@ def test_proxy_call_insert_and_sink(tmp_path: Path) -> None:
     with Archive.open(tmp_path) as a:
         n = a._con.execute("SELECT COUNT(*) FROM proxy_calls").fetchone()  # pyright: ignore[reportPrivateUsage]
         assert n[0] == 2 + 20
+
+
+def test_gitignore_written_once_and_not_overwritten(tmp_path: Path) -> None:
+    gi = tmp_path / ".iterant" / ".gitignore"
+    with Archive.open(tmp_path):
+        assert gi.read_text() == "*\n"
+    gi.write_text("custom\n")
+    with Archive.open(tmp_path):
+        pass
+    assert gi.read_text() == "custom\n"
+
+
+def test_archive_hidden_from_git_and_survives_clean(tmp_path: Path) -> None:
+    import subprocess
+
+    def g(*a: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), *a], capture_output=True, text=True, check=True
+        ).stdout
+
+    g("init", "-q")
+    with Archive.open(tmp_path) as a:
+        a.insert_candidate(cand())
+    assert g("status", "--porcelain") == ""
+    g("add", "-A")
+    assert g("ls-files") == ""
+
+
+def test_busy_is_typed_and_retryable(tmp_path: Path) -> None:
+    from iterant.archive import ArchiveBusy
+
+    with Archive.open(tmp_path) as a:
+        seed(a)
+    blocker = sqlite3.connect(archive_path(tmp_path), isolation_level=None)
+    blocker.execute("BEGIN EXCLUSIVE")
+    try:
+        with Archive.open(tmp_path, busy_timeout=0.05) as a2:
+            with pytest.raises(ArchiveBusy) as info:
+                a2.insert_candidate(cand("c2"))
+            assert info.value.retryable
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+
+
+def test_sink_does_not_create_missing_archive(tmp_path: Path) -> None:
+    from iterant.archive import ArchiveNotInitialized
+
+    path = tmp_path / ".iterant" / "archive.db"
+    sink = ArchiveProxyLog(path)
+    call = ProxyCall(0, None, Role.ANALYST, "m", 1, 1, 1, False, "t")
+    with pytest.raises(ArchiveNotInitialized):
+        sink(call)
+    assert not path.exists()
+    path.parent.mkdir()
+    sqlite3.connect(path).close()  # empty file, no schema
+    with pytest.raises(ArchiveNotInitialized):
+        sink(call)
+
+
+def test_advance_stage_same_stage_noop_on_terminal(archive: Archive) -> None:
+    seed(archive)
+    archive.advance_stage("c1", Stage.GATE)
+    archive.finish_candidate("c1", Status.REJECTED)
+    archive.advance_stage("c1", Stage.GATE)  # replay: no-op
+    with pytest.raises(InvalidTransition):
+        archive.advance_stage("c1", Stage.SMOKE)

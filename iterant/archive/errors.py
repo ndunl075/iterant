@@ -45,6 +45,16 @@ class PackHashMismatch(ArchiveError):
     """A batch's stored pack hash differs from the current pack (invariants 6, 7)."""
 
 
+class ArchiveBusy(ArchiveError):
+    """The database is locked by another connection. Retryable."""
+
+    retryable = True
+
+
+class ArchiveNotInitialized(ArchiveError):
+    """The archive file or its schema doesn't exist (and the caller must not create it)."""
+
+
 class GitRefError(ArchiveError):
     """A git operation on the target repo failed or was refused."""
 
@@ -55,6 +65,14 @@ _TRANSITION_MARKERS = (
     "terminal candidate is frozen",
     "candidate identity columns are immutable",
 )
+
+
+def translate_operational_error(exc: sqlite3.OperationalError) -> ArchiveError | None:
+    """``ArchiveBusy`` for lock contention; None for any other operational error."""
+    msg = str(exc).lower()
+    if "locked" in msg or "busy" in msg:
+        return ArchiveBusy(str(exc))
+    return None
 
 
 def translate_integrity_error(exc: sqlite3.IntegrityError) -> ArchiveError:

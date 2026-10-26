@@ -4,12 +4,23 @@ Only plumbing commands are used, with a throwaway index file outside the repo,
 so the user's working tree, their index and every branch except
 ``iterant/champion`` are never touched. The branch and the ``iterant/gen-N`` tag
 move together in one atomic ref transaction.
+
+Every git call runs with hooks disabled (``core.hooksPath`` points at an empty
+directory, so the user's ``reference-transaction`` etc. never fire) and with the
+repo-redirecting ``GIT_*`` environment variables stripped.
+
+Promote order (crash safety): ``promote`` (git) first, then
+``Archive.record_promotion`` (one DB transaction). ``promote`` is idempotent for
+the same candidate, and ``find_promoted_commit`` lets resume detect a promotion
+whose DB write was lost.
 """
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -26,6 +37,26 @@ _IDENTITY: Final = {
     "GIT_COMMITTER_NAME": "Iterant",
     "GIT_COMMITTER_EMAIL": "iterant@localhost",
 }
+# Variables that would redirect git to a different repo or object store.
+_STRIPPED_ENV: Final = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+    "GIT_CONFIG_PARAMETERS",
+)
+_no_hooks_dir: str | None = None
+
+
+def _empty_hooks_dir() -> str:
+    global _no_hooks_dir
+    if _no_hooks_dir is None:
+        _no_hooks_dir = tempfile.mkdtemp(prefix="iterant-archive-nohooks-")
+        atexit.register(shutil.rmtree, _no_hooks_dir, ignore_errors=True)
+    return _no_hooks_dir
 
 
 def gen_tag(gen: int) -> str:
@@ -44,10 +75,11 @@ def _git(
     env: dict[str, str] | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[bytes]:
-    full_env = {**os.environ, **(env or {})}
+    full_env = {k: v for k, v in os.environ.items() if k not in _STRIPPED_ENV}
+    full_env.update(env or {})
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo), *args],
+            ["git", "-c", f"core.hooksPath={_empty_hooks_dir()}", "-C", str(repo), *args],
             input=input,
             capture_output=True,
             env=full_env,
@@ -111,30 +143,67 @@ def ensure_seed(repo: str | os.PathLike[str], base: str = "HEAD") -> str:
     return sha
 
 
+def _commit_message(cand: Candidate, gen: int) -> str:
+    return (
+        f"iterant gen {gen}: {cand.hypothesis}\n\n"
+        f"Candidate: {cand.id}\nDiff-sha256: {cand.diff_sha}\n"
+    )
+
+
+def find_promoted_commit(repo: str | os.PathLike[str], cand: Candidate, gen: int) -> str | None:
+    """The commit tagged ``iterant/gen-<gen>`` if it was made for exactly ``cand``
+    (message carries its id and diff sha), else None. Used on resume to detect a
+    promotion whose archive row was never written. Raises ``GitRefError`` if the tag
+    exists but belongs to something else."""
+    root = Path(repo)
+    sha = gen_tag_sha(root, gen)
+    if sha is None:
+        return None
+    body = _git(root, "log", "-1", "--format=%B", sha).stdout.decode()
+    lines = body.splitlines()
+    if f"Candidate: {cand.id}" in lines and f"Diff-sha256: {cand.diff_sha}" in lines:
+        return sha
+    raise GitRefError(f"tag {gen_tag(gen)} exists but was not made for candidate {cand.id}")
+
+
 def promote(
     repo: str | os.PathLike[str],
     cand: Candidate,
     diff: bytes,
     gen: int,
+    expected_parent: str,
 ) -> str:
     """Commit ``diff`` on top of ``iterant/champion`` and tag the result ``iterant/gen-<gen>``.
 
+    ``expected_parent`` is the champion commit the candidate was evaluated against;
+    if the champion tip differs, ``GitRefError`` (never apply onto a different base).
     ``diff`` must be the candidate's patch (``git diff`` format) and hash to
-    ``cand.diff_sha``. Returns the new commit sha. Raises ``GitRefError`` if the
-    diff doesn't match or apply, the tag already exists, the champion moved
-    meanwhile, or the champion branch is checked out somewhere (moving it would
-    desync that working tree).
+    ``cand.diff_sha``. Returns the new commit sha.
+
+    Idempotent: if ``iterant/gen-<gen>`` already exists, was made for this candidate
+    and diff, and its parent is ``expected_parent``, that commit is returned
+    unchanged (crash-retry). Any other existing tag raises. Also raises if the
+    diff doesn't apply, or the champion branch is checked out somewhere (moving it
+    would desync that working tree).
     """
     root = Path(repo)
     if gen < 1:
         raise ValueError("gen must be >= 1")
     if diff_sha256(diff) != cand.diff_sha:
         raise GitRefError(f"diff does not match candidate {cand.id}'s diff_sha")
+    done = find_promoted_commit(root, cand, gen)
+    if done is not None:
+        parent_of_done = _resolve(root, f"{done}^")
+        if parent_of_done != expected_parent:
+            raise GitRefError(f"tag {gen_tag(gen)} exists with a different parent")
+        return done
     parent = champion_sha(root)
     if parent is None:
         raise GitRefError("no iterant/champion branch; call ensure_seed first")
-    if gen_tag_sha(root, gen) is not None:
-        raise GitRefError(f"tag {gen_tag(gen)} already exists")
+    if parent != expected_parent:
+        raise GitRefError(
+            f"champion is {parent}, but candidate {cand.id} was evaluated on {expected_parent}"
+        )
     if CHAMPION_REF in _checked_out_branches(root):
         raise GitRefError(f"{CHAMPION_BRANCH} is checked out; refusing to move it")
 
@@ -148,10 +217,7 @@ def promote(
             err = applied.stderr.decode(errors="replace").strip()
             raise GitRefError(f"diff for candidate {cand.id} does not apply: {err}")
         tree = _git(root, "write-tree", env=env).stdout.decode().strip()
-        message = (
-            f"iterant gen {gen}: {cand.hypothesis}\n\n"
-            f"Candidate: {cand.id}\nDiff-sha256: {cand.diff_sha}\n"
-        )
+        message = _commit_message(cand, gen)
         new = (
             _git(
                 root, "commit-tree", tree, "-p", parent, "-F", "-", input=message.encode(), env=env

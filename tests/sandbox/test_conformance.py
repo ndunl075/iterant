@@ -229,6 +229,13 @@ def test_runs_as_non_root(harness: Harness) -> None:
     assert res.exit_code == 0 and res.stdout.strip() not in ("", "0")
 
 
+def test_work_dir_owned_by_sandbox_user_with_mode_0700(harness: Harness) -> None:
+    sb = harness.create(disk=64)
+    res = sb.exec("stat -c '%u %a' /work", 30)
+    assert res.exit_code == 0 and res.stdout.strip() == "10001 700"
+    assert sb.exec("touch /work/ok && rm /work/ok", 30).exit_code == 0
+
+
 def test_put_get_roundtrip(harness: Harness) -> None:
     sb = harness.create()
     data = bytes(range(256)) * 64

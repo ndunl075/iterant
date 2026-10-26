@@ -49,6 +49,11 @@ _GONE_MARKERS = (
     "in progress",
 )
 
+# What `container inspect` says about a container that is really absent (not "being removed").
+_GATEWAY_OPT = "com.docker.network.bridge.gateway_mode_ipv4"
+_DOCKER_MIN_MAJOR = 28
+_ABSENT_MARKERS = ("no such container", "no container with name or id")
+
 # Run in the fresh container: needed tools exist, and the cgroup caps really applied
 # (rootless runtimes without cgroup-v2 delegation silently ignore --cpus/--pids-limit).
 _VERIFY_SCRIPT = (
@@ -176,7 +181,12 @@ class ContainerSandbox:
             out = self._runner([self._rt, "container", "inspect", name], timeout=_ADMIN_TIMEOUT_S)
         except OSError:
             return False
-        return out.returncode != 0 and _gone(out)
+        err = _text(out.stderr).lower()
+        return (
+            out.returncode != 0
+            and "in progress" not in err
+            and any(m in err for m in _ABSENT_MARKERS)
+        )
 
     def put(self, path: str, data: bytes) -> None:
         _require_abs(path)
@@ -319,6 +329,9 @@ class ContainerBackend:
             raise SandboxError(f"{what} failed ({out.returncode}): {_text(out.stderr).strip()}")
         return out
 
+    def _verify_network(self, netname: str) -> None:
+        """Backend hook: prove the internal network's isolation is in effect (fail closed)."""
+
     def _run_raw(self, argv: Sequence[str]) -> RunOutput:
         try:
             return self._runner(argv, timeout=_ADMIN_TIMEOUT_S)
@@ -378,6 +391,7 @@ class ContainerBackend:
                     [rt, "network", "create", "--internal", *self._network_extra, *label, netname],
                     "network create",
                 )
+                self._verify_network(netname)
                 self._run(self.relay_argv(relay, netname, host, port, ttl, label), "relay run")
                 self._run([rt, "network", "connect", self._outer_network, relay], "relay connect")
             self._run(self.run_argv(name, image, cpu, mem, disk, ttl, network, env, label), "run")
@@ -538,6 +552,29 @@ class DockerBackend(ContainerBackend):
             work_tmpfs_owner=f"uid={SANDBOX_UID},gid={SANDBOX_UID}",
             # no host-side gateway address on the internal net: the sandbox cannot reach host
             # services through the bridge IP
-            network_extra_args=("--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated"),
+            network_extra_args=("--opt", f"{_GATEWAY_OPT}=isolated"),
             runner=runner,
         )
+
+    def _verify_network(self, netname: str) -> None:
+        # An older daemon may ignore the unknown bridge option and leave a host-reachable
+        # gateway on the --internal net, so require both the version and the stored option.
+        ver = _text(
+            self._run(
+                [self._rt, "version", "--format", "{{.Server.Version}}"], "docker version"
+            ).stdout
+        ).strip()
+        major = ver.split(".")[0]
+        if not major.isdigit() or int(major) < _DOCKER_MIN_MAJOR:
+            raise SandboxError(
+                f"docker {ver or '?'} cannot isolate the internal network gateway "
+                f"(needs >= {_DOCKER_MIN_MAJOR})"
+            )
+        opts = _text(
+            self._run(
+                [self._rt, "network", "inspect", "--format", "{{json .Options}}", netname],
+                "network inspect",
+            ).stdout
+        )
+        if _GATEWAY_OPT not in opts or "isolated" not in opts:
+            raise SandboxError(f"network {netname}: gateway isolation is not in effect")

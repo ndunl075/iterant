@@ -54,6 +54,10 @@ class FakeRunner:
             quota = round(float(self._cpus) * 100000)
             mem = int(self._mem[:-1]) * 1024 * 1024
             return RunOutput(0, f"{quota} 100000\n512\n{mem}\n".encode())
+        if a[1:2] == ["version"]:
+            return RunOutput(0, b"29.4.2\n")
+        if a[1:3] == ["network", "inspect"]:
+            return RunOutput(0, b'{"com.docker.network.bridge.gateway_mode_ipv4":"isolated"}\n')
         return RunOutput(0)
 
     def find(self, *words: str) -> list[list[str]]:
@@ -510,6 +514,47 @@ def make_net_create_podman() -> list[str]:
     r = FakeRunner()
     make(r).create("img", 1, 64, 64, 60, net="proxy-only")
     return r.find("network", "create")[0]
+
+
+@pytest.mark.parametrize(
+    ("version", "options"),
+    [
+        (b"27.5.1\n", b'{"com.docker.network.bridge.gateway_mode_ipv4":"isolated"}'),
+        (b"\n", b'{"com.docker.network.bridge.gateway_mode_ipv4":"isolated"}'),
+        (b"29.4.2\n", b"{}"),
+        (b"29.4.2\n", b"null"),
+    ],
+)
+def test_docker_refuses_when_gateway_isolation_not_in_effect(
+    version: bytes, options: bytes
+) -> None:
+    def handler(argv: list[str]) -> RunOutput | None:
+        if argv[1:2] == ["version"]:
+            return RunOutput(0, version)
+        if argv[1:3] == ["network", "inspect"]:
+            return RunOutput(0, options)
+        return None
+
+    r = FakeRunner(handler)
+    with pytest.raises(SandboxError, match="isolat"):
+        DockerBackend(PROXY, unsafe_container=True, runner=r).create("img", 1, 64, 64, 60)
+    assert not r.find("run")  # no relay or sandbox started
+    assert r.find("network", "rm")  # the network is rolled back
+
+
+def test_destroy_does_not_swallow_rm_error_while_removal_in_progress() -> None:
+    def handler(argv: list[str]) -> RunOutput | None:
+        if argv[1] == "rm":
+            return RunOutput(1, stderr=b"permission denied")
+        if argv[1:3] == ["container", "inspect"] and argv[3].endswith("-relay"):
+            return RunOutput(1, stderr=b"removal of container is already in progress, not found")
+        if argv[1:3] == ["container", "inspect"]:
+            return RunOutput(1, stderr=b"Error: no such container")
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60, net="proxy-only")
+    with pytest.raises(SandboxError, match="-relay"):
+        sb.destroy()
 
 
 def test_reap_is_scoped_by_label() -> None:

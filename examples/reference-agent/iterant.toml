@@ -1,0 +1,12 @@
+[target]
+genome = ["prompts/**", "tools/**", "agent/loop.py"]
+image = "Containerfile"
+run = "python -m agent --task /task/input.json --out /out"
+
+[target.model]
+name = "claude-haiku-5-5"
+effort = "medium"
+max_usd_per_run = 0.10
+
+[eval]
+pack = "evals/reference-pack"

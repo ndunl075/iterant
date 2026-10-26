@@ -177,3 +177,15 @@ def test_missing_task_and_identical_arms_raise(mk: MakeRun) -> None:
         decide_select(cand[:10], champ, seed=0)
     with pytest.raises(ValueError):
         decide_select(cand, cand, seed=0)
+
+
+def test_missing_rep_in_one_arm_raises(mk: MakeRun) -> None:
+    import pytest
+
+    champ = [mk(f"t{i}", 0.0, cand="h", rep=r) for i in range(80) for r in (0, 1)]
+    cand = [mk(f"t{i}", 1.0 if i < 10 else 0.0, rep=0) for i in range(80)]
+    with pytest.raises(ValueError, match=r"\(task, rep\).*and 70 more"):
+        decide_select(cand, champ, seed=0)
+    many = [mk(f"u{i}", 1.0) for i in range(15)]
+    with pytest.raises(ValueError, match="and 5 more"):
+        decide_select(cand + many, champ, seed=0)

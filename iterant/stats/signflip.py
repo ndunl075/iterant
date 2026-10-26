@@ -32,9 +32,10 @@ def paired_signflip(
     is compared with the sum under random sign flips. Tasks with zero gain never
     change the sum and are ignored. With at most ``EXACT_MAX_N`` nonzero gains the
     p-value is exact, ``#{S* >= S} / 2^n`` (an all-positive gain over n tasks gives
-    ``2^-n``). Otherwise it is Monte Carlo, ``(1 + #{S* >= S}) / (B + 1)``, which is
-    never 0 and is valid for any B. Seeded and deterministic. Sums are compared with a
-    1e-9 tolerance in the conservative direction.
+    ``2^-n``), and ``n_resamples`` and ``seed`` are ignored.
+    Otherwise it is Monte Carlo, ``(1 + #{S* >= S}) / (B + 1)``, which is never 0 and
+    is valid for any B; seeded and deterministic. Sums are compared with a 1e-9
+    tolerance in the conservative direction.
     """
     if n_resamples < 1:
         raise ValueError("n_resamples must be >= 1")

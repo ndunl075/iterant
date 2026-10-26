@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from iterant.contracts import RunResult, Split
 
@@ -64,6 +65,12 @@ def _by_task(finals: dict[tuple[str, int], RunResult]) -> dict[str, list[RunResu
     return out
 
 
+def _capped(items: Iterable[Any], limit: int = 10) -> str:
+    xs = sorted(items)
+    more = f" and {len(xs) - limit} more" if len(xs) > limit else ""
+    return f"{xs[:limit]}{more}"
+
+
 def check_same_batch(
     candidate: Sequence[RunResult], champion: Sequence[RunResult], split: Split | None
 ) -> None:
@@ -89,7 +96,7 @@ def pair_runs(
     A task is dropped from both arms when any final run of either arm is refused or
     infra-errored. Raises ``ValueError`` if the arms are not from one batch (or not
     all from ``split``), if an arm mixes candidates or both arms are the same
-    candidate, or if a task has runs in only one arm.
+    candidate, or if a task, or a (task, rep), has runs in only one arm.
     """
     check_same_batch(candidate, champion, split)
     c_ids = {r.key.cand for r in candidate}
@@ -98,11 +105,16 @@ def pair_runs(
         raise ValueError(f"each arm must be one candidate, got {sorted(c_ids)} and {sorted(h_ids)}")
     if c_ids & h_ids:
         raise ValueError(f"candidate and champion arms are the same candidate {sorted(c_ids)}")
-    cand = _by_task(final_attempts(candidate))
-    champ = _by_task(final_attempts(champion))
-    if cand.keys() != champ.keys():
-        lone = sorted(cand.keys() ^ champ.keys())
-        raise ValueError(f"tasks present in only one arm: {lone}")
+    c_final = final_attempts(candidate)
+    h_final = final_attempts(champion)
+    if c_final.keys() != h_final.keys():
+        lone_tasks = {t for t, _ in c_final} ^ {t for t, _ in h_final}
+        if lone_tasks:
+            raise ValueError(f"tasks present in only one arm: {_capped(lone_tasks)}")
+        lone = sorted(c_final.keys() ^ h_final.keys())
+        raise ValueError(f"(task, rep) present in only one arm: {_capped(lone)}")
+    cand = _by_task(c_final)
+    champ = _by_task(h_final)
     c_all: dict[str, list[RunResult]] = {}
     h_all: dict[str, list[RunResult]] = {}
     for runs, acc in ((candidate, c_all), (champion, h_all)):

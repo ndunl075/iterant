@@ -32,6 +32,7 @@ from iterant.contracts import (
     TargetModel,
     Task,
     VisibleInputPath,
+    open_archive,
 )
 
 SHA = "a" * 64
@@ -188,8 +189,7 @@ def test_role_cap_validation() -> None:
 
 
 def db() -> sqlite3.Connection:
-    con = sqlite3.connect(":memory:")
-    con.execute("PRAGMA foreign_keys = ON")
+    con = open_archive(":memory:")
     con.executescript(ARCHIVE_DDL)
     con.executescript(ARCHIVE_DDL)  # idempotent
     con.execute("INSERT INTO batches VALUES (1, 1, ?, '2026-01-01T00:00:00Z')", (SHA,))
@@ -415,3 +415,45 @@ def test_fakes_satisfy_protocols() -> None:
     box.destroy()
     assert isinstance(box, Sandbox)
     assert isinstance(backend, SandboxBackend)
+
+
+def test_open_archive_enforces_foreign_keys() -> None:
+    con = db()
+    assert con.execute("PRAGMA foreign_keys").fetchone() == (1,)
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_run(con, make_run(batch=99))  # unknown batch
+    with pytest.raises(sqlite3.IntegrityError):
+        add_call(con, 1, (99, "c1", "t1", 0, 0), "target")  # unknown batch
+    with pytest.raises(sqlite3.IntegrityError):
+        add_call(con, 2, (1, "nope", "t1", 0, 0), "target")  # unknown candidate
+
+
+def test_candidate_status_stage_agree() -> None:
+    with pytest.raises(ValueError):
+        Candidate("c", None, SHA, "h", Stage.PROPOSE, Status.PROMOTED, 0)
+    Candidate("c", None, SHA, "h", Stage.PROMOTE, Status.PROMOTED, 0)
+    con = db()
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("UPDATE candidates SET status = 'promoted' WHERE id = 'c1'")
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute(
+            "INSERT INTO candidates VALUES ('c2', NULL, ?, 'h', 'propose', 'promoted', 0)", (SHA,)
+        )
+
+
+def test_hash_and_timestamp_checks() -> None:
+    con = db()
+    upper = "A" * 64
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("INSERT INTO batches VALUES (2, 1, ?, 't')", (upper,))
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("INSERT INTO batches VALUES (2, 1, ?, '')", (SHA,))
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute(
+            "INSERT INTO candidates VALUES ('c2', NULL, ?, 'h', 'propose', 'active', 0)", (upper,)
+        )
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute(
+            "INSERT INTO proxy_calls VALUES (1, NULL, NULL, NULL, NULL, NULL, 'proposer',"
+            " 'm', 1, 1, 1, 0, '')"
+        )

@@ -12,7 +12,9 @@ Conventions
 
 from __future__ import annotations
 
+import os
 import re
+import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -294,6 +296,8 @@ class Candidate:
         _require_sha256(self.diff_sha, "diff_sha")
         if self.usd_micros < 0:
             raise ValueError("usd_micros must be >= 0")
+        if self.status is Status.PROMOTED and self.stage is not Stage.PROMOTE:
+            raise ValueError("a promoted candidate must be at the promote stage")
 
 
 @dataclass(frozen=True)
@@ -362,6 +366,21 @@ class ProxyCall:
             raise ValueError("token and usd_micros values must be >= 0")
 
 
+def open_archive(path: str | os.PathLike[str]) -> sqlite3.Connection:
+    """Open the archive database with foreign keys enforced.
+
+    Every connection to the archive must come from this function: SQLite ignores
+    foreign keys unless ``PRAGMA foreign_keys = ON`` is set on each connection.
+    It does not create the schema (``ARCHIVE_DDL`` does, via the archive module).
+    """
+    con = sqlite3.connect(path)
+    con.execute("PRAGMA foreign_keys = ON")
+    if con.execute("PRAGMA foreign_keys").fetchone() != (1,):
+        con.close()
+        raise RuntimeError("could not enable SQLite foreign key enforcement")
+    return con
+
+
 def _in(values: type[StrEnum]) -> str:
     return ", ".join(f"'{v.value}'" for v in values)
 
@@ -385,14 +404,15 @@ BEGIN SELECT RAISE(ABORT, 'archive is append-only'); END;
 """
 
 
-# All tables are STRICT (SQLite >= 3.37). Foreign keys need
-# ``PRAGMA foreign_keys = ON`` on each connection.
+# All tables are STRICT (SQLite >= 3.37). Foreign keys are only enforced on a
+# connection from ``open_archive``.
 BATCHES_DDL: Final = """
 CREATE TABLE IF NOT EXISTS batches (
     id        INTEGER PRIMARY KEY,
     gen       INTEGER NOT NULL CHECK (gen >= 0),
-    pack_hash TEXT    NOT NULL CHECK (length(pack_hash) = 64),
-    started_at TEXT   NOT NULL
+    pack_hash TEXT    NOT NULL
+        CHECK (length(pack_hash) = 64 AND pack_hash NOT GLOB '*[^0-9a-f]*'),
+    started_at TEXT   NOT NULL CHECK (started_at != '')
 ) STRICT;
 """ + _append_only("batches", "id = NEW.id")
 
@@ -403,11 +423,13 @@ CANDIDATES_DDL: Final = f"""
 CREATE TABLE IF NOT EXISTS candidates (
     id         TEXT PRIMARY KEY,
     parent     TEXT REFERENCES candidates(id),
-    diff_sha   TEXT NOT NULL CHECK (length(diff_sha) = 64),
+    diff_sha   TEXT NOT NULL
+        CHECK (length(diff_sha) = 64 AND diff_sha NOT GLOB '*[^0-9a-f]*'),
     hypothesis TEXT NOT NULL,
     stage      TEXT NOT NULL CHECK (stage IN ({_in(Stage)})),
     status     TEXT NOT NULL CHECK (status IN ({_in(Status)})),
-    usd_micros INTEGER NOT NULL DEFAULT 0 CHECK (usd_micros >= 0)
+    usd_micros INTEGER NOT NULL DEFAULT 0 CHECK (usd_micros >= 0),
+    CHECK (status != 'promoted' OR stage = 'promote')
 ) STRICT;
 CREATE TRIGGER IF NOT EXISTS candidates_no_dup BEFORE INSERT ON candidates
 WHEN EXISTS (SELECT 1 FROM candidates WHERE id = NEW.id)
@@ -480,7 +502,7 @@ CREATE TABLE IF NOT EXISTS proxy_calls (
     out_tok    INTEGER NOT NULL CHECK (out_tok >= 0),
     usd_micros INTEGER NOT NULL CHECK (usd_micros >= 0),
     refusal    INTEGER NOT NULL CHECK (refusal IN (0, 1)),
-    created_at TEXT NOT NULL,
+    created_at TEXT NOT NULL CHECK (created_at != ''),
     CHECK ((batch IS NULL) = (cand IS NULL) AND (batch IS NULL) = (task IS NULL)
        AND (batch IS NULL) = (rep IS NULL) AND (batch IS NULL) = (attempt IS NULL))
 ) STRICT;

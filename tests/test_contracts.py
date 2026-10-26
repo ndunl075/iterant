@@ -37,6 +37,7 @@ from iterant.contracts import (
     TargetConfig,
     TargetModel,
     Task,
+    TriedCandidate,
     VisibleInputPath,
     open_archive,
     require_pinned_image,
@@ -121,7 +122,11 @@ def test_proposal_and_gate_result_validation() -> None:
 
 class _Proposer:
     def propose(
-        self, parent: str, failure_digest: str, history: Sequence[Candidate]
+        self,
+        parent: str,
+        workdir: str | os.PathLike[str],
+        failure_digest: str,
+        history: Sequence[TriedCandidate],
     ) -> Proposal | None:
         return None
 
@@ -134,8 +139,27 @@ class _Gate:
 
 
 def test_proposer_and_gate_protocols() -> None:
+    # Typed assignments: pyright checks the signatures, not just the method names.
+    proposer: Proposer = _Proposer()
+    gate: Gate = _Gate()
+    entry = TriedCandidate(make_candidate(), "--- a\n+++ b\n")
+    assert proposer.propose("c1", ".", "digest", [entry]) is None
+    assert gate.check(Proposal("d", "h"), repo=".", target=make_target(), pack=PACK).passed
     assert isinstance(_Proposer(), Proposer) and isinstance(_Gate(), Gate)
     assert not isinstance(object(), Proposer) and not isinstance(object(), Gate)
+
+
+def make_target() -> TargetConfig:
+    model = TargetModel("m", "low", max_tokens_per_run=5)
+    return TargetConfig(("prompts/**",), "Containerfile", "run", model)
+
+
+PACK = Pack("p", "1", (), SHA, IMAGE)
+
+
+def test_exec_result_sandbox_lost_defaults_false() -> None:
+    assert not ExecResult(0, "", "", False, 0.1).sandbox_lost
+    assert ExecResult(137, "", "", False, 0.1, sandbox_lost=True).sandbox_lost
 
 
 def test_config_types() -> None:

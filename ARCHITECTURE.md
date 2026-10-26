@@ -124,7 +124,7 @@ examples/         reference agent + starter packs (demo and CI fixture)  [T1]
 
 Every backend runs non-root with no host mounts, a CPU/mem/disk/time cap and default-deny egress, plus one route to the proxy.
 
-`exec` returns an `ExecResult` for anything the command can cause: a timeout, output cut at the capture cap (`truncated`), a non-zero exit, an OOM kill, pids exhaustion, or killing PID 1 so the sandbox is gone. The grader scores all of these 0.0. `exec` raises only for failures the command cannot cause (runtime missing or broken, sandbox already destroyed or expired), and those are infra errors under the §6 policy.
+`exec` returns an `ExecResult` for anything the command can cause: a timeout, output cut at the capture cap (`truncated`), a non-zero exit, an OOM kill, pids exhaustion, or killing PID 1 so the sandbox is gone (`sandbox_lost`; later calls raise `SandboxLost`). The grader scores all of these 0.0. `exec` raises only for failures the command cannot cause (runtime missing or broken, sandbox already destroyed or expired), and those are infra errors under the §6 policy.
 
 **Archive (SQLite, in `.iterant/` of the target repo):**
 - `batches(id, gen, pack_hash, started_at)`: one scheduled set of runs, pinned to a pack hash (§1.7)

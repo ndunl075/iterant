@@ -28,7 +28,7 @@ from typing import cast
 import pytest
 
 from iterant.contracts import NetMode, Sandbox, SandboxBackend
-from iterant.sandbox import ContainerSandbox, DockerBackend, PodmanBackend, slugify
+from iterant.sandbox import ContainerSandbox, DockerBackend, PodmanBackend, SandboxLost, slugify
 
 BACKENDS = [
     pytest.param("podman", marks=pytest.mark.podman, id="podman"),
@@ -311,16 +311,15 @@ def test_pids_exhaustion_is_a_result_not_an_error(harness: Harness) -> None:
     assert sb.exec("echo alive", 30).stdout.strip() == "alive"
 
 
-def test_killing_pid_1_is_a_result_not_an_error(harness: Harness) -> None:
+def test_killing_pid_1_is_a_lost_sandbox_not_an_error(harness: Harness) -> None:
     sb = harness.create()
-    # Kill everything we may signal, including the container's main process. Whether the
-    # container then goes away is up to the runtime; either way exec must return.
-    res = sb.exec("kill -9 1; kill -9 -1; sleep 5", 30)
-    assert not res.timed_out and res.exit_code != 0
-    try:
-        sb.exec("true", 10)  # an ordinary result if the container survived
-    except RuntimeError:
-        pass  # container gone: later calls raise
+    # Kill everything we may signal, including the container's main process (`sleep`), so
+    # the init process exits and the container goes away.
+    res = sb.exec("kill -9 1; kill -9 -1; sleep 5", 30)  # must not raise
+    assert res.sandbox_lost and not res.timed_out and res.exit_code != 0
+    for call in (lambda: sb.exec("true", 10), lambda: sb.put("/work/f", b""), lambda: sb.get("/f")):
+        with pytest.raises(SandboxLost):
+            call()
     sb.destroy()  # idempotent and quiet for a container that is already gone
     sb.destroy()
 

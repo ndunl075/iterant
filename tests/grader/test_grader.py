@@ -463,3 +463,19 @@ def test_preflight_backend_failures_are_errors(tmp_path: Path) -> None:
 
     with pytest.raises(GraderPreflightError):
         Grader(FakeBackend(boom), PACK, tmp_path).preflight()
+
+
+def test_real_verify_rejects_files_that_differ_from_the_pack(tmp_path: Path) -> None:
+    import dataclasses
+
+    from iterant.packs import PackHashMismatch
+
+    pack = load_pack(SYNTHETIC)
+    Grader(FakeBackend(), pack, SYNTHETIC)  # matches: fine
+    with pytest.raises(PackHashMismatch):
+        Grader(FakeBackend(), dataclasses.replace(pack, content_hash="0" * 64), SYNTHETIC)
+
+
+def test_sandbox_lost_scores_zero(tmp_path: Path) -> None:
+    lost = ExecResult(137, "", "", False, 0.1, sandbox_lost=True)
+    assert interpret(lost, {"v": 1}) == 0.0

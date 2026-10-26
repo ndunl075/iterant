@@ -43,6 +43,7 @@ from typing import Any, cast
 
 from iterant.contracts import ExecResult, Pack, SandboxBackend, Task
 from iterant.grader.outfiles import OutputRejected, check_limits
+from iterant.packs.hashing import verify
 
 AGENT_DIR = "/work/out"
 RUN_PATH = "/work/.grader/run.sh"
@@ -131,7 +132,7 @@ def same(a: Any, b: Any) -> bool:
 
 def interpret(result: ExecResult, expected: Any) -> float:
     """Score one ``run`` execution (agent-influenced, so never an infra error)."""
-    if result.timed_out or result.truncated or result.exit_code != 0:
+    if result.timed_out or result.truncated or result.sandbox_lost or result.exit_code != 0:
         return 0.0
     try:
         got = parse_json(result.stdout)
@@ -157,7 +158,9 @@ class GraderPreflightError(RuntimeError):
 class Grader:
     """Grades tasks of ``pack`` (files at ``pack_root``) using sandboxes from ``backend``.
 
-    The caller passes the pack it verified (invariant 7); the image is ``pack.grader_image``.
+    The image is ``pack.grader_image``. The constructor re-hashes ``pack_root`` against
+    ``pack.content_hash`` (invariant 7) and raises ``PackHashMismatch`` on a difference, so a
+    grader never runs checks from files that differ from the pack the caller pinned.
     """
 
     def __init__(
@@ -171,6 +174,7 @@ class Grader:
         mem: int = 1024,
         disk: int = 1024,
     ) -> None:
+        verify(pack, pack.content_hash, pack_root)
         self._backend = backend
         self._image = pack.grader_image
         self._root = pack_root

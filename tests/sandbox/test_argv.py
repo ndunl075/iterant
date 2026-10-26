@@ -16,6 +16,7 @@ from iterant.sandbox import (
     PodmanBackend,
     RunOutput,
     SandboxError,
+    SandboxLost,
     UnsafeContainerError,
     slugify,
 )
@@ -127,7 +128,7 @@ def test_default_deny_argv() -> None:
     assert opt(argv, "--pids-limit").isdigit()
     assert opt(argv, "--network") == "none"
     assert opt(argv, "--entrypoint") == "sleep"
-    assert argv[-2:] == ["img:1", "91"]  # ttl rounded up, image before its args
+    assert argv[-2:] == ["img:1", "101"]  # ttl rounded up plus 10 s slack, image before its args
     name = opt(argv, "--name")
     assert name.startswith("claude-w1-sandbox-test-")
     assert f"iterant.sandbox.id={name}" in argv
@@ -409,7 +410,7 @@ def test_liveness_comes_from_the_runtime_not_agent_stderr() -> None:
     sb2 = make(FakeRunner(gone_handler(125))).create("img", 1, 64, 64, 60, net="default-deny")
     res2 = sb2.exec("x", 5)
     assert res2.exit_code == 125 and not res2.timed_out
-    with pytest.raises(SandboxError, match="destroyed"):
+    with pytest.raises(SandboxLost):
         sb2.exec("x", 5)
 
 
@@ -655,3 +656,118 @@ def test_use_after_ttl_refused_even_before_timer_fires() -> None:
     time.sleep(0.1)
     with pytest.raises(SandboxError):
         sb.exec("true", 1)
+
+
+def inspect_says(returncode: int, stderr: bytes, code: int = 1) -> Handler:
+    """`exec x` exits ``code``; `container inspect` answers with ``returncode``/``stderr``."""
+
+    def handler(argv: list[str]) -> RunOutput | None:
+        if "x" in argv[-1:] and argv[1] == "exec":
+            return RunOutput(code)
+        if argv[1:3] == ["container", "inspect"]:
+            return RunOutput(returncode, stderr=stderr)
+        return None
+
+    return handler
+
+
+@pytest.mark.parametrize("code", [1, 125, 126, 137, 255])
+def test_runtime_unreachable_after_exec_raises(code: int) -> None:
+    down = b"Cannot connect to the Docker daemon at unix:///run/docker.sock"
+    sb = make(FakeRunner(inspect_says(1, down, code))).create(
+        "img", 1, 64, 64, 60, net="default-deny"
+    )
+    with pytest.raises(SandboxError, match="cannot report") as info:
+        sb.exec("x", 5)
+    assert not isinstance(info.value, SandboxLost)
+
+
+def test_runtime_down_for_inspect_with_no_stderr_raises() -> None:
+    sb = make(FakeRunner(inspect_says(1, b"", 137))).create(
+        "img", 1, 64, 64, 60, net="default-deny"
+    )
+    with pytest.raises(SandboxError, match="cannot report"):
+        sb.exec("x", 5)
+
+
+def test_lost_sandbox_is_flagged_and_later_calls_raise_sandbox_lost() -> None:
+    sb = make(FakeRunner(inspect_says(1, b"Error: no such container", 137))).create(
+        "img", 1, 64, 64, 60, net="default-deny"
+    )
+    res = sb.exec("x", 5)
+    assert res.sandbox_lost and res.exit_code == 137
+    for call in (
+        lambda: sb.put("/work/f", b""),
+        lambda: sb.get("/work/f"),
+        lambda: sb.exec("y", 5),
+    ):
+        with pytest.raises(SandboxLost):
+            call()
+    sb.destroy()  # still quiet
+
+
+def test_container_being_removed_counts_as_lost() -> None:
+    err = b"Error: removal of container x is already in progress"
+    sb = make(FakeRunner(inspect_says(1, err, 137))).create(
+        "img", 1, 64, 64, 60, net="default-deny"
+    )
+    res = sb.exec("x", 5)
+    assert res.sandbox_lost
+    with pytest.raises(SandboxLost):
+        sb.put("/work/f", b"")
+
+
+def test_dying_container_still_listed_is_found_lost_on_recheck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    answers = iter([RunOutput(0), RunOutput(0), RunOutput(1, stderr=b"Error: no such container")])
+
+    def handler(argv: list[str]) -> RunOutput | None:
+        if "x" in argv[-1:] and argv[1] == "exec":
+            return RunOutput(137)
+        if argv[1:3] == ["container", "inspect"]:
+            return next(answers)
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60, net="default-deny")
+    assert sb.exec("x", 5).sandbox_lost
+
+
+def test_ordinary_failure_with_container_present_is_not_lost() -> None:
+    sb = make(FakeRunner(inspect_says(0, b"", 1))).create("img", 1, 64, 64, 60, net="default-deny")
+    res = sb.exec("x", 5)
+    assert res.exit_code == 1 and not res.sandbox_lost
+    assert sb.exec("x", 5).exit_code == 1  # still usable
+
+
+def test_unkillable_timeout_is_lost() -> None:
+    def handler(argv: list[str]) -> RunOutput | None:
+        if "sleep 99" in argv:
+            return RunOutput(-1, timed_out=True)
+        if argv[1] == "exec" and "kill -9" in argv[-1]:
+            return RunOutput(1)  # kill/wait script fails
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60, net="default-deny")
+    res = sb.exec("sleep 99", 1)
+    assert res.timed_out and res.sandbox_lost
+    with pytest.raises(SandboxLost):
+        sb.exec("y", 1)
+
+
+def test_exec_is_clamped_to_the_ttl_and_times_out_instead_of_raising() -> None:
+    seen: list[float | None] = []
+
+    class Spy(FakeRunner):
+        def __call__(self, argv, *, stdin=None, timeout=None, max_output=0):  # type: ignore[no-untyped-def,override]
+            if argv[1] == "exec" and "x" in argv[-1:]:
+                seen.append(timeout)
+            return super().__call__(argv, stdin=stdin, timeout=timeout, max_output=max_output)
+
+    sb = make(Spy()).create("img", 1, 64, 64, 30, net="default-deny")
+    sb.exec("x", 1000)
+    assert seen and seen[0] is not None and seen[0] < 30  # ttl minus margin, not 1000
+    short = make(Spy()).create("img", 1, 64, 64, 3, net="default-deny")  # ttl < margin
+    res = short.exec("x", 10)
+    assert res.timed_out and res.exit_code == -1 and len(seen) == 1  # never ran

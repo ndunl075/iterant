@@ -6,6 +6,7 @@ from iterant.sandbox.container import (
     DockerBackend,
     PodmanBackend,
     SandboxError,
+    SandboxLost,
     UnsafeContainerError,
     slugify,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "RunOutput",
     "Runner",
     "SandboxError",
+    "SandboxLost",
     "UnsafeContainerError",
     "slugify",
     "subprocess_runner",

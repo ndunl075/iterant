@@ -214,6 +214,10 @@ class ExecResult:
 
     ``truncated`` is True when stdout or stderr hit the backend's capture cap and was cut.
     A truncated result is never trustworthy output: the grader scores it 0.0.
+    ``sandbox_lost`` is True when the command made the sandbox unusable (it killed PID 1, or
+    could not be killed). That is the candidate's doing: callers score the run 0.0 and must
+    not treat the later ``SandboxLost`` from ``put``/``get``/``exec`` on that sandbox as an
+    infra error.
     """
 
     exit_code: int
@@ -222,6 +226,7 @@ class ExecResult:
     timed_out: bool
     wall_s: float
     truncated: bool = False
+    sandbox_lost: bool = False
 
 
 @runtime_checkable
@@ -241,13 +246,16 @@ class Sandbox(Protocol):
 
         Candidate-caused outcomes are returned, never raised: a timeout, truncated output,
         a non-zero exit, an OOM kill, pids exhaustion, or the command killing PID 1 so the
-        sandbox is gone afterwards. The result then has a non-zero ``exit_code`` (or
-        ``timed_out``/``truncated``) and the caller scores the run 0.0. The sandbox may be
-        unusable afterwards; later calls on it raise.
+        sandbox is gone. The result then has a non-zero ``exit_code`` (or
+        ``timed_out``/``truncated``) and the caller scores the run 0.0. When the sandbox is
+        unusable afterwards the result has ``sandbox_lost`` set and later calls raise
+        ``SandboxLost`` (a ``SandboxError`` subclass in ``iterant.sandbox``); that is still
+        the candidate's doing, so score 0.0 rather than dropping the run.
 
         Raise only for failures the command cannot cause: the runtime is missing or broken,
-        or the sandbox was already destroyed or expired. The caller treats a raise as an
-        infra error (§6: retry once, then drop the pair).
+        or the sandbox was already destroyed or expired (a plain ``SandboxError``, not
+        ``SandboxLost``). The caller treats such a raise as an infra error (§6: retry once,
+        then drop the pair).
         """
         ...
 
@@ -292,17 +300,32 @@ class Proposal:
             raise ValueError("hypothesis must be a single non-empty line")
 
 
+@dataclass(frozen=True)
+class TriedCandidate:
+    """One archive entry shown to the proposer: the candidate (its ``hypothesis``, and its
+    ``stage``/``status`` as the outcome) and the diff text it applied."""
+
+    candidate: Candidate
+    diff: str
+
+
 @runtime_checkable
 class Proposer(Protocol):
     """Iterant's editing agent (§3 PROPOSE). Sees ``train`` data only (invariant 4)."""
 
     def propose(
-        self, parent: str, failure_digest: str, history: Sequence[Candidate]
+        self,
+        parent: str,
+        workdir: str | os.PathLike[str],
+        failure_digest: str,
+        history: Sequence[TriedCandidate],
     ) -> Proposal | None:
         """Propose a change to candidate ``parent``'s genome.
 
-        ``failure_digest`` is built from ``train`` trajectories only; ``history`` is the
-        archive's tried/failed candidates. Return None when the proposer produced no diff.
+        ``workdir`` is a copy of the target repo at ``parent``; edits are limited to the
+        genome. ``failure_digest`` is built from ``train`` trajectories only; ``history`` is
+        the archive's tried candidates with their diffs and outcomes. Return None when the
+        proposer produced no diff.
         """
         ...
 

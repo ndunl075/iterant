@@ -30,6 +30,9 @@ SHM_SIZE = "1m"
 PROXY_ENV = "ITERANT_PROXY_URL"
 RELAY_PORT = 8080
 RELAY_GRACE_S = 30
+CONTAINER_TTL_SLACK_S = 10  # the container's own `sleep` outlives the host-side deadline
+EXEC_TTL_MARGIN_S = 5.0  # exec never runs closer than this to the ttl
+_LOST_POLLS = 10  # re-checks (0.2 s apart) while a dying container is still listed
 # alpine/socat 1.8.1.3 (multi-arch index digest). Needs busybox `timeout` and `socat`.
 DEFAULT_RELAY_IMAGE = (
     "docker.io/alpine/socat@sha256:603174b77eebaba25ba8f8ebb15e1234d6600409554e95d6fb203fd106150287"
@@ -49,8 +52,9 @@ _GONE_MARKERS = (
     "in progress",
 )
 
-# Exit codes of `exec` when the container may have died under it: runtime errors (125, 126),
-# SIGKILL (137, e.g. OOM or PID 1 killed) and a lost connection (255).
+# Exit codes of `exec` that suggest the container died under it: runtime errors (125, 126),
+# SIGKILL (137, e.g. OOM or PID 1 killed) and a lost connection (255). The container is then
+# re-checked for a few seconds, because a dying container stays listed for a moment.
 _CONTAINER_LOST_CODES = (125, 126, 137, 255)
 
 # What `container inspect` says about a container that is really absent (not "being removed").
@@ -68,6 +72,14 @@ _VERIFY_SCRIPT = (
 
 class SandboxError(RuntimeError):
     """Sandbox could not be created or is no longer usable (destroyed, expired, runtime error)."""
+
+
+class SandboxLost(SandboxError):
+    """The command made the sandbox unusable (PID 1 killed, container gone, kill failed).
+
+    Candidate-caused: ``exec`` reported it with ``ExecResult.sandbox_lost`` and every later
+    call raises this. Callers score the run 0.0; it is not an infra error.
+    """
 
 
 class UnsafeContainerError(SandboxError):
@@ -140,6 +152,7 @@ class ContainerSandbox:
         self.proxy_url = proxy_url
         self._deadline = time.monotonic() + ttl
         self._dead = False
+        self._lost = False
         self._released = False
         self._lock = threading.Lock()
         self._timer = threading.Timer(ttl, self._expire)
@@ -161,6 +174,8 @@ class ContainerSandbox:
             log.exception("ttl teardown of %s failed", self._name)
 
     def _alive(self) -> None:
+        if self._lost:
+            raise SandboxLost(f"sandbox {self._name} was lost to the command that ran in it")
         if self._dead or time.monotonic() >= self._deadline:
             raise SandboxError(f"sandbox {self._name} is destroyed or past its ttl")
 
@@ -221,18 +236,28 @@ class ContainerSandbox:
 
         Returned, never raised (the command can cause them): timeout, truncated output, a
         non-zero exit, an OOM kill, pids exhaustion, and the command killing PID 1 so the
-        container is gone afterwards (the sandbox is then marked dead: later calls raise).
+        container is gone. The last, and a timeout whose process cannot be killed, set
+        ``sandbox_lost``; later calls then raise ``SandboxLost``. A timeout also results when
+        the ttl leaves no room to run the command.
         Raised as ``SandboxError`` (the command cannot cause them): the sandbox was already
-        destroyed or past its ttl, including a destroy or ttl expiry racing this exec, and
-        the runtime failing to run (missing binary, ``OSError``).
+        destroyed or past its ttl, including a destroy or ttl expiry racing this exec, the
+        runtime failing to run (missing binary, ``OSError``), and after a non-zero exit the
+        runtime being unable to say whether the container still exists. A container counts as
+        gone only when ``inspect`` says so positively (absent or being removed).
 
-        An exit of 125/126 with the container still present is returned as a result: it is
-        indistinguishable from the command itself exiting with that code, and either way
-        the grader scores it 0.0.
+        An exit of 125/126 with the container present is returned as a result: it is
+        indistinguishable from the command itself exiting with that code.
         """
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
         self._alive()
+        # Never run past the ttl: a command that eats the time (slow puts, a long exec) would
+        # otherwise be destroyed mid-run and look like an infra error. The clamp firing is a
+        # timeout, which is the command's doing.
+        room = self._deadline - time.monotonic() - EXEC_TTL_MARGIN_S
+        if room <= 0:
+            return ExecResult(-1, "", "", True, 0.0)
+        timeout = min(timeout, room)
         pidfile = f"/tmp/.exec-{secrets.token_hex(6)}.pid"
         # Each exec is its own session/process group (setsid); the inner shell records the
         # group id, so a timeout can kill exactly this exec's processes and nothing else.
@@ -247,21 +272,56 @@ class ContainerSandbox:
             timeout=timeout,
         )  # fmt: skip
         wall = time.monotonic() - start
-        if self._dead or time.monotonic() >= self._deadline:
+        if self._dead:
             # We tore it down (destroy or ttl) while the command ran: not the command's doing.
             raise SandboxError(f"sandbox {self._name} was destroyed or expired during exec")
         if out.timed_out:
-            if not self._kill_group(pidfile):
+            lost = not self._kill_group(pidfile)
+            if lost:
                 # Cannot prove the process is gone (e.g. pids limit hit): fail closed.
+                self._lost = True
                 self._abort()
-            return ExecResult(-1, _text(out.stdout), _text(out.stderr), True, wall, out.truncated)
-        if out.returncode in _CONTAINER_LOST_CODES and self._confirmed_removed(self._name):
-            # PID 1 or the whole container died under the command. We never remove the
-            # container before destroy/ttl (checked above), so the command did it.
-            self._dead = True
+            return ExecResult(
+                -1, _text(out.stdout), _text(out.stderr), True, wall, out.truncated, lost
+            )
+        lost = False
+        if out.returncode != 0:
+            state = self._container_state()
+            if state == "unknown":
+                # The runtime cannot say whether the container exists (daemon or socket
+                # down, inspect failing): not the command's doing, so an infra error.
+                raise SandboxError(f"{self._rt} cannot report on {self._name} after exec")
+            if state == "present" and out.returncode in _CONTAINER_LOST_CODES:
+                # A dying container can stay listed for a moment after its exec ends.
+                for _ in range(_LOST_POLLS):
+                    time.sleep(0.2)
+                    state = self._container_state()
+                    if state != "present":
+                        break
+                if state == "unknown":
+                    raise SandboxError(f"{self._rt} cannot report on {self._name} after exec")
+            if state in ("absent", "removing"):
+                # PID 1 or the whole container died. destroy/ttl were ruled out above, so the
+                # command caused it; later calls raise SandboxLost.
+                self._lost = True
+                self._dead = True
+                lost = True
         return ExecResult(
-            out.returncode, _text(out.stdout), _text(out.stderr), False, wall, out.truncated
+            out.returncode, _text(out.stdout), _text(out.stderr), False, wall, out.truncated, lost
         )
+
+    def _container_state(self) -> str:
+        """``present``, ``absent``, ``removing`` or ``unknown``. Only a positive answer from
+        the runtime counts; any other inspect failure is ``unknown``."""
+        out = self._run([self._rt, "container", "inspect", self._name], timeout=_ADMIN_TIMEOUT_S)
+        if out.returncode == 0:
+            return "present"
+        err = _text(out.stderr).lower()
+        if "in progress" in err:
+            return "removing"
+        if any(m in err for m in _ABSENT_MARKERS):
+            return "absent"
+        return "unknown"
 
     def _kill_group(self, pidfile: str) -> bool:
         script = (
@@ -497,7 +557,7 @@ class ContainerBackend:
             "--workdir", WORK_DIR, "--env", f"HOME={WORK_DIR}",
             *env,
             # `sleep ttl` is the main process: the container ends itself even if the host dies.
-            "--entrypoint", "sleep", image, str(math.ceil(ttl)),
+            "--entrypoint", "sleep", image, str(math.ceil(ttl) + CONTAINER_TTL_SLACK_S),
         ]  # fmt: skip
 
     def relay_argv(

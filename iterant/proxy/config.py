@@ -118,10 +118,12 @@ class ProxyConfig:
     split_of: Callable[[RunKey], Split | None] = _no_split
     generation: int = 0
     token_ttl_s: float = 3600.0
-    max_body_bytes: int = 32 * 1024 * 1024
+    max_body_bytes: int = 8 * 1024 * 1024
+    max_concurrent: int = 64  # requests in flight; more get a 503
+    socket_timeout_s: float = 30.0  # client socket read/write timeout
     upstream_timeout_s: float = 600.0
     trust_env_proxy: bool = True
-    first_call_id: int = 1
+    first_call_id: int = 1  # ProxyCall.id is process-local; the archive sink should ignore it
     monotonic: Callable[[], float] = time.monotonic
     now_iso: Callable[[], str] = _utc_now_iso
 

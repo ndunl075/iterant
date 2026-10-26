@@ -122,6 +122,20 @@ class Ledger:
             self._gen_held[gkey] = gh + units
             return Reservation(role, run_id, self.generation, units)
 
+    def preload(
+        self,
+        role: Role,
+        run_id: Hashable,
+        units: int,
+        key: RunKey | None,
+        usage: Usage,
+        usd: int,
+        refused: bool,
+    ) -> None:
+        """Count already-spent ``units`` (no reservation involved)."""
+        r = Reservation(role, run_id, self.generation, 0)
+        self.settle(r, units, key, usage, usd, refused)
+
     def release(self, r: Reservation) -> None:
         with self._lock:
             self._drop_hold(r)

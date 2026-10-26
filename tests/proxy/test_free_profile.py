@@ -22,7 +22,7 @@ def body(h, **extra):
 def test_translates_request_and_response(make_stack, h):
     s = make_stack(Profile.FREE)
     s.fake.add(None, openai_completion("hello", model=h.LOCAL, in_tok=12, out_tok=4))
-    token = s.proxy.issue_run_token(Role.TARGET, h.KEY)
+    token = s.proxy.issue_call_token(Role.PROPOSER)
     req = body(
         h,
         system=[{"type": "text", "text": "be brief"}],
@@ -170,7 +170,8 @@ def test_unsupported_content_and_upstream_errors(make_stack, h):
     s = make_stack(Profile.FREE)
     token = s.proxy.issue_run_token(Role.TARGET, h.KEY)
     doc = {"role": "user", "content": [{"type": "document", "source": {}}]}
-    status, raw = s.post(token, body(h, messages=[doc]))
+    proposer = s.proxy.issue_call_token(Role.PROPOSER)
+    status, raw = s.post(proposer, body(h, messages=[doc]))
     assert status == 400
     assert "not supported by the free profile" in json.loads(raw)["error"]["message"]
     s.fake.add(None, {"error": {"message": "model not found"}}, status=404)

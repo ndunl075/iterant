@@ -10,11 +10,12 @@ from __future__ import annotations
 import itertools
 import json
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from iterant.contracts import Profile, ProxyCall, Role, RoleCap, RunKey, Split
-from iterant.proxy.config import ProxyConfig
-from iterant.proxy.jsonutil import Obj, obj
+from iterant.proxy.config import ModelPrice, ProxyConfig
+from iterant.proxy.jsonutil import Obj, obj, text
 from iterant.proxy.ledger import (
     CapExceeded,
     Ledger,
@@ -98,6 +99,16 @@ class Proxy:
     def begin_generation(self, gen: int) -> None:
         self.ledger.begin_generation(gen)
 
+    def check_token(self, token: str | None) -> Rejection | None:
+        """Cheap pre-check so unauthenticated callers are refused before their body is read."""
+        if token is not None and self.sessions.resolve(token) is not None:
+            return None
+        r = Rejection(
+            401, "authentication_error", "unknown_token", "iterant proxy: unknown or expired token"
+        )
+        self.rejections.append(RejectedCall(None, None, r.code, r.message))
+        return r
+
     # --- admit ------------------------------------------------------------------
 
     def admit(
@@ -159,7 +170,11 @@ class Proxy:
         claude = self.config.policy.profile is Profile.CLAUDE
         if claude:
             body = with_effort(body, cap)
-        run_id = session.key if session.key is not None else ("call", next(self._call_run_ids))
+        run_id = (
+            (session.role, session.key)
+            if session.key is not None
+            else ("call", next(self._call_run_ids))
+        )
         max_tokens = int(body["max_tokens"])
         units = (
             max_tokens
@@ -199,11 +214,9 @@ class Proxy:
         cap, profile = adm.cap, self.config.policy.profile
         if usage is None:
             usage = Usage(output=int(adm.body["max_tokens"]))
-        usd = (
-            cost_usd_micros(self.config.prices[cap.model], usage)
-            if profile is Profile.CLAUDE
-            else 0
-        )
+        # Price and log what the upstream says it ran (a fallback may differ from the cap).
+        model = (text(response.get("model")) if response else None) or cap.model
+        usd = cost_usd_micros(self._price(model), usage) if profile is Profile.CLAUDE else 0
         units = usage.in_total + usage.output if cap.is_token_capped else usd
         key = adm.session.key
         self.ledger.settle(adm.reservation, units, key, usage, usd, refusal)
@@ -212,7 +225,7 @@ class Proxy:
                 id=next(self._ids),
                 key=key,
                 role=adm.session.role,
-                model=cap.model,
+                model=model,
                 in_tok=usage.in_total,
                 out_tok=usage.output,
                 usd_micros=usd,
@@ -227,6 +240,28 @@ class Proxy:
             if key is not None and self._is_train(key):
                 self._content.items.append(CallContent(call.id, key, call.role, adm.body, response))
         return call
+
+    def _price(self, model: str) -> ModelPrice:
+        """Price of ``model``; an unlisted model is charged at the dearest listed price."""
+        prices = self.config.prices
+        if model in prices:
+            return prices[model]
+        return max(prices.values(), key=lambda p: (p.output_per_mtok, p.input_per_mtok))
+
+    def preload(self, calls: Iterable[ProxyCall]) -> None:
+        """Seed spend after a restart from archived calls of the *current generation*.
+
+        Hook for the orchestrator (W2): the ledger is in memory, so a restarted proxy
+        would otherwise forget what this generation and these runs already spent.
+        """
+        for c in calls:
+            cap = self.config.policy.roles.get(c.role)
+            if cap is None:
+                continue
+            units = c.in_tok + c.out_tok if cap.is_token_capped else c.usd_micros
+            run_id = (c.role, c.key) if c.key is not None else ("call", next(self._call_run_ids))
+            usage = Usage(output=c.out_tok, input=c.in_tok)
+            self.ledger.preload(c.role, run_id, units, c.key, usage, c.usd_micros, c.refusal)
 
     # --- queries ----------------------------------------------------------------
 

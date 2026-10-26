@@ -24,7 +24,7 @@ from iterant.contracts import Profile
 from iterant.proxy.core import Admission, LedgerError, Proxy
 from iterant.proxy.jsonutil import Obj, obj
 from iterant.proxy.ledger import Usage
-from iterant.proxy.rules import Rejection
+from iterant.proxy.rules import NO_FALLBACK_ROLES, Rejection
 from iterant.proxy.sse import StreamAccumulator, sse_event, usage_of
 from iterant.proxy.translate import (
     OpenAIStreamTranslator,
@@ -115,6 +115,16 @@ def _open_upstream(
     return _Upstream(resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp)
 
 
+def _cutoff_usage(adm: Admission, seen: Usage | None, est_in: int) -> Usage:
+    """Usage for a stream that never finished: the input already reported (or estimated)
+    plus the most the call could still have produced. Never zero input."""
+    base = seen if seen is not None and seen.in_total > 0 else Usage(input=est_in)
+    if base.in_total == 0:
+        base = Usage(input=max(adm.request_bytes // 4, 1))
+    out = max(int(adm.body["max_tokens"]), base.output)
+    return Usage(base.input, out, base.cache_write, base.cache_read)
+
+
 def _parse(raw: bytes) -> Obj | None:
     try:
         return obj(json.loads(raw))
@@ -129,9 +139,11 @@ def _lines(body: IO[bytes]) -> Iterator[bytes]:
 
 def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
     cfg = proxy.config
+    slots = threading.BoundedSemaphore(cfg.max_concurrent)
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"  # body ends at close: simplest correct SSE relay
+        timeout = cfg.socket_timeout_s
         _streaming = False
 
         def log_message(self, format: str, *args: object) -> None:
@@ -163,23 +175,51 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
 
         do_PUT = do_DELETE = do_PATCH = do_GET
 
-        def do_POST(self) -> None:
+        def _drain(self, length: int) -> None:
+            """Read a bounded part of an unwanted body so the client sees our reply, not a reset."""
             try:
-                length = int(self.headers.get("content-length", ""))
+                self.rfile.read(max(0, min(length, 1024 * 1024)))
+            except OSError:
+                pass
+
+        def _length(self) -> int:
+            try:
+                return int(self.headers.get("content-length", ""))
             except ValueError:
+                return -1
+
+        def do_POST(self) -> None:
+            if not slots.acquire(blocking=False):
+                self._send(503, error_body("overloaded_error", "iterant proxy: too many requests"))
+                return
+            try:
+                self._post()
+            except OSError:
+                pass  # client gone or timed out
+            finally:
+                slots.release()
+
+        def _post(self) -> None:
+            length = self._length()
+            token = self._token()
+            if (denied := proxy.check_token(token)) is not None:  # before reading any body
+                self._reject(denied)
+                self._drain(length)
+                return
+            if length < 0:
                 self._send(411, error_body("invalid_request_error", "content-length required"))
                 return
-            if length < 0 or length > cfg.max_body_bytes:
+            if length > cfg.max_body_bytes:
                 self._send(413, error_body("request_too_large", "request body too large"))
                 return
-            raw = self.rfile.read(length)  # always drain, or the client sees a reset
+            raw = self.rfile.read(length)
             if self.path.split("?")[0] != "/v1/messages":
                 self._send(
                     404,
                     error_body("not_found_error", "iterant proxy serves POST /v1/messages only"),
                 )
                 return
-            adm = proxy.admit(self._token(), raw, self.headers.get("anthropic-beta", ""))
+            adm = proxy.admit(token, raw, self.headers.get("anthropic-beta", ""))
             if isinstance(adm, Rejection):
                 self._reject(adm)
                 return
@@ -245,7 +285,8 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
                 "x-api-key": cfg.anthropic_api_key,
                 "anthropic-version": self.headers.get("anthropic-version", "2023-06-01"),
             }
-            if beta := self.headers.get("anthropic-beta"):
+            beta = self.headers.get("anthropic-beta")
+            if beta and adm.session.role not in NO_FALLBACK_ROLES:  # rules reject it earlier
                 headers["anthropic-beta"] = beta
             data = json.dumps(adm.body, separators=(",", ":")).encode()
             up = _open_upstream(
@@ -273,19 +314,23 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
         def _relay_anthropic_stream(self, adm: Admission, up: _Upstream) -> bool:
             acc = StreamAccumulator()
             self._start_stream()
+            gone = False  # client left: keep reading upstream so we learn the real usage
             try:
                 for line in _lines(up.body):
                     acc.feed_line(line)
-                    self.wfile.write(_scrub(proxy, line))
-                    if line in (b"\n", b"\r\n"):
-                        self.wfile.flush()
-            except _CLIENT_DISCONNECT:
-                pass
+                    if not gone:
+                        try:
+                            self.wfile.write(_scrub(proxy, line))
+                            if line.strip() == b"":
+                                self.wfile.flush()
+                        except OSError:
+                            gone = True
             except OSError:
                 pass  # upstream cut: settle on what we saw
             finally:
                 up.close()
-            usage = acc.usage if acc.stopped and acc.saw_usage else None
+            seen = acc.usage if acc.saw_usage else None
+            usage = seen if acc.stopped and seen else _cutoff_usage(adm, seen, 0)
             proxy.settle(adm, usage, acc.refused, acc.message())
             return True
 
@@ -312,7 +357,9 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
             est_in = max(adm.request_bytes // 4, 1)
             model = adm.cap.model
             if adm.stream:
-                return self._relay_openai_stream(adm, up, OpenAIStreamTranslator(model, est_in))
+                return self._relay_openai_stream(
+                    adm, up, OpenAIStreamTranslator(model, est_in), est_in
+                )
             raw = up.body.read()
             up.close()
             resp = _parse(raw)
@@ -328,16 +375,26 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
             return True
 
         def _relay_openai_stream(
-            self, adm: Admission, up: _Upstream, tr: OpenAIStreamTranslator
+            self, adm: Admission, up: _Upstream, tr: OpenAIStreamTranslator, est_in: int
         ) -> bool:
             acc = StreamAccumulator()
             self._start_stream()
+            gone = False
 
             def emit(events: list[tuple[str, Obj]]) -> None:
+                nonlocal gone
                 for name, data in events:
                     acc.feed_event(data)
-                    self.wfile.write(sse_event(name, data))
-                self.wfile.flush()
+                    if not gone:
+                        try:
+                            self.wfile.write(sse_event(name, data))
+                        except OSError:
+                            gone = True
+                if not gone:
+                    try:
+                        self.wfile.flush()
+                    except OSError:
+                        gone = True
 
             try:
                 for line in _lines(up.body):
@@ -350,14 +407,15 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
                     chunk = obj(json.loads(payload))
                     if chunk is not None:
                         emit(tr.feed(chunk))
+                else:
+                    raise OSError("upstream closed before [DONE]")
                 emit(tr.finish())
-            except _CLIENT_DISCONNECT:
-                pass
             except (OSError, ValueError):
                 pass  # upstream cut or garbled: settle on what we saw
             finally:
                 up.close()
-            usage = acc.usage if acc.stopped and acc.saw_usage else None
+            seen = Usage(input=tr.prompt_tokens_seen or est_in)
+            usage = acc.usage if acc.stopped and acc.saw_usage else _cutoff_usage(adm, seen, est_in)
             proxy.settle(adm, usage, acc.refused, acc.message())
             return True
 

@@ -116,6 +116,8 @@ def make_stack() -> Iterator[MakeStack]:
         profile: Profile = Profile.CLAUDE,
         splits: dict[str, Split] | None = None,
         sink: Any = None,
+        upstream: str | None = None,
+        **overrides: Any,
     ) -> Stack:
         fake = FakeLLM().start()
         the_sink = InMemorySink()
@@ -125,17 +127,20 @@ def make_stack() -> Iterator[MakeStack]:
             "sink": cfg_sink,
             "split_of": lambda k: split_map.get(k.task),
             "trust_env_proxy": False,
+            **overrides,
         }
         if profile is Profile.CLAUDE:
             cfg = ProxyConfig(
                 policy=claude_policy(),
                 prices=PRICES,
-                anthropic_base_url=fake.base_url,
+                anthropic_base_url=upstream or fake.base_url,
                 anthropic_api_key=REAL_KEY,
                 **common,
             )
         else:
-            cfg = ProxyConfig(policy=free_policy(), openai_base_url=fake.openai_base_url, **common)
+            cfg = ProxyConfig(
+                policy=free_policy(), openai_base_url=upstream or fake.openai_base_url, **common
+            )
         proxy = Proxy(cfg)
         server = ProxyServer(proxy).start()
         stack = Stack(proxy, server, fake, the_sink)

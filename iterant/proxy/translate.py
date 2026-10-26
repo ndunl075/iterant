@@ -6,7 +6,7 @@ OpenAI-compatible upstream (Ollama, llama.cpp).
 Supported
 ---------
 * ``system`` (string or text blocks), ``messages`` with string or block content.
-* Blocks: ``text``, ``image`` (base64 and url sources), ``tool_use``, ``tool_result``
+* Blocks: ``text``, ``image`` (base64 sources only), ``tool_use``, ``tool_result``
   (string or text-block content). ``thinking`` / ``redacted_thinking`` blocks in history
   are dropped.
 * ``max_tokens``, ``temperature``, ``top_p``, ``stop_sequences``, ``stream``,
@@ -58,9 +58,7 @@ def _image_part(block: Obj) -> Obj:
     source = obj(block.get("source")) or {}
     if source.get("type") == "base64":
         url = f"data:{source.get('media_type', 'image/png')};base64,{source.get('data', '')}"
-    elif source.get("type") == "url":
-        url = str(source.get("url", ""))
-    else:
+    else:  # url and file sources would make the proxy fetch for the agent: refused
         raise Unsupported("image source type is not supported by the free profile")
     return {"type": "image_url", "image_url": {"url": url}}
 
@@ -256,6 +254,11 @@ class OpenAIStreamTranslator:
         self._usage: Obj | None = None
         self._chunks = 0
         self._id = "msg_free"
+
+    @property
+    def prompt_tokens_seen(self) -> int | None:
+        """The upstream's own prompt token count, once it has sent one."""
+        return num(self._usage.get("prompt_tokens")) if self._usage else None
 
     def _start(self) -> list[tuple[str, Obj]]:
         if self._started:

@@ -1,0 +1,5 @@
+{
+ "call": "f('kumwwfv', 'k')",
+ "code": "def f(text, pref):\n    length = len(pref)\n    if pref == text[:length]:\n        return text[length:]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

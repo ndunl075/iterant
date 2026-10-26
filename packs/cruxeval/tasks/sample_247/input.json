@@ -1,0 +1,5 @@
+{
+ "call": "f('Boolean')",
+ "code": "def f(s):\n    if s.isalpha():\n        return \"yes\"\n    if s == \"\":\n        return \"str is empty\"\n    return \"no\"",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

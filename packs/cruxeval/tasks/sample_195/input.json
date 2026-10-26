@@ -1,0 +1,5 @@
+{
+ "call": "f('ilfdoirwirmtoibsac')",
+ "code": "def f(text):\n    for p in ['acs', 'asp', 'scn']:\n        text = text.removeprefix(p) + ' '\n    return text.removeprefix(' ')[:-1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

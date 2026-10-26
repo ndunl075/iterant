@@ -1,0 +1,5 @@
+{
+ "call": "f('aaXXXXbbXXXXccXXXXde', 'QW')",
+ "code": "def f(XAAXX, s):\n    count = 0\n    idx = -1\n    while XAAXX.find('XXXX', idx+1) != -1:\n        idx = XAAXX.find('XXXX', idx+1) \n        count += 1 \n    compound = count * s.title()\n    return XAAXX.replace('XXXX', compound)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

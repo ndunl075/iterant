@@ -1,0 +1,5 @@
+{
+ "call": "f([-70, 20, 9, 1])",
+ "code": "def f(num):\n    num.append(num[-1])\n    return num",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

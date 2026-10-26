@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 0, 1, 2, 2, 2, 2], 4)",
+ "code": "def f(array, n):\n    return array[n:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

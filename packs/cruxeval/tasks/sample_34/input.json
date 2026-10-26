@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3, 7, 7, 6, 8, 4, 1, 2, 3, 5, 1, 3, 21, 1, 3], 3, 1)",
+ "code": "def f(nums, odd1, odd2):\n    while odd1 in nums:\n        nums.remove(odd1)\n    while odd2 in nums:\n        nums.remove(odd2)\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

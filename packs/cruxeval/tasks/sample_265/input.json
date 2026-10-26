@@ -1,0 +1,5 @@
+{
+ "call": "f({1: 2, 2: 4, 3: 3}, 3)",
+ "code": "def f(d, k):\n    new_d = {}\n    for key, val in d.items():\n        if key < k:\n            new_d[key] = val\n    return new_d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

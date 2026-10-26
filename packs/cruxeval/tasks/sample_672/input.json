@@ -1,0 +1,5 @@
+{
+ "call": "f(\"1zd\", 0, 'm')",
+ "code": "def f(text, position, value):\n    length = len(text)\n    index = (position % (length + 2)) - 1\n    if index >= length or index < 0:\n        return text\n    text[index] = value\n    return ''.join(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('czywZ')",
+ "code": "def f(challenge):\n    return challenge.casefold().replace('l', ',')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

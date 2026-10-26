@@ -1,0 +1,5 @@
+{
+ "call": "f(46, 48, 21)",
+ "code": "def f(n, m, num):\n    x_list = list(range(n, m+1))\n    j = 0\n    while True:\n        j = (j + num) % len(x_list)\n        if x_list[j] % 2 == 0:\n            return x_list[j]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

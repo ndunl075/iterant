@@ -1,0 +1,5 @@
+{
+ "call": "f([\"a\", \"b\", \"c\"])",
+ "code": "def f(array):\n    result = []\n    for elem in array:\n        if elem.isascii() or (isinstance(elem, int) and not str(abs(elem)).isascii()):\n            result.append(elem)\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

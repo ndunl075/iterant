@@ -1,0 +1,5 @@
+{
+ "call": "f(['a', 'c', 'v'])",
+ "code": "def f(lst):\n    lst.clear()\n    lst += [1] * (len(lst) + 1)\n    return lst",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

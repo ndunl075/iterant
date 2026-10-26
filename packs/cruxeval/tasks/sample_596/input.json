@@ -1,0 +1,5 @@
+{
+ "call": "f(['8', '9', '7', '4', '3', '2'], '9')",
+ "code": "def f(txt, alpha):\n    txt = sorted(txt)\n    if txt.index(alpha) % 2 == 0:\n        return txt[::-1]\n    return txt",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

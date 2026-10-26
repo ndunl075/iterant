@@ -1,0 +1,5 @@
+{
+ "call": "f('ruam')",
+ "code": "def f(value):\n    ls = list(value)\n    ls.append('NHIB')\n    return ''.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

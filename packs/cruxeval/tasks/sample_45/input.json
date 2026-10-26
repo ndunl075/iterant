@@ -1,0 +1,5 @@
+{
+ "call": "f('za1fd1as8f7afasdfam97adfa', '7')",
+ "code": "def f(text, letter):\n    counts = {}\n    for char in text:\n        if char not in counts:\n            counts[char] = 1\n        else:\n            counts[char] += 1\n    return counts.get(letter, 0)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

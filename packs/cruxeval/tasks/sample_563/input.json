@@ -1,0 +1,5 @@
+{
+ "call": "f('jivespdcxc', 'sx')",
+ "code": "def f(text1, text2):\n    nums = []\n    for i in range(len(text2)):\n        nums.append(text1.count(text2[i]))\n    return sum(nums)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

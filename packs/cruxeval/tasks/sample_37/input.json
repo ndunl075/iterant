@@ -1,0 +1,5 @@
+{
+ "call": "f('123')",
+ "code": "def f(text):\n    text_arr = []\n    for j in range(len(text)):\n        text_arr.append(text[j:])\n    return text_arr",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

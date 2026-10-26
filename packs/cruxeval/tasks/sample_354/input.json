@@ -1,0 +1,5 @@
+{
+ "call": "f('{0}, {0}!!!', ['R', None])",
+ "code": "def f(description, values):\n    if values[1] is None:\n        values = values[0:1]\n    else:\n        values = values[1:]\n    return description.format(*values)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

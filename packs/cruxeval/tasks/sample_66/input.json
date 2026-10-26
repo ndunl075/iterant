@@ -1,0 +1,5 @@
+{
+ "call": "f('happy', 'ha')",
+ "code": "def f(text, prefix):\n    prefix_length = len(prefix)\n    if text.startswith(prefix):\n        return text[(prefix_length - 1) // 2:\n                    (prefix_length + 1) // 2 * -1:-1]\n    else:\n        return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('rvr', 'r')",
+ "code": "def f(text, char):\n    new_text = text\n    a = []\n    while char in new_text:\n        a.append(new_text.index(char))\n        new_text = new_text.replace(char,\"\",1)\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

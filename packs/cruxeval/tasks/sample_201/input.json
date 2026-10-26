@@ -1,0 +1,5 @@
+{
+ "call": "f('--4yrw 251-//4 6p')",
+ "code": "def f(text):\n    chars = []\n    for c in text:\n        if c.isdigit():\n            chars.append(c)\n    return ''.join(chars[::-1])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

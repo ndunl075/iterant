@@ -1,0 +1,5 @@
+{
+ "call": "f('123', '123eenhas0')",
+ "code": "def f(text, search):\n    return search.startswith(text) or False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

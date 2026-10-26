@@ -1,0 +1,5 @@
+{
+ "call": "f(['ac8', 'qk6', '9wg'])",
+ "code": "def f(array):\n    if len(array) == 1:\n        return ''.join(array)\n    result = list(array)\n    i = 0\n    while i < len(array)-1:\n        for j in range(2):\n            result[i*2] = array[i]\n            i += 1\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

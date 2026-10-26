@@ -1,0 +1,5 @@
+{
+ "call": "f('Hello Is It MyClass')",
+ "code": "def f(text):\n    if text.upper() == text:\n        return 'ALL UPPERCASE'\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

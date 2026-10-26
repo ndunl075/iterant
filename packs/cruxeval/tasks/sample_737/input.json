@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 6, 2, -1, -2])",
+ "code": "def f(nums):\n    counts = 0\n    for i in nums:\n        if str(i).isdecimal():\n            if counts == 0:\n                counts += 1\n    return counts",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

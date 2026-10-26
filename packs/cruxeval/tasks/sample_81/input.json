@@ -1,0 +1,5 @@
+{
+ "call": "f({\"Bulls\": 23, \"White Sox\": 45}, \"Bulls\")",
+ "code": "def f(dic, inx):\n    try:\n        dic[list(dic)[list(dic).index(inx)]] = list(dic)[list(dic).index(inx)].lower()\n    except ValueError:\n        pass\n    return list(dic.items())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

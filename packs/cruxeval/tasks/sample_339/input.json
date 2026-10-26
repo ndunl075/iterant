@@ -1,0 +1,5 @@
+{
+ "call": "f([-1, 2, 1, -8, -8, 2], 2)",
+ "code": "def f(array, elem):\n    elem = str(elem)\n    d = 0\n    for i in array:\n        if str(i) == elem:\n            d += 1\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

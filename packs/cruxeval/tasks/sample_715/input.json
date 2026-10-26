@@ -1,0 +1,5 @@
+{
+ "call": "f('abababac', 'a')",
+ "code": "def f(text, char):\n    return text.count(char) % 2 != 0",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

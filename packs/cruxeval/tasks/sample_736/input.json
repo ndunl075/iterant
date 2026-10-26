@@ -1,0 +1,5 @@
+{
+ "call": "f('pi wa', 'chi')",
+ "code": "def f(text, insert):\n    whitespaces = {'\\t', '\\r', '\\v', ' ', '\\f', '\\n'}\n    clean = ''\n    for char in text:\n        if char in whitespaces:\n            clean += insert\n        else:\n            clean += char\n    return clean",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

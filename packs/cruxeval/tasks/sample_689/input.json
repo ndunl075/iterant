@@ -1,0 +1,5 @@
+{
+ "call": "f([-3, -6, 2, 7])",
+ "code": "def f(arr):\n    count = len(arr)\n    sub = arr.copy()\n    for i in range(0, count, 2):\n        sub[i] *= 5\n    return sub",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

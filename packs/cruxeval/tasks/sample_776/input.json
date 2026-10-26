@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(dictionary):\n    a = dictionary.copy()\n    for key in a:\n        if key%2 != 0:\n            del a[key]\n            a['$'+str(key)] = a[key]\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

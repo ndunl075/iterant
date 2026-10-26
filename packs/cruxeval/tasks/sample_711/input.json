@@ -1,0 +1,5 @@
+{
+ "call": "f('apples\\n\\t\\npears\\n\\t\\nbananas')",
+ "code": "def f(text):\n    return text.replace('\\n', '\\t')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

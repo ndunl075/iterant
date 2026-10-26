@@ -1,0 +1,5 @@
+{
+ "call": "f('pxcznyf')",
+ "code": "def f(text):\n    rtext = list(text)\n    for i in range(1, len(rtext) - 1):\n        rtext.insert(i + 1, '|')\n    return ''.join(rtext)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

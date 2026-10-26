@@ -1,0 +1,5 @@
+{
+ "call": "f(\" \\t \")",
+ "code": "def f(text):\n    if not text.strip():\n        return len(text.strip())\n    return None",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

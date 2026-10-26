@@ -1,0 +1,5 @@
+{
+ "call": "f(\"zn kgd jw lnt\", \"h\", \"u\")",
+ "code": "def f(text, wrong, right):\n    new_text = text.replace(wrong, right)\n    return new_text.upper()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

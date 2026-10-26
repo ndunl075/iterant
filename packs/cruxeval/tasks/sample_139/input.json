@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 1], [1, 1, 2])",
+ "code": "def f(first, second):\n    if len(first) < 10 or len(second) < 10:\n        return 'no'\n    for i in range(5):\n        if first[i] != second[i]:\n            return 'no'\n    first.extend(second)\n    return first",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

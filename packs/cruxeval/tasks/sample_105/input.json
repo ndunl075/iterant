@@ -1,0 +1,5 @@
+{
+ "call": "f(\"PermissioN is GRANTed\")",
+ "code": "def f(text):\n    if not text.istitle():\n        return text.title()\n    return text.lower()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

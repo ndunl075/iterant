@@ -1,0 +1,5 @@
+{
+ "call": "f(2)",
+ "code": "def f(number):\n    transl = {'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5}\n    result = []\n    for key, value in transl.items():\n        if value % number == 0:\n            result.append(key)\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

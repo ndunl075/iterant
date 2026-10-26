@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(nums):\n    asc, desc = nums.copy(), []\n    asc.reverse()\n    desc = asc[:len(asc)//2]\n    return desc + asc + desc",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(3)",
+ "code": "def f(num):\n    initial = [1]\n    total = initial\n    for _ in range(num):\n        total = [1] + [x+y for x, y in zip(total, total[1:])]\n        initial.append(total[-1])\n    return sum(initial)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

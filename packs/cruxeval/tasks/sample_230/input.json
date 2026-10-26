@@ -1,0 +1,5 @@
+{
+ "call": "f('102x0zoq')",
+ "code": "def f(text):\n    result = ''\n    i = len(text)-1\n    while i >= 0:\n        c = text[i]\n        if c.isalpha():\n            result += c\n        i -= 1\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

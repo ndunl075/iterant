@@ -1,0 +1,5 @@
+{
+ "call": "f('', 'BC1ty')",
+ "code": "def f(text, symbols):\n    count = 0\n    if symbols:\n        for i in symbols:\n            count += 1\n        text = text * count\n    return text.rjust(len(text) + count*2)[:-2]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

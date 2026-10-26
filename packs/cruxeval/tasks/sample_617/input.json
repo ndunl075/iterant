@@ -1,0 +1,5 @@
+{
+ "call": "f(\"<<<<\")",
+ "code": "def f(text):\n    if text.isascii():\n        return 'ascii'\n    else:\n        return 'non ascii'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

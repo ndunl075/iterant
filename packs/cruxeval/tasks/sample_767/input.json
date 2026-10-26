@@ -1,0 +1,5 @@
+{
+ "call": "f(\"d khqw whi fwi bbn 41\")",
+ "code": "def f(text):\n    a = text.strip().split(' ')\n    for i in range(len(a)):\n        if a[i].isdigit() is False:\n            return '-'\n    return \" \".join(a)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

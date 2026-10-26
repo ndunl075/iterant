@@ -1,0 +1,5 @@
+{
+ "call": "f('0')",
+ "code": "def f(ans):\n    if ans.isdecimal():\n        total = int(ans) * 4 - 50\n        total -= len([c for c in list(ans) if c not in '02468']) * 100\n        return total\n    return 'NAN'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

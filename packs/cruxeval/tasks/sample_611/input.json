@@ -1,0 +1,5 @@
+{
+ "call": "f([-6, -2, 1, -3, 0, 1])",
+ "code": "def f(nums):\n    nums[:] = nums[::-1]\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

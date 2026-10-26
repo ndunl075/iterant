@@ -1,0 +1,5 @@
+{
+ "call": "f('\\\\foo', '\\\\')",
+ "code": "def f(text, char):\n    if char in text:\n        if not text.startswith(char):\n            text = text.replace(char,'')\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

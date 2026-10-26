@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3])",
+ "code": "def f(nums):\n    count = 1\n    for i in range(count, len(nums) - 1, 2):\n        nums[i] = max(nums[i], nums[count-1])\n        count += 1\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

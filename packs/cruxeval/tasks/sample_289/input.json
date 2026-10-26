@@ -1,0 +1,5 @@
+{
+ "call": "f('148')",
+ "code": "def f(code):\n    return \"{}: {}\".format(code, code.encode())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

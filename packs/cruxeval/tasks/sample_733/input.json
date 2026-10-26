@@ -1,0 +1,5 @@
+{
+ "call": "f('n')",
+ "code": "def f(text):\n    length = len(text) // 2\n    left_half = text[:length]\n    right_half = text[length:][::-1]\n    return left_half + right_half",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

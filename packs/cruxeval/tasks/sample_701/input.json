@@ -1,0 +1,5 @@
+{
+ "call": "f('31849 let it!31849 pass!', ('3','1','8',' ','1','9','2','d'))",
+ "code": "def f(stg, tabs):\n    for tab in tabs:\n        stg = stg.rstrip(tab)\n    return stg",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

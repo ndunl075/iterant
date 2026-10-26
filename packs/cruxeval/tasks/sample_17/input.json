@@ -1,0 +1,5 @@
+{
+ "call": "f(\"There are, no, commas, in this text\")",
+ "code": "def f(text):\n    return text.find(\",\")",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

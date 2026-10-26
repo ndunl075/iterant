@@ -1,0 +1,5 @@
+{
+ "call": "f(1)",
+ "code": "def f(n):\n    streak = ''\n    for c in str(n):\n        streak += c.ljust(int(c) * 2)\n    return streak",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

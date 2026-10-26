@@ -1,0 +1,5 @@
+{
+ "call": "f('eqe-;ew22')",
+ "code": "def f(st):\n    if st[0] == '~':\n        e = st.rjust(10, 's')\n        return f(e)\n    else:\n        return st.rjust(10, 'n')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('Str zahrnuje anglo-ameri\u00e6ske vasi piscina and kuca!')",
+ "code": "def f(string):\n    if string.isalnum():\n        return \"ascii encoded is allowed for this language\"\n    return \"more than ASCII\"",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

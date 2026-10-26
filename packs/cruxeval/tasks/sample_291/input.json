@@ -1,0 +1,5 @@
+{
+ "call": "f({}, ['a', 2])",
+ "code": "def f(dictionary, arr):\n    dictionary.update({arr[0]: [arr[1]]})\n    if len(dictionary[arr[0]]) == arr[1]:\n        dictionary[arr[0]] = arr[0]\n    return dictionary",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

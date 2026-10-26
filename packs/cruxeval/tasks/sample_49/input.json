@@ -1,0 +1,5 @@
+{
+ "call": "f('816')",
+ "code": "def f(text):\n    if text.isidentifier():\n        return ''.join(c for c in text if c.isdigit())\n    else:\n        return ''.join(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

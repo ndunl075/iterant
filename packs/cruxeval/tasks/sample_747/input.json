@@ -1,0 +1,5 @@
+{
+ "call": "f(\"123E-10\")",
+ "code": "def f(text):\n    if text == '42.42':\n        return True\n    for i in range(3, len(text) - 3):\n        if text[i] == '.' and text[i - 3:].isdigit() and text[:i].isdigit():\n            return True\n    return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

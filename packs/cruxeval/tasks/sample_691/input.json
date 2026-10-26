@@ -1,0 +1,5 @@
+{
+ "call": "f('rpyttc', 'cyt')",
+ "code": "def f(text, suffix):\n    if suffix and suffix[-1] in text:\n        return f(text.rstrip(suffix[-1]), suffix[:-1])\n    else:\n        return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

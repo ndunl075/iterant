@@ -1,0 +1,5 @@
+{
+ "call": "f('', 'mi', 'siast')",
+ "code": "def f(s, c1, c2):\n    if s == '':\n        return s\n    ls = s.split(c1)\n    for index, item in enumerate(ls):\n        if c1 in item:\n            ls[index] = item.replace(c1, c2, 1)\n    return c1.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

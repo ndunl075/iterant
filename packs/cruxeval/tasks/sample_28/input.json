@@ -1,0 +1,5 @@
+{
+ "call": "f([5, 8])",
+ "code": "def f(mylist):\n    revl = mylist[:]\n    revl.reverse()\n    mylist.sort(reverse=True)\n    return mylist == revl",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

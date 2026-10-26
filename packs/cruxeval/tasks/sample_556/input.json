@@ -1,0 +1,5 @@
+{
+ "call": "f('\\n\\n\\t\\tz\\td\\ng\\n\\t\\t\\te')",
+ "code": "def f(text):\n    for i in range(len(text)):\n        if text[i] == ' ':\n            text = text.replace(' ', '\\t', 1)\n    return text.expandtabs(4)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

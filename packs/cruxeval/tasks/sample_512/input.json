@@ -1,0 +1,5 @@
+{
+ "call": "f('102')",
+ "code": "def f(s):\n    return len(s) == s.count('0') + s.count('1')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([3, 1, 2], 2, 0)",
+ "code": "def f(nums, pos, value):\n    nums.insert(pos, value)\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

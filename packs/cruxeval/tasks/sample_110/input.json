@@ -1,0 +1,5 @@
+{
+ "call": "f(\"       \")",
+ "code": "def f(text):\n    a = ['']\n    b = ''\n    for i in text:\n        if not i.isspace():\n            a.append(b)\n            b = ''\n        else:\n            b += i\n    return len(a)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

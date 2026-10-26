@@ -1,0 +1,5 @@
+{
+ "call": "f('[ Hello ]+ Hello, World!!_ Hi')",
+ "code": "def f(string):\n    tmp = string.lower()\n    for char in string.lower():\n        if char in tmp:\n            tmp = tmp.replace(char, '', 1)\n    return tmp",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('happy', 0, 3)",
+ "code": "def f(text, s, e):\n    sublist = text[s:e]\n    if not sublist:\n        return -1\n    return sublist.index(min(sublist))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

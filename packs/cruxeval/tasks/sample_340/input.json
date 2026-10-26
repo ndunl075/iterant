@@ -1,0 +1,5 @@
+{
+ "call": "f('E jIkx HtDpV G')",
+ "code": "def f(text):\n    uppercase_index = text.find('A')\n    if uppercase_index >= 0:\n        return text[:uppercase_index] + text[text.find('a') + 1 :]\n    else:\n        return ''.join(sorted(text))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

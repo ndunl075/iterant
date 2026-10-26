@@ -1,0 +1,5 @@
+{
+ "call": "f({1: 2, 3: 4, 5: 6, 'message': 'qrTHo'}, 8, 2)",
+ "code": "def f(c, index, value):\n    c[index] = value\n    if value >= 3:\n        c.update({'message' : 'xcrWt'})\n    else: \n        del c['message']\n    return c",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

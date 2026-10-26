@@ -1,0 +1,5 @@
+{
+ "call": "f('l000*',)",
+ "code": "def f(text):\n    counter = 0\n    for char in text:\n        if char.isalpha():\n            counter += 1\n    return counter",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

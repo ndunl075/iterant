@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(ets):\n    while ets:\n        k, v = ets.popitem()\n        ets[k] = v**2\n    return ets",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

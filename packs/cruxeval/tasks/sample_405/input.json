@@ -1,0 +1,5 @@
+{
+ "call": "f([6, 3, 4, 1, 2, 3, 5])",
+ "code": "def f(xs):\n    new_x = xs[0] - 1\n    xs.pop(0)\n    while(new_x <= xs[0]):\n        xs.pop(0)\n        new_x -= 1\n    xs.insert(0, new_x)\n    return xs",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

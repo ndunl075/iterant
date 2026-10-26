@@ -1,0 +1,5 @@
+{
+ "call": "f({'a': 1, 'b': 2, 'c': 3, 'd': 2})",
+ "code": "def f(my_dict):\n    result = {v: k for k, v in my_dict.items()}\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

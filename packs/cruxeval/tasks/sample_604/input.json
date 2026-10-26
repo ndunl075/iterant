@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Hello world\", \"Hello\")",
+ "code": "def f(text, start):\n    return text.startswith(start)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

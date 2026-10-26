@@ -1,0 +1,5 @@
+{
+ "call": "f('PoIOarTvpoead')",
+ "code": "def f(string):\n    upper = 0\n    for c in string:\n        if c.isupper():\n            upper += 1\n    return upper * (2,1)[upper % 2]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

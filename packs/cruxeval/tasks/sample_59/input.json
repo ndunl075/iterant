@@ -1,0 +1,5 @@
+{
+ "call": "f('hi ')",
+ "code": "def f(s):\n    a = [char for char in s if char != ' ']\n    b = a\n    for c in reversed(a):\n        if c == ' ':\n            b.pop()\n        else:\n            break\n    return ''.join(b)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"{{{{}}}}\", {})",
+ "code": "def f(out, mapping):\n    for key in mapping:\n        out.format_map(mapping)\n        if len(re.findall(r'{\\w}', out)) == 0:\n            break\n        mapping[key][1] = mapping[key][1][::-1]\n    return out",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

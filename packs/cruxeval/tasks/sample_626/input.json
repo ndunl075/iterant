@@ -1,0 +1,5 @@
+{
+ "call": "f('abab', [('a', 'b'), ('b', 'a')])",
+ "code": "def f(line, equalityMap):\n    rs = {\n        k[0]: k[1] for k in equalityMap\n    }\n    return line.translate(str.maketrans(rs))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

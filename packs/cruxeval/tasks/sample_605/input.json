@@ -1,0 +1,5 @@
+{
+ "call": "f([2, 5, 1, 7, 9, 3])",
+ "code": "def f(nums):\n    nums.clear()\n    return \"quack\"",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

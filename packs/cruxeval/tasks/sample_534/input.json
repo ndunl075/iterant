@@ -1,0 +1,5 @@
+{
+ "call": "f('hosu', 'o')",
+ "code": "def f(sequence, value):\n    i = max(sequence.index(value) - len(sequence) // 3, 0)\n    result = ''\n    for j, v in enumerate(sequence[i:]):\n        if v == '+':\n            result += value\n        else:\n            result += sequence[i + j]\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([2], 0, 2)",
+ "code": "def f(array, index, value):\n    array.insert(0, index + 1)\n    if value >= 1:\n        array.insert(index, value)\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

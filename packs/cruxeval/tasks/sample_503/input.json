@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(d):\n    result = [None] * len(d)\n    a = b = 0\n    while d:\n        result[a] = d.popitem(a == b)\n        a, b = b, (b+1) % len(result)\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

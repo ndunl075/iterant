@@ -1,0 +1,5 @@
+{
+ "call": "f([[1, 1, 1, 1]])",
+ "code": "def f(matrix):\n    matrix.reverse()\n    result = []\n    for primary in matrix:\n        max(primary)\n        primary.sort(reverse = True)\n        result.append(primary)\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

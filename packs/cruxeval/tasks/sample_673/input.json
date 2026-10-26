@@ -1,0 +1,5 @@
+{
+ "call": "f(\"cA\")",
+ "code": "def f(string):\n    if string.isupper():\n        return string.lower()\n    elif string.islower():\n        return string.upper()\n    return string",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

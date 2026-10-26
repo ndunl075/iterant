@@ -1,0 +1,5 @@
+{
+ "call": "f({ 4: 'a' })",
+ "code": "def f(dict):\n    even_keys = []\n    for key in dict.keys():\n        if key % 2 == 0:\n            even_keys.append(key)\n    return even_keys",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

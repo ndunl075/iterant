@@ -1,0 +1,5 @@
+{
+ "call": "f({'882afmfp': 56}, '6f53p')",
+ "code": "def f(student_marks, name):\n    if name in student_marks:\n        value = student_marks.pop(name)\n        return value\n    return 'Name unknown'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

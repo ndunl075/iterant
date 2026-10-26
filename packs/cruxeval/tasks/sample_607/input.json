@@ -1,0 +1,5 @@
+{
+ "call": "f('. C.')",
+ "code": "def f(text):\n    for i in ['.', '!', '?']:\n        if text.endswith(i):\n            return True\n    return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

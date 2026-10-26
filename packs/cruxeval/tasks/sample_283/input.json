@@ -1,0 +1,5 @@
+{
+ "call": "f({'Iron Man': 4, 'Captain America': 3, 'Black Panther': 0,'Thor': 1, 'Ant-Man': 6}, 'Iron Man')",
+ "code": "def f(dictionary, key):\n    del dictionary[key]\n    if min(dictionary) == key:\n        key = list(dictionary)[0]\n    return key",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('.', 0, '99')",
+ "code": "def f(s, n, c):\n    width = len(c)*n\n    for _ in range(width - len(s)):\n        s = c + s\n    return s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

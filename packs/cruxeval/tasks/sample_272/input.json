@@ -1,0 +1,5 @@
+{
+ "call": "f([9, 7, 5, 3, 1], [2, 4, 6, 8, 0])",
+ "code": "def f(base_list, nums):\n    base_list.extend(nums)\n    res = base_list.copy()\n    for i in range(-len(nums), 0):\n        res.append(res[i])\n    return res",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

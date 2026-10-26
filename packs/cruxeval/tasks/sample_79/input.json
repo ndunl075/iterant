@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 1, 2, 3, 4])",
+ "code": "def f(arr):\n    arr = list(arr)\n    arr.clear()\n    arr.append('1')\n    arr.append('2')\n    arr.append('3')\n    arr.append('4')\n    return ','.join(arr)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

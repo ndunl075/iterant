@@ -1,0 +1,5 @@
+{
+ "call": "f('03625163633 d')",
+ "code": "def f(text):\n    text = text.split(' ')\n    for t in text:\n        if not t.isnumeric():\n            return 'no'\n    return 'yes'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

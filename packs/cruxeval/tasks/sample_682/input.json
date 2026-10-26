@@ -1,0 +1,5 @@
+{
+ "call": "f('hypernimovichyp', 2, 2)",
+ "code": "def f(text, length, index):\n    ls = text.rsplit(None, index)\n    return '_'.join([l[:length] for l in ls])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

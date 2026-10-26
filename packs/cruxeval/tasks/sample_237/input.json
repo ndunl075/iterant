@@ -1,0 +1,5 @@
+{
+ "call": "f('uzlwaqiaj', 'u')",
+ "code": "def f(text, char):\n    if char in text:\n        suff, char, pref = text.partition(char)\n        pref = suff[:-len(char)] + suff[len(char):] + char + pref\n        return suff + char + pref\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('jro', 'wdlp')",
+ "code": "def f(text, new_ending):\n    result = list(text)\n    result.extend(new_ending)\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

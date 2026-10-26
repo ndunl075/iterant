@@ -1,0 +1,5 @@
+{
+ "call": "f('kkxkxxfck')",
+ "code": "def f(text):\n    s = text.rpartition('o')\n    div, div2 = (s[0] == '' and '-' or s[0]), (s[2] == '' and '-' or s[2])\n    return s[1] + div + s[1] + div2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"vsnlygltaw\")",
+ "code": "def f(text):\n    result = \"\"\n    for i in range(len(text)):\n        if i % 2 == 0:\n            result += text[i].swapcase()\n        else:\n            result += text[i]\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

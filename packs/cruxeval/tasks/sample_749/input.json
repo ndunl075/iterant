@@ -1,0 +1,5 @@
+{
+ "call": "f('l\\nl', 2)",
+ "code": "def f(text, width):\n    result = \"\"\n    lines = text.split('\\n')\n    for l in lines:\n        result += l.center(width)\n        result += '\\n'\n\n    # Remove the very last empty line\n    result = result[:-1]\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({'X': ['x', 'y']})",
+ "code": "def f(d):\n    dCopy = d.copy()\n    for key, value in dCopy.items():\n        for i in range(len(value)):\n            value[i] = value[i].upper()\n    return dCopy",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

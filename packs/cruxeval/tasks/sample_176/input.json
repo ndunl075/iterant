@@ -1,0 +1,5 @@
+{
+ "call": "f('some text', 'some')",
+ "code": "def f(text, to_place):\n    after_place = text[:text.find(to_place, 0) + 1]\n    before_place = text[text.find(to_place, 0) + 1:]\n    return after_place + before_place",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

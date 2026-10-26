@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Vipra\", \"via\")",
+ "code": "def f(string, prefix):\n    if string.startswith(prefix):\n        return string.removeprefix(prefix)\n    return string",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

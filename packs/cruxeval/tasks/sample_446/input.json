@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(array):\n    l = len(array)\n    if l % 2 == 0:\n        array.clear()\n    else:\n        array.reverse()\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

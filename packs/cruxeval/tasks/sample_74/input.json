@@ -1,0 +1,5 @@
+{
+ "call": "f([44, 34, 23, 82, 24, 11, 63, 99], 4, 15)",
+ "code": "def f(lst, i, n):\n    lst.insert(i, n)\n    return lst",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

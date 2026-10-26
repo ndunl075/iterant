@@ -1,0 +1,5 @@
+{
+ "call": "f('Hello There', '*')",
+ "code": "def f(s, c):\n    s = s.split(' ')\n    return ((c + \"  \") + (\"  \".join(s[::-1])))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

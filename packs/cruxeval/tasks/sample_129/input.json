@@ -1,0 +1,5 @@
+{
+ "call": "f('ONBPICJOHRHDJOSNCPNJ9ONTHBQCJ', 'J')",
+ "code": "def f(text, search_string):\n    indexes = []\n    while search_string in text:\n        indexes.append(text.rindex(search_string))\n        text = text[:text.rindex(search_string)]\n    return indexes",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

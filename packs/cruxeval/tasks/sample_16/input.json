@@ -1,0 +1,5 @@
+{
+ "call": "f('zejrohaj', 'owc')",
+ "code": "def f(text, suffix):\n    if text.endswith(suffix):\n        return text[:-len(suffix)]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

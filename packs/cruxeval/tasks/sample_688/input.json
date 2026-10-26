@@ -1,0 +1,5 @@
+{
+ "call": "f([3, 1, 9, 0, 2, 0, 8])",
+ "code": "def f(nums):\n    l = []\n    for i in nums:\n        if i not in l:\n            l.append(i)\n    return l",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

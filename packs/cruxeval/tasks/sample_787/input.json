@@ -1,0 +1,5 @@
+{
+ "call": "f('xzd')",
+ "code": "def f(text):\n    if len(text) == 0:\n        return ''\n    text = text.lower()\n    return text[0].upper() + text[1:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

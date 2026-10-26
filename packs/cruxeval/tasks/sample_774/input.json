@@ -1,0 +1,5 @@
+{
+ "call": "f(23, 'Cornareti')",
+ "code": "def f(num, name):\n    f_str = 'quiz leader = {}, count = {}'\n    return f_str.format(name, num)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({15: \"Qltuf\", 12: \"Rwrepny\"})",
+ "code": "def f(a):\n    s = dict(list(a.items())\n    [::-1])\n    return \" \".join([str(i) for i in s.items()])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

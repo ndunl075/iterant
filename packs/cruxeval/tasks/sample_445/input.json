@@ -1,0 +1,5 @@
+{
+ "call": "f(\"carrot, banana, and strawberry\")",
+ "code": "def f(names):\n    parts = names.split(',')\n    for i, part in enumerate(parts):\n        parts[i] = part.replace(' and', '+').title().replace('+', ' and')\n    return ', '.join(parts)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

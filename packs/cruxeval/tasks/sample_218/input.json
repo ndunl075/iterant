@@ -1,0 +1,5 @@
+{
+ "call": "f('caabcfcabfc', 'ab')",
+ "code": "def f(string, sep):\n    cnt = string.count(sep)\n    return((string+sep) * cnt)[::-1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

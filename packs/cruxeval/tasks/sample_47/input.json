@@ -1,0 +1,5 @@
+{
+ "call": "f('bbbbr')",
+ "code": "def f(text):\n    length = len(text)\n    half = length // 2\n    encode = text[:half].encode('ascii')\n    if text[half:] == encode.decode():\n        return True\n    else:\n        return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"100010010\")",
+ "code": "def f(row):\n    return (row.count('1'), row.count('0'))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

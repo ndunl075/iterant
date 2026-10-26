@@ -1,0 +1,5 @@
+{
+ "call": "f(\"seiq7229 d27\")",
+ "code": "def f(text):\n    a = []\n    for i in range(len(text)):\n        if not text[i].isdecimal():\n            a.append(text[i])\n    return ''.join(a)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

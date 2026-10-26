@@ -1,0 +1,5 @@
+{
+ "call": "f(\"BYE\\nNO\\nWAY\")",
+ "code": "def f(text):\n    return ', '.join(text.splitlines())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

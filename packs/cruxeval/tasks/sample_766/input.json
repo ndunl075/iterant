@@ -1,0 +1,5 @@
+{
+ "call": "f(['0','3'], 117)",
+ "code": "def f(values, value):\n    length = len(values)\n    new_dict = dict.fromkeys(values, value)\n    new_dict[''.join(sorted(values))] = value * 3\n    return new_dict",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

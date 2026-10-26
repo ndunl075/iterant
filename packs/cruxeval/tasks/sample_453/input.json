@@ -1,0 +1,5 @@
+{
+ "call": "f('wrsch)xjmb8', 'c')",
+ "code": "def f(string, c):\n    return string.endswith(c)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

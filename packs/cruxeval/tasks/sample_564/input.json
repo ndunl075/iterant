@@ -1,0 +1,5 @@
+{
+ "call": "f([[395, 666, 7, 4], [], [4223, 111]])",
+ "code": "def f(lists):\n    lists[1].clear()\n    lists[2] += lists[1]\n    return lists[0]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

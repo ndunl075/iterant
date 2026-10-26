@@ -1,0 +1,5 @@
+{
+ "call": "f('sierizam', 'iz')",
+ "code": "def f(a, b):\n    if b in a:\n        return b.join(a.partition(a[a.index(b) + 1]))\n    else:\n        return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

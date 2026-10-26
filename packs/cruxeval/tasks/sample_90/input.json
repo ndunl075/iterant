@@ -1,0 +1,5 @@
+{
+ "call": "f([[1, 2, 3], [], [1, 2, 3]])",
+ "code": "def f(array):\n    return_arr = []\n    for a in array:\n        return_arr.append(a.copy())\n    return return_arr",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

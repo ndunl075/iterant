@@ -1,0 +1,5 @@
+{
+ "call": "f(['12','ab'], [2,2])",
+ "code": "def f(a, b):\n    d = dict(zip(a, b))\n    a.sort(key=d.get, reverse=True)\n    return [d.pop(x) for x in a]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

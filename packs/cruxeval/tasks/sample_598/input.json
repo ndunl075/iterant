@@ -1,0 +1,5 @@
+{
+ "call": "f('abc', 1)",
+ "code": "def f(text, n):\n    length = len(text)\n    return text[length*(n%4):length ]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

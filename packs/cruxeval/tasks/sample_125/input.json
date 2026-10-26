@@ -1,0 +1,5 @@
+{
+ "call": "f('\"Leap and the net will appear', 123)",
+ "code": "def f(text, res):\n    for c in '*\\n\"':\n        text = text.replace(c, '!' + str(res))\n    if text.startswith('!'):\n        text = text[len(str(res)):]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

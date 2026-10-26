@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 0, 2, 2, 0, 0, 0, 1])",
+ "code": "def f(x):\n    if x == []:\n        return -1\n    else:\n        cache = {}\n        for item in x:\n            if item in cache:\n                cache[item] += 1\n            else:\n                cache[item] = 1\n        return max(cache.values())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

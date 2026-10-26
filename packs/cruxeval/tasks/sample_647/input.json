@@ -1,0 +1,5 @@
+{
+ "call": "f('/alcm@ an)t//eprw)/e!/d\\nujv', 0)",
+ "code": "def f(text, chunks):\n    return text.splitlines(chunks)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2], 1)",
+ "code": "def f(array, num):\n    reverse = False\n    if num < 0:\n        reverse = True\n        num *= -1\n    array = array[::-1] * num\n    l = len(array)\n    \n    if reverse:\n        array = array[::-1]\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

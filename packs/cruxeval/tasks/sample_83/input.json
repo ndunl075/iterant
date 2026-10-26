@@ -1,0 +1,5 @@
+{
+ "call": "f('qq0tt')",
+ "code": "def f(text):\n    l = text.rpartition('0')\n    if l[2] == '':\n        return '-1:-1'\n    return f'{len(l[0])}:{l[2].find(\"0\") + 1}'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('qq')",
+ "code": "def f(text):\n    ls = list(text)\n    for x in range(len(ls)-1, -1, -1):\n        if len(ls) <= 1: break\n        if ls[x] not in 'zyxwvutsrqponmlkjihgfedcba': ls.pop(ls[x])\n    return ''.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"r;r;r;r;r;r;r;r;r\", \"x.r\")",
+ "code": "def f(text, characters):\n    for i in range(len(characters)):\n        text = text.rstrip(characters[i::len(characters)])\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

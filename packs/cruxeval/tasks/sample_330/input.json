@@ -1,0 +1,5 @@
+{
+ "call": "f('m4n2o')",
+ "code": "def f(text):\n    ans = []\n    for char in text:\n        if char.isdigit():\n            ans.append(char)\n        else:\n            ans.append(' ')\n    return ''.join(ans)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

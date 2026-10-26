@@ -1,0 +1,5 @@
+{
+ "call": "f({-1: \"a\", 0: \"b\", 1: \"c\"})",
+ "code": "def f(dic):\n    dic2 = dict(zip(dic.values(), dic.keys()))\n    return dic2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

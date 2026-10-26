@@ -1,0 +1,5 @@
+{
+ "call": "f('Rjug nzufE')",
+ "code": "def f(text):\n    t = list(text)\n    t.pop(len(t) // 2)\n    t.append(text.lower())\n    return ':'.join([c for c in t])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

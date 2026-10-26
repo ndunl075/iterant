@@ -1,0 +1,5 @@
+{
+ "call": "f('Chris requires a ride to the airport on Friday.', 'a')",
+ "code": "def f(text, use):\n    return text.replace(use, '')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"\")",
+ "code": "def f(text):\n    texts = text.split()\n    if texts:\n        xtexts = [t for t in texts if t.isascii() and t not in ('nada', '0')]\n        return max(xtexts, key=len) if xtexts else 'nada'\n    return 'nada'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

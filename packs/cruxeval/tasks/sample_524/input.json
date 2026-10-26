@@ -1,0 +1,5 @@
+{
+ "call": "f({2: 5, 4: 1, 3: 5, 1: 3, 5: 1})",
+ "code": "def f(dict0):\n    new = dict0.copy()\n    for i in range(len(new)-1):\n        dict0[sorted(new)[i]] = i\n    return dict0",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

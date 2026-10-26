@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 1, 1, 2], 3)",
+ "code": "def f(nums, target):\n    if nums.count(0):\n        return 0\n    elif nums.count(target) < 3:\n        return 1\n    else:\n        return nums.index(target)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

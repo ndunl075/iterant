@@ -1,0 +1,5 @@
+{
+ "call": "f([35, 45, 3, 61, 39, 27, 47], 0)",
+ "code": "def f(nums, i):\n    nums.pop(i)\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

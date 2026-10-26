@@ -1,0 +1,5 @@
+{
+ "call": "f('\"Makers of a Statement\"')",
+ "code": "def f(s):\n    s = s.replace('\"', '')\n    lst = list(s)\n    col = 0\n    count = 1\n    while col < len(lst) and lst[col] in \".:,\":\n        if lst[col] == \".\":\n            count = ls[col] + 1\n        col += 1\n    return s[col+count:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(['23'], 123)",
+ "code": "def f(array, value):\n    array.reverse()\n    array.pop()\n    odd = []\n    while len(array) > 0:\n        tmp = {}\n        tmp[array.pop()] = value\n        odd.append(tmp)\n    result = {}\n    while len(odd) > 0:\n        result.update(odd.pop())\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

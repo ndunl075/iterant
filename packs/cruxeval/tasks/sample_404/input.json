@@ -1,0 +1,5 @@
+{
+ "call": "f(['l', 'f', 'h', 'g', 's', 'b'])",
+ "code": "def f(no):\n    d = dict.fromkeys(no, False) \n    return sum([1 for i in d.keys()])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

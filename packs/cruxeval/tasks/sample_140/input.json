@@ -1,0 +1,5 @@
+{
+ "call": "f('Hi there')",
+ "code": "def f(st):\n    if st.lower().rindex('h', st.lower().rindex('i')) >= st.lower().rindex('i'):\n        return 'Hey'\n    else:\n        return 'Hi'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

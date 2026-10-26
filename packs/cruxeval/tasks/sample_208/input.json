@@ -1,0 +1,5 @@
+{
+ "call": "f(['123', 'cat', 'd dee'])",
+ "code": "def f(items):\n    result = []\n    for item in items:\n        for d in item:\n            if not d.isdigit():\n                result.append(d)\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

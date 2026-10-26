@@ -1,0 +1,5 @@
+{
+ "call": "f([4, 8, 17, 89, 43, 14])",
+ "code": "def f(array):\n    array_2 = []\n    for i in array:\n        if i>0:\n            array_2 += [i]\n    array_2.sort(reverse=True)\n    return array_2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

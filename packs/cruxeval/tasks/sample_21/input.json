@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 1, 2, 2])",
+ "code": "def f(array):\n    n = array.pop()\n    array.extend([n, n])\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

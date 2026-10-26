@@ -1,0 +1,5 @@
+{
+ "call": "f('0 t 1cos ', 'st ' + '0\\t\\n  ')",
+ "code": "def f(text, froms):\n    text = text.lstrip(froms)\n    text = text.rstrip(froms)\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

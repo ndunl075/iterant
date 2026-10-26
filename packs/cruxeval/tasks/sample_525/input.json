@@ -1,0 +1,5 @@
+{
+ "call": "f({'TEXT': 7, 'CODE': 3}, 7, 3)",
+ "code": "def f(c, st, ed):\n    d = {}\n    a, b = 0, 0\n    for x, y in c.items():\n        d[y] = x\n        if y == st:\n            a = x\n        if y == ed:\n            b = x\n    w = d[st]\n    return (w, b) if a > b else (b, w)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

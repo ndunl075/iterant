@@ -1,0 +1,5 @@
+{
+ "call": "f(\"booty boot-boot bootclass\", 'k')",
+ "code": "def f(a, split_on):\n    t = a.split()\n    a = []\n    for i in t:\n        for j in i:\n            a.append(j)\n    if split_on in a:\n        return True\n    else:\n        return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

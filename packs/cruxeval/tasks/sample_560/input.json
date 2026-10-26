@@ -1,0 +1,5 @@
+{
+ "call": "f(\"591237865\")",
+ "code": "def f(text):\n    x = 0\n    if text.islower():\n        for c in text:\n            if int(c) in list(range(90)):\n                x+=1\n    return x",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

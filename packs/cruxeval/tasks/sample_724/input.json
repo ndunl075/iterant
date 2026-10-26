@@ -1,0 +1,5 @@
+{
+ "call": "f(\"010100\", \"010\")",
+ "code": "def f(text, function):\n    cites = [len(text[text.index(function) + len(function):])]\n    for char in text:\n        if char == function:\n            cites.append(len(text[text.index(function) + len(function):]))\n    return cites",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

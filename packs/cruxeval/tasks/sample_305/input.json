@@ -1,0 +1,5 @@
+{
+ "call": "f('o horseto', 'r')",
+ "code": "def f(text, char):\n    length = len(text)\n    index = -1\n    for i in range(length):\n        if text[i] == char:\n            index = i\n    if index == -1:\n        index = length // 2\n    new_text = list(text)\n    new_text.pop(index)\n    return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

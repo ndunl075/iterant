@@ -1,0 +1,5 @@
+{
+ "call": "f('7Ljnw4Lj', '7')",
+ "code": "def f(text, digit):\n    #different than previous? Just count instances digit\n    count = text.count(digit)\n    return int(digit) * count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

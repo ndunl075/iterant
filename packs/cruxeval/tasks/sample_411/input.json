@@ -1,0 +1,5 @@
+{
+ "call": "f('Hello World', 'W')",
+ "code": "def f(text, pref):\n    if isinstance(pref, list):\n        return ', '.join(text.startswith(x) for x in pref)\n    else:\n        return text.startswith(pref)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([ -4,   1,  0], 1, 4)",
+ "code": "def f(array, i_num, elem):\n    array.insert(i_num, elem)\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

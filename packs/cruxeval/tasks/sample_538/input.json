@@ -1,0 +1,5 @@
+{
+ "call": "f('0574', 9)",
+ "code": "def f(text, width):\n    return text[:width].center(width, 'z')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({\"lorem ipsum\" : 12, \"dolor\" : 23}, [\"lorem ipsum\", \"dolor\"])",
+ "code": "def f(d, l):\n\tnew_d = {}\n\n\tfor k in l:\n\t\tif d.get(k) is not None:\n\t\t\tnew_d[k] = d[k]\n\n\treturn new_d.copy()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

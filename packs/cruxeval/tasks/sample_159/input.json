@@ -1,0 +1,5 @@
+{
+ "call": "f('RTiGM')",
+ "code": "def f(st):\n    swapped = ''\n    for ch in reversed(st):\n        swapped += ch.swapcase()\n    return swapped",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

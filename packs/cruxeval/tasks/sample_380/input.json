@@ -1,0 +1,5 @@
+{
+ "call": "f('xxjarczx', 'x')",
+ "code": "def f(text, delimiter):\n    text = text.rpartition(delimiter)\n    return text[0] + text[-1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

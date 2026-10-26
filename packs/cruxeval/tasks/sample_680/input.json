@@ -1,0 +1,5 @@
+{
+ "call": "f(\"we@32r71g72ug94=(823658*!@324\")",
+ "code": "def f(text):\n    letters = ''\n    for i in range(len(text)):\n        if text[i].isalnum():\n            letters += text[i]\n    return letters",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

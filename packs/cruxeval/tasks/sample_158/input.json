@@ -1,0 +1,5 @@
+{
+ "call": "f([3, 6, 4, -2, 5])",
+ "code": "def f(arr):\n    n = [item for item in arr if item%2 == 0]\n    m = n+arr\n    for i in m:\n        if m.index(i) >= len(n):\n            m.remove(i)\n    return m",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

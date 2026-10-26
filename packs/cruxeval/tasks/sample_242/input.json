@@ -1,0 +1,5 @@
+{
+ "call": "f(\"udhv zcvi nhtnfyd :erwuyawa pun\")",
+ "code": "def f(book):\n    a = book.rsplit(':', 1)\n    if a[0].split(' ')[-1] == a[1].split(' ')[0]:\n        return f(' '.join(a[0].split(' ')[:-1]) + ' ' + a[1])\n    return book",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

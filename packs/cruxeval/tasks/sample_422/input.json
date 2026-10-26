@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 1])",
+ "code": "def f(array):\n    new_array = array.copy()\n    new_array = reversed(new_array)\n    return [x*x for x in new_array]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

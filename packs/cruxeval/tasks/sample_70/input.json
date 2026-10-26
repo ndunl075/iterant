@@ -1,0 +1,5 @@
+{
+ "call": "f('999893767522480')",
+ "code": "def f(x):\n    a = 0\n    for i in x.split(' '):\n        a += len(i.zfill(len(i)*2))\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('697 this is the ultimate 7 address to attack')",
+ "code": "def f(text):\n    for c in text:\n        if c.isdigit():\n            if c == '0':\n                c = '.'\n            else:\n                c = '0' if c != '1' else '.'\n    return ''.join(list(text)).replace('.', '0')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({3: \"swims like a bull\"}, [3, 2, 'c', True, 5])",
+ "code": "def f(d, get_ary):\n    result = []\n    for key in get_ary:\n        result.append(d.get(key))\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

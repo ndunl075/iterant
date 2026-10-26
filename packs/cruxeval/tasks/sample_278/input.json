@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 132], [5, 991, 32, 997])",
+ "code": "def f(array1, array2):\n    result = dict.fromkeys(array1)\n    for key in result:\n        result[key] = [el for el in array2 if key * 2 > el]\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

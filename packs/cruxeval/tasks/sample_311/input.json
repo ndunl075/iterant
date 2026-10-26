@@ -1,0 +1,5 @@
+{
+ "call": "f('A')",
+ "code": "def f(text):\n    text = text.replace('#', '1').replace('$', '5')\n    return 'yes' if text.isnumeric() else 'no'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

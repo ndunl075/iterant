@@ -1,0 +1,5 @@
+{
+ "call": "f([' ', '  ', '    ', '   '])",
+ "code": "def f(array):\n    s = ' '\n    s += ''.join(array)\n    return s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

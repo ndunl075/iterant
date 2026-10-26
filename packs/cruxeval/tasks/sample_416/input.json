@@ -1,0 +1,5 @@
+{
+ "call": "f('jysrhfm ojwesf xgwwdyr dlrul ymba bpq', 'j', '1')",
+ "code": "def f(text, old, new):\n    index = text.rfind(old, 0, text.find(old))\n    result = list(text)\n    while index > 0:\n        result[index:index+len(old)] = new\n        index = text.rfind(old, 0, index)\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

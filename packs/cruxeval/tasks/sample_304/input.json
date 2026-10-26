@@ -1,0 +1,5 @@
+{
+ "call": "f({2: 3, 17: 3, 16: 6, 18: 6, 87: 7})",
+ "code": "def f(d):\n    key1 = sorted(d.items(), key=lambda x: x[0], reverse=True)[0][0]\n    val1 = d.pop(key1)\n    key2 = sorted(d.items(), key=lambda x: x[0], reverse=True)[0][0]\n    val2 = d.pop(key2)\n    return dict({key1: val1, key2: val2})",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

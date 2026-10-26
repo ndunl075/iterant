@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 1, 1], 3)",
+ "code": "def f(keys, value):\n    d = dict.fromkeys(keys, value)\n    for i, k in enumerate(d.copy(), 1):\n        if d[k] == d[i]:\n            del d[i]\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

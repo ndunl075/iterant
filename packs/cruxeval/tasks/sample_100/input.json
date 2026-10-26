@@ -1,0 +1,5 @@
+{
+ "call": "f({'1': 'a', 1: 'a', 1: 'b', '1': 'b'}, [1])",
+ "code": "def f(d, rm):\n    res = d.copy()\n    for k in rm:\n        if k in res:\n            del res[k]\n    return res",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

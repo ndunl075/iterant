@@ -1,0 +1,5 @@
+{
+ "call": "f('ababa', 'ab')",
+ "code": "def f(s, suffix):\n    if not suffix:\n        return s\n    while s.endswith(suffix):\n        s = s[:-len(suffix)]\n    return s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

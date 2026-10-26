@@ -1,0 +1,5 @@
+{
+ "call": "f('qwbnjrxs', ['jr', 'b', 'r', 'qw'])",
+ "code": "def f(st, pattern):\n    for p in pattern:\n        if not st.startswith(p): return False\n        st = st[len(p):]\n    return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

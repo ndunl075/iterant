@@ -1,0 +1,5 @@
+{
+ "call": "f({'x': 67, 'v': 89, '': 4, 'alij': 11, 'kgfsd': 72, 'yafby': 83})",
+ "code": "def f(marks):\n    highest = 0\n    lowest = 100\n    for value in marks.values():\n        if value > highest:\n            highest = value\n        if value < lowest:\n            lowest = value\n    return highest, lowest",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

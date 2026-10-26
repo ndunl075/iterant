@@ -1,0 +1,5 @@
+{
+ "call": "f(\"some test string\", \"some\", \"any\")",
+ "code": "def f(text, old, new):\n    text2 = text.replace(old, new)\n    old2 = old[::-1]\n    while old2 in text2:\n        text2 = text2.replace(old2, new)\n    return text2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

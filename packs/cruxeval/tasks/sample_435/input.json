@@ -1,0 +1,5 @@
+{
+ "call": "f([], 0, 1)",
+ "code": "def f(numbers, num, val):\n    while len(numbers) < num:\n        numbers.insert(len(numbers) // 2, val)\n    for _ in range(len(numbers) // (num - 1) - 4):\n        numbers.insert(len(numbers) // 2, val)\n    return ' '.join(numbers)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

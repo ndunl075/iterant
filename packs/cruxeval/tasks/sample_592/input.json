@@ -1,0 +1,5 @@
+{
+ "call": "f([11, 3])",
+ "code": "def f(numbers):\n    new_numbers = []\n    for i, _ in enumerate(numbers):\n        new_numbers.append(numbers[len(numbers)-1-i])\n    return new_numbers",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

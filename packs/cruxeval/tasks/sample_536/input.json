@@ -1,0 +1,5 @@
+{
+ "call": "f('C24Bxxx982ab')",
+ "code": "def f(cat):\n    digits = 0\n    for char in cat:\n        if char.isdigit():\n            digits += 1\n    return digits",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

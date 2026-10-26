@@ -1,0 +1,5 @@
+{
+ "call": "f('mid', {'0':'q','1':'f','2':'w','3':'i'})",
+ "code": "def f(concat, di):\n    count = len(di)\n    for i in range(count):\n        if di[str(i)] in concat:\n            di.pop(str(i))\n    return \"Done!\"",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

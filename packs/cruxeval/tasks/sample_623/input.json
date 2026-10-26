@@ -1,0 +1,5 @@
+{
+ "call": "f('hi~!', ['~', '`', '!', '&'])",
+ "code": "def f(text, rules):\n    for rule in rules:\n        if rule == '@':\n            text = text[::-1]\n        elif rule == '~':\n            text = text.upper()\n        elif text and text[len(text)-1] == rule:\n            text = text[0:len(text)-1]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

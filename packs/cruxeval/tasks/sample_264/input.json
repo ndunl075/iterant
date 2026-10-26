@@ -1,0 +1,5 @@
+{
+ "call": "f(\"papera\")",
+ "code": "def f(test_str):\n    s = test_str.replace('a', 'A')\n    return s.replace('e', 'A')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

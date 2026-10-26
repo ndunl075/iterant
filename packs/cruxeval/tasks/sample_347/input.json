@@ -1,0 +1,5 @@
+{
+ "call": "f('hzcw')",
+ "code": "def f(text):\n    ls = list(text)\n    length = len(ls)\n    for i in range(length):\n        ls.insert(i, ls[i])\n    return ''.join(ls).ljust(length * 2)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

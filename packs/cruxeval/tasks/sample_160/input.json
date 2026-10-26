@@ -1,0 +1,5 @@
+{
+ "call": "f({1: 47698, 1: 32849, 1: 38381, 3: 83607})",
+ "code": "def f(dictionary):\n    while not dictionary.get(1, len(dictionary)):\n        dictionary.clear()\n        break\n    return dictionary",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

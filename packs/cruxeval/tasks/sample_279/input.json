@@ -1,0 +1,5 @@
+{
+ "call": "f(\"\")",
+ "code": "def f(text):\n    ans = ''\n    while text != '':\n        x, sep, text = text.partition('(')\n        ans = x + sep.replace('(', '|') + ans\n        ans = ans + text[0] + ans\n        text = text[1:]\n    return ans",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

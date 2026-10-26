@@ -1,0 +1,5 @@
+{
+ "call": "f(\"5123807309875480094949830\")",
+ "code": "def f(txt):\n    return txt.format(*('0'*20,))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

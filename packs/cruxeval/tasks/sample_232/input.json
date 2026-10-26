@@ -1,0 +1,5 @@
+{
+ "call": "f('fssnvd', 'yes')",
+ "code": "def f(text, changes):\n    result = ''\n    count = 0\n    changes = list(changes)\n    for char in text:\n        result += char if char in 'e' else changes[count % len(changes)]\n        count += (1 if char not in 'e' else 0)\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

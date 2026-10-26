@@ -1,0 +1,5 @@
+{
+ "call": "f([-1, 9, 3, 1, -2])",
+ "code": "def f(nums):\n    nums.reverse()\n    return ''.join(map(str, nums))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('sjbrlfqmw', 'l')",
+ "code": "def f(text, to_remove):\n    new_text = list(text)\n    if to_remove in new_text:\n        index = new_text.index(to_remove)\n        new_text.remove(to_remove)\n        new_text.insert(index, '?')\n        new_text.remove('?')\n    return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('Nuva?dlfuyjys')",
+ "code": "def f(string):\n    if string[:4] != 'Nuva':\n        return 'no'\n    else:\n        return string.rstrip()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

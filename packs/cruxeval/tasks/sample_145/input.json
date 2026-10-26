@@ -1,0 +1,5 @@
+{
+ "call": "f(8.50, 'grapes')",
+ "code": "def f(price, product):\n    inventory = ['olives', 'key', 'orange']\n    if product not in inventory:\n        return price\n    else:\n        price *=.85\n        inventory.remove(product)\n    return price",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

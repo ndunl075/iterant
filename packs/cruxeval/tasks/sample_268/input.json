@@ -1,0 +1,5 @@
+{
+ "call": "f('h grateful k', ' ')",
+ "code": "def f(s, separator):\n    for i in range(len(s)):\n        if s[i] == separator:\n            new_s = list(s)\n            new_s[i] = '/'\n            return ' '.join(new_s)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

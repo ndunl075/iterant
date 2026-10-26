@@ -1,0 +1,5 @@
+{
+ "call": "f(\"lert dna ndqmxohi3\")",
+ "code": "def f(x):\n    return \" \".join(list(x)[::-1])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

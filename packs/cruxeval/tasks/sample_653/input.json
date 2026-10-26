@@ -1,0 +1,5 @@
+{
+ "call": "f(\"c, c, c ,c, c\", \"c\")",
+ "code": "def f(text, letter):\n    t = text\n    for alph in text:\n        t = t.replace(alph, \"\")\n    return len(t.split(letter))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

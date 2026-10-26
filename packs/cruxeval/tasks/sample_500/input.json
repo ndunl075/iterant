@@ -1,0 +1,5 @@
+{
+ "call": "f('dsj osq wi w', ' ')",
+ "code": "def f(text, delim):\n    return text[:text[::-1].find(delim)][::-1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

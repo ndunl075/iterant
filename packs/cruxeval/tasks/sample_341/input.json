@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(cart):\n    while len(cart) > 5:\n        cart.popitem()\n    return cart",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

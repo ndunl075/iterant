@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 5, 2, 3, 6], 2, 4)",
+ "code": "def f(nums, pop1, pop2):\n    nums.pop(pop1 - 1)\n    nums.pop(pop2 - 1)\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\" 99 777\")",
+ "code": "def f(var):\n    if var.isdigit():\n        return \"int\"\n    elif var.replace('.', '', 1).isdigit():\n        return \"float\"\n    elif var.count(' ') == len(var) - 1:\n        return \"str\"\n    elif len(var) == 1:\n        return \"char\"\n    else:\n        return \"tuple\"",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

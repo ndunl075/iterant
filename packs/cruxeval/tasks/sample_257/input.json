@@ -1,0 +1,5 @@
+{
+ "call": "f(['Hello World\\n\"I am String\"'])",
+ "code": "def f(text):\n    ls = []\n    for x in text:\n        ls.append(x.splitlines())\n    return ls",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

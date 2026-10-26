@@ -1,0 +1,5 @@
+{
+ "call": "f('eat!')",
+ "code": "def f(text):\n    result = ''\n    mid = (len(text) - 1) // 2\n    for i in range(mid):\n        result += text[i]\n    for i in range(mid, len(text)-1):\n        result += text[mid + len(text) - 1 - i]\n    return result.ljust(len(text), text[-1])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

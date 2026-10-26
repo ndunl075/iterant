@@ -1,0 +1,5 @@
+{
+ "call": "f('99')",
+ "code": "def f(text):\n    for c in text:\n        if not c.isnumeric():\n            return False\n    return bool(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

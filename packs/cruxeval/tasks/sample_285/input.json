@@ -1,0 +1,5 @@
+{
+ "call": "f(\"This be Pirate's Speak for 'help'!\", ' ')",
+ "code": "def f(text, ch):\n    \"\"\"Counting vowels in Pirates' Curse\"\"\"\n    return text.count(ch)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

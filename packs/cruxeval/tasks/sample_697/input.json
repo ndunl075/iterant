@@ -1,0 +1,5 @@
+{
+ "call": "f(\"not it\", \"\")",
+ "code": "def f(s, sep):\n    sep_index = s.find(sep)\n    prefix = s[:sep_index]\n    middle = s[sep_index:sep_index + len(sep)]\n    right_str = s[sep_index + len(sep):]\n    return prefix, middle, right_str",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

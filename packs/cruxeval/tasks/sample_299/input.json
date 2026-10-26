@@ -1,0 +1,5 @@
+{
+ "call": "f('staovk', 'k')",
+ "code": "def f(text, char):\n    if not text.endswith(char):\n        return f(char + text, char)\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

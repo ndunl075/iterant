@@ -1,0 +1,5 @@
+{
+ "call": "f('(A (b B))')",
+ "code": "def f(sentence):\n    if sentence == '':\n        return ''\n    sentence = sentence.replace('(', '')\n    sentence = sentence.replace(')', '')\n    return sentence.capitalize().replace(' ', '')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

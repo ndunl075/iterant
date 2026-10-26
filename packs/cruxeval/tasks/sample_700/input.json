@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Where is the bot in this world?\")",
+ "code": "def f(text):\n    return len(text) - text.count('bot')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

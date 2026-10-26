@@ -1,0 +1,5 @@
+{
+ "call": "f('LlTHH sAfLAPkPhtsWP', '#')",
+ "code": "def f(text, splitter):\n    return splitter.join(text.lower().split())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

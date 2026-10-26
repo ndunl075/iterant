@@ -1,0 +1,5 @@
+{
+ "call": "f(['v'], 1)",
+ "code": "def f(list_, num):\n    temp = []\n    for i in list_:\n        i = num // 2 * ('%s,' % i)\n        temp.append(i)\n    return temp",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

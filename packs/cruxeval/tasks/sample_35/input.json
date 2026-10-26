@@ -1,0 +1,5 @@
+{
+ "call": "f(\" B \", [\" bBb \", \" BaB \", \" bB\", \" bBbB \", \" bbb\"])",
+ "code": "def f(pattern, items):\n    result = []\n    for text in items:\n        pos = text.rfind(pattern)\n        if pos >= 0:\n            result.append(pos)\n\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

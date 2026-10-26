@@ -1,0 +1,5 @@
+{
+ "call": "f('tezmgvn 651h', '6')",
+ "code": "def f(text, char):\n    count = text.count(char)\n    chars = list(text)\n    if count > 0:\n        index = chars.index(char) + 1\n        chars[:index:index+1] = [c for c in chars[index:index+count:1]]\n    return ''.join(chars)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

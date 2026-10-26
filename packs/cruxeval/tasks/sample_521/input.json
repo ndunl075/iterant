@@ -1,0 +1,5 @@
+{
+ "call": "f([43, 0, 4, 77, 5, 2, 0, 9, 77])",
+ "code": "def f(nums):\n    m = max(nums)\n    for i in range(m):\n        nums.reverse()\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

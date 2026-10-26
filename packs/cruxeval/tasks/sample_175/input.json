@@ -1,0 +1,5 @@
+{
+ "call": "f('\\n', 2)",
+ "code": "def f(s, amount):\n    lines = s.splitlines()\n    w = max(map(lambda l: l.rfind(' '), lines))\n    ls = [[l, (w + 1) * amount - l.rfind(' ')] for l in lines]\n    for i, line in enumerate(ls):\n        ls[i][0] = line[0] + ' ' * line[1]\n    return '\\n'.join(map(lambda l: l[0], ls))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

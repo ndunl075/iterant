@@ -1,0 +1,5 @@
+{
+ "call": "f(\"mrq7y\")",
+ "code": "def f(text):\n    result_list = ['3', '3', '3', '3']\n    if result_list:\n        result_list.clear()\n    return len(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

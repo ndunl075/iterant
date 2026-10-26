@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 2])",
+ "code": "def f(array):\n    while -1 in array:\n        array.pop(-3)\n    while 0 in array:\n        array.pop()\n    while 1 in array:\n        array.pop(0)\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

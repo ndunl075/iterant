@@ -1,0 +1,5 @@
+{
+ "call": "f('0aabbaa0b', 'a')",
+ "code": "def f(mess, char):\n    while mess.find(char, mess.rindex(char) + 1) != -1:\n        mess = mess[:mess.rindex(char) + 1] + mess[mess.rindex(char) + 2:]\n    return mess",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

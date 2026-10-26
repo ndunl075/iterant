@@ -1,0 +1,5 @@
+{
+ "call": "f([1872, 1995, 1945])",
+ "code": "def f(years):\n    a10 = sum(1 for x in years if x <= 1900)\n    a90 = sum(1 for x in years if x > 1910)\n    if a10 > 3:\n        return 3\n    elif a90 > 3:\n        return 1\n    else:\n        return 2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

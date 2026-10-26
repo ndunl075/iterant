@@ -1,0 +1,5 @@
+{
+ "call": "f([63, 0, 1, 5, 9, 87, 0, 7, 25, 4])",
+ "code": "def f(list):\n    for i in range(len(list) - 1, 0, -1):\n        for j in range(i):\n            if list[j] > list[j + 1]:\n                list[j], list[j + 1] = list[j + 1], list[j]\n                list.sort()\n    return list",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

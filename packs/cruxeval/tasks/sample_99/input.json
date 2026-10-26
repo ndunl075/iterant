@@ -1,0 +1,5 @@
+{
+ "call": "f('aa+++bb', '+', 1)",
+ "code": "def f(text, sep, num):\n    return '___'.join(text.rsplit(sep, num))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

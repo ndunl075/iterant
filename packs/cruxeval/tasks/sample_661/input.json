@@ -1,0 +1,5 @@
+{
+ "call": "f('elrts,SS ee', 6)",
+ "code": "def f(letters, maxsplit):\n    return ''.join(letters.split()[-maxsplit:])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

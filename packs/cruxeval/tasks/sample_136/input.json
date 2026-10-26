@@ -1,0 +1,5 @@
+{
+ "call": "f(\"a\\nbc\\n\\nd\\nef\", 5)",
+ "code": "def f(text, width):\n    lines = [line.center(width) for line in text.split('\\n')]\n    return '\\n'.join(lines)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

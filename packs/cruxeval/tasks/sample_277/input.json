@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3, 4], 1)",
+ "code": "def f(lst, mode):\n    result = [el for el in lst]\n    if mode:\n        result.reverse()\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

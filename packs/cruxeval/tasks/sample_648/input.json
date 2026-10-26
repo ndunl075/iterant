@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 4, 5, 6], [13, 23, -5, 0])",
+ "code": "def f(list1, list2):\n    l = list1[:]\n    while len(l) > 0:\n        if l[-1] in list2:\n            l.pop()\n        else:\n            return l[-1]\n    return 'missing'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

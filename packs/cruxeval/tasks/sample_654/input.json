@@ -1,0 +1,5 @@
+{
+ "call": "f('aphid', 'i', '?')",
+ "code": "def f(s, from_c, to_c):\n    table = s.maketrans(from_c, to_c)\n    return s.translate(table)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

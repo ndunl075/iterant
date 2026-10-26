@@ -1,0 +1,5 @@
+{
+ "call": "f([16, 14, 12, 7, 9, 11])",
+ "code": "def f(L):\n    N = len(L)\n    for k in range(1, N//2 + 1):\n        i = k - 1\n        j = N - k\n        while i < j:\n            # swap elements:\n            L[i], L[j] = L[j], L[i]\n            # update i, j:\n            i += 1\n            j -= 1\n    return L",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

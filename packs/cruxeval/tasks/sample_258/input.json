@@ -1,0 +1,5 @@
+{
+ "call": "f(thigh_o_two[:], 3, 3, 2)",
+ "code": "thigh_o_one = [1, 2, 7, 8, 9]\nthigh_o_two = [1, 2, 7, 9]\ndef f(L, m, start, step):\n    L.insert(start, m)\n    for x in range(start-1, 0, -step):\n        start -= 1\n        L.insert(start, L.pop(L.index(m)-1))\n    return L",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

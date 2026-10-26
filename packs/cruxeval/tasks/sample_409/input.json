@@ -1,0 +1,5 @@
+{
+ "call": "f('querist', 'u')",
+ "code": "def f(text, char):\n    if text:\n        text = text.removeprefix(char)\n        text = text.removeprefix(text[-1])\n        text = text[:-1] + text[-1].capitalize()\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

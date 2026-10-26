@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Transform quotations\\\"\\nnot into numbers.\")",
+ "code": "def f(text):\n    trans = str.maketrans('\"\\'><', '9833')\n    return text.translate(trans)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

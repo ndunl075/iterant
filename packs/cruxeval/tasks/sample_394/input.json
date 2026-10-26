@@ -1,0 +1,5 @@
+{
+ "call": "f(\"2 m2 \\n\\nbike\")",
+ "code": "def f(text):\n    k = text.splitlines()\n    i = 0\n    for j in k:\n        if len(j) == 0:\n            return i\n        i+=1\n    return -1",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

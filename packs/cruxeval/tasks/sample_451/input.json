@@ -1,0 +1,5 @@
+{
+ "call": "f('pn', 'p')",
+ "code": "def f(text, char):\n    text = list(text)\n    for count, item in enumerate(text):\n        if item == char:\n            text.remove(item)\n            return ''.join(text)\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

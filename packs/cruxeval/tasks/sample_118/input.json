@@ -1,0 +1,5 @@
+{
+ "call": "f('zbzquiuqnmfkx', 'mk')",
+ "code": "def f(text, chars):\n    num_applies = 2\n    extra_chars = ''\n    for i in range(num_applies):\n        extra_chars += chars\n        text = text.replace(extra_chars, '')\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

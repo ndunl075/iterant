@@ -1,0 +1,5 @@
+{
+ "call": "f(000)",
+ "code": "def f(a):\n    if a == 0:\n        return [0]\n    result = []\n    while a > 0:\n        result.append(a%10)\n        a = a//10\n    result.reverse()\n    return int(''.join(str(i) for i in result))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

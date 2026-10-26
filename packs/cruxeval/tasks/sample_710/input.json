@@ -1,0 +1,5 @@
+{
+ "call": "f({'aki': ['1', '5']}, 'aki', '2')",
+ "code": "def f(playlist, liker_name, song_index):\n    playlist[liker_name] = playlist.get(liker_name, [])\n    playlist[liker_name].append(song_index)\n    return playlist",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(('ct', 'c', 'ca'), {'ca': 'cx'})",
+ "code": "def f(fields, update_dict):\n    di = dict((x, '') for x in fields)\n    di.update(update_dict)\n    return di",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

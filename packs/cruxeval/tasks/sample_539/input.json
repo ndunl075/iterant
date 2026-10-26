@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(array):\n    c = array\n    array_copy = array\n\n    while True:\n        c.append('_')\n        if c == array_copy:\n            array_copy[c.index('_')] = ''\n            break\n        \n    return array_copy",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

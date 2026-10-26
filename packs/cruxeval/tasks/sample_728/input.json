@@ -1,0 +1,5 @@
+{
+ "call": "f('ru')",
+ "code": "def f(text):\n    result = []\n    for i, ch in enumerate(text):\n        if ch == ch.lower():\n            continue\n        if len(text) - 1 - i < text.rindex(ch.lower()):\n            result.append(ch)\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('/CL44     ')",
+ "code": "def f(a):\n    a = a.replace('/', ':')\n    z = a.rpartition(':')\n    return [z[0], z[1], z[2]]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

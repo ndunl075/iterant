@@ -1,0 +1,5 @@
+{
+ "call": "f('I got 1 and 0.', 5)",
+ "code": "def f(text, length):\n    length = -length if length < 0 else length\n    output = ''\n    for idx in range(length):\n        if text[idx % len(text)] != ' ':\n            output += text[idx % len(text)]\n        else:\n            break\n    return output",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

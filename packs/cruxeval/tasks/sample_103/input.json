@@ -1,0 +1,5 @@
+{
+ "call": "f('abcDEFGhIJ')",
+ "code": "def f(s):\n    return ''.join((c.casefold() for c in s))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

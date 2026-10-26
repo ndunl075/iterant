@@ -1,0 +1,5 @@
+{
+ "call": "f('the speed is -36 miles per hour')",
+ "code": "def f(text):\n    return not text.isdecimal()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

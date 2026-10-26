@@ -1,0 +1,5 @@
+{
+ "call": "f([5, 4, 3, 2, 1, 0], 3)",
+ "code": "def f(array, elem):\n    k = 0\n    l = array.copy()\n    for i in l:\n        if i > elem:\n            array.insert(k, elem)\n            break\n        k += 1\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

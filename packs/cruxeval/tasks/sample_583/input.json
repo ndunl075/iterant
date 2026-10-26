@@ -1,0 +1,5 @@
+{
+ "call": "f(\"t\\nza\\na\", \"t\")",
+ "code": "def f(text, ch):\n    result = []\n    for line in text.splitlines():\n        if len(line) > 0 and line[0] == ch:\n            result.append(line.lower())\n        else:\n            result.append(line.upper())\n    return \"\\n\".join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('5f83u23saa')",
+ "code": "def f(text):\n    new_text = [c if c.isdigit() else '*' for c in text]\n    return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

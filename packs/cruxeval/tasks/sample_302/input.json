@@ -1,0 +1,5 @@
+{
+ "call": "f('wdeejjjzsjsjjsxjjneddaddddddefsfd')",
+ "code": "def f(string):\n    return string.replace('needles', 'haystacks')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

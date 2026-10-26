@@ -1,0 +1,5 @@
+{
+ "call": "f({'a': 1, 'b': 2, 'c': 3})",
+ "code": "def f(d):\n    size = len(d)\n    v = [0] * size\n    if size == 0:\n        return v\n    for i, e in enumerate(d.values()):\n        v[i] = e\n    return v",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

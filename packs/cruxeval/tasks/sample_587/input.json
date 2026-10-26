@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 1, 1, 2], 'abcca')",
+ "code": "def f(nums, fill):\n    ans = dict.fromkeys(nums, fill)\n    return ans",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

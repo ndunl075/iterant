@@ -1,0 +1,5 @@
+{
+ "call": "f(['b', 'i', 'r', 'o', 's', 'j', 'v', 'p'])",
+ "code": "def f(letters):\n    a = [] \n    for i in range(len(letters)):\n        if letters[i] in a:\n            return 'no'\n        a.append(letters[i]) \n    return 'yes'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

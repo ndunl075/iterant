@@ -1,0 +1,5 @@
+{
+ "call": "f(\"\\tf9\\n\\tldf9\\n\\tadf9!\\n\\tf9?\", 1)",
+ "code": "def f(text, tabsize):\n    return '\\n'.join([\n    \tt.expandtabs(tabsize)\n        for t in text.split('\\n')\n    ])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

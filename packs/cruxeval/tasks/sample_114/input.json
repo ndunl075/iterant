@@ -1,0 +1,5 @@
+{
+ "call": "f(\"a-.-.b\", \"-.\")",
+ "code": "def f(text, sep):\n    return text.rsplit(sep, maxsplit=2)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

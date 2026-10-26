@@ -1,0 +1,5 @@
+{
+ "call": "f('wW\uc758IV]HDJjhgK[dGIUlVO@Ess$coZkBqu[Ct')",
+ "code": "def f(text):\n    return text.isascii()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

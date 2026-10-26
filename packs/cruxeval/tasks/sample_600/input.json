@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(array):\n    just_ns = list(map(lambda num: 'n'*num, array))\n    final_output = []\n    for wipe in just_ns:\n        final_output.append(wipe)\n    return final_output",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

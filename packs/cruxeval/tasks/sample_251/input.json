@@ -1,0 +1,5 @@
+{
+ "call": "f([['Marie','Nelson','Oscar']])",
+ "code": "def f(messages):\n    phone_code = \"+353\"\n    result = []\n    for message in messages:\n        message.extend(phone_code)\n        result.append(\";\".join(message))\n    return \". \".join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

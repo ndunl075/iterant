@@ -1,0 +1,5 @@
+{
+ "call": "f({5: 1, 'abc': 2, 'defghi': 2, 87.29: 3})",
+ "code": "def f(d):\n    result = []\n    while len(d.keys()) > 0:\n        result.append(d.popitem())\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

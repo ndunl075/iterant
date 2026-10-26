@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 4, 3, 2, 1], 0, 3)",
+ "code": "def f(list, start, end):\n    count = 0\n    for i in range(start, end):\n        for j in range(i, end):\n            if list[i] != list[j]:\n                count += 1\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

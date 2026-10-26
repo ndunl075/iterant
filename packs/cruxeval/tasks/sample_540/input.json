@@ -1,0 +1,5 @@
+{
+ "call": "f([5, 5, 5, 6, 4, 9])",
+ "code": "def f(a):\n    b = a.copy()\n    for k in range(0, len(a) - 1, 2):\n        b.insert(k + 1, b[k])\n    b.append(b[0])\n    return b",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

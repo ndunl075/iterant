@@ -1,0 +1,5 @@
+{
+ "call": "f({'noeohqhk': 623})",
+ "code": "def f(dictionary):\n    dictionary[1049] = 55\n    key, value = dictionary.popitem()\n    dictionary[key] = value\n    return dictionary",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

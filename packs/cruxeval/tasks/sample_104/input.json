@@ -1,0 +1,5 @@
+{
+ "call": "f(\"a\")",
+ "code": "def f(text):\n    dic = dict()\n    for char in text:\n        dic[char] = dic.get(char, 0) + 1\n    for key in dic:\n        if dic[key] > 1:\n            dic[key] = 1\n    return dic",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

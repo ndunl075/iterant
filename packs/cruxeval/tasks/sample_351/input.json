@@ -1,0 +1,5 @@
+{
+ "call": "f('a_A_b_B3 ')",
+ "code": "def f(text):    \n    try:\n        while 'nnet lloP' in text:\n            text = text.replace('nnet lloP', 'nnet loLp')\n    finally:\n        return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

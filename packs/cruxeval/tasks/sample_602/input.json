@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 1], 1)",
+ "code": "def f(nums, target):\n    cnt = nums.count(target)\n    return cnt * 2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

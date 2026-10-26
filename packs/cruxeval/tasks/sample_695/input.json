@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(d):\n    result = {}\n    for ki, li in d.items():\n        result.update({ki: []})\n        for kj, dj in enumerate(li):\n            result[ki].append({})\n            for kk, l in dj.items():\n                result[ki][kj][kk] = l.copy()\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

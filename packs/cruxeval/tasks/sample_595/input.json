@@ -1,0 +1,5 @@
+{
+ "call": "f('qdhstudentamxupuihbuztn', 'jdm')",
+ "code": "def f(text, prefix):\n    if text.startswith(prefix):\n        text = text.removeprefix(prefix)\n    text = text.capitalize()\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(range(100, 120))",
+ "code": "def f(numbers):\n    floats = [n % 1 for n in numbers]\n    return floats if 1 in floats else []",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

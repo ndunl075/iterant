@@ -1,0 +1,5 @@
+{
+ "call": "f(['wise king', 'young king'], '')",
+ "code": "def f(seq, value):\n    roles = dict.fromkeys(seq, 'north')\n    if value:\n        roles.update(key.strip() for key in value.split(', '))\n    return roles",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

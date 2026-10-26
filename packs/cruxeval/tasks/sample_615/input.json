@@ -1,0 +1,5 @@
+{
+ "call": "f([-1, 12, -6, -2], -1)",
+ "code": "def f(in_list, num):\n    in_list.append(num)\n    return in_list.index(max(in_list[:-1]))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

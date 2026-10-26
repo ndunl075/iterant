@@ -1,0 +1,5 @@
+{
+ "call": "f('1::1')",
+ "code": "def f(string):\n    count = string.count(':')\n    return string.replace(':', '', count - 1)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('crew')",
+ "code": "def f(s):\n    r = []\n    for i in range(len(s) - 1, 0 - 1, -1):\n        r += s[i]\n    return ''.join(r)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

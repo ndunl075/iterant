@@ -1,0 +1,5 @@
+{
+ "call": "f('4327', [2, 8, 9, 2, 7, 1])",
+ "code": "def f(string, numbers):\n    arr = []\n    for num in numbers:\n        arr.append(string.zfill(num))\n    return ' '.join(arr)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

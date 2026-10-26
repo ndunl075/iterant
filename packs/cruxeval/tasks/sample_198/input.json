@@ -1,0 +1,5 @@
+{
+ "call": "f('tcmfsmj', 'cfj')",
+ "code": "def f(text, strip_chars):\n    return text[::-1].strip(strip_chars)[::-1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

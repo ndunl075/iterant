@@ -1,0 +1,5 @@
+{
+ "call": "f(3, 10, 1)",
+ "code": "def f(start, end, interval):\n    steps = list(range(start, end + 1, interval))\n    if 1 in steps:\n        steps[-1] = end + 1\n    return len(steps)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

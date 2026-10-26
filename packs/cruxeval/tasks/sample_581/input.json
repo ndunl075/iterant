@@ -1,0 +1,5 @@
+{
+ "call": "f('akoon', 'sXo')",
+ "code": "def f(text, sign):\n    length = len(text)\n    new_text = list(text)\n    sign = list(sign)\n    for i in range(len(sign)):\n        new_text.insert((i * length - 1) // 2 + (i + 1) // 2, sign[i])\n    return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

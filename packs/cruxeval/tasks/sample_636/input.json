@@ -1,0 +1,5 @@
+{
+ "call": "f({ 3: 'A3', 1: 'A1', 2: 'A2' })",
+ "code": "def f(d):\n    r = {}\n    while len(d) > 0:\n        r = {**r, **d}\n        del d[max(d.keys())]\n    return r",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

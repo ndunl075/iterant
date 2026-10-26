@@ -1,0 +1,5 @@
+{
+ "call": "f((1, ), (1, ), (1, 2))",
+ "code": "def f(a, b, c):\n    result = {}\n    for d in a, b, c:\n        result.update(dict.fromkeys(d))\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

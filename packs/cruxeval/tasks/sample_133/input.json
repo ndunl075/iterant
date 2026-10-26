@@ -1,0 +1,5 @@
+{
+ "call": "f([7, 1, 2, 6, 0, 2], [9, 0, 3])",
+ "code": "def f(nums, elements):\n    result = []\n    for i in range(len(elements)):\n        result.append(nums.pop())\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

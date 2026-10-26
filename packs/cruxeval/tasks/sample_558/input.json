@@ -1,0 +1,5 @@
+{
+ "call": "f([3, 1, 2, 1, 4, 1], [1])",
+ "code": "def f(nums, mos):\n    for num in mos:\n        nums.pop(nums.index(num))\n    nums.sort()\n    for num in mos:\n        nums += [num]\n    for i in range(len(nums)-1):\n        if nums[i] > nums[i+1]:\n            return False\n    return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

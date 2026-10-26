@@ -1,0 +1,5 @@
+{
+ "call": "f('VTBAEPJSLGAHINS')",
+ "code": "def f(text):\n    return text.upper() == str(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

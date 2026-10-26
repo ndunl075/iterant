@@ -1,0 +1,5 @@
+{
+ "call": "f('ml', 'mv')",
+ "code": "def f(a, b):\n    if a < b:\n        return (b, a)\n    return (a, b)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

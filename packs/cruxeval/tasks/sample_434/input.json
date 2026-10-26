@@ -1,0 +1,5 @@
+{
+ "call": "f('eeuseeeoehasa')",
+ "code": "def f(string):\n    try:\n       return string.rfind('e')\n    except AttributeError:\n        return \"Nuk\"",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('a', {})",
+ "code": "def f(query, base):\n    net_sum = 0\n    for (key, val) in base.items():\n        if key[0] == query and len(key) == 3:\n            net_sum -= val\n        elif key[-1] == query and len(key) == 3:\n            net_sum += val\n    return net_sum",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

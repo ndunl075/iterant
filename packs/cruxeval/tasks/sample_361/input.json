@@ -1,0 +1,5 @@
+{
+ "call": "f(\"#! : #!\")",
+ "code": "def f(text):\n    return text.split(':')[0].count('#')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

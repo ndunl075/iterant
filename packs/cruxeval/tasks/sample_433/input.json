@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Dmreh,Sspp,T,G ,.tB,Vxk,Cct\")",
+ "code": "def f(text):\n    text = text.split(',')\n    text.pop(0)\n    text.insert(0, text.pop(text.index('T')))\n    return 'T' + ',' + ','.join(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

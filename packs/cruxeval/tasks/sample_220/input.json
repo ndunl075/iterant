@@ -1,0 +1,5 @@
+{
+ "call": "f(\"abcdefgabc\", 1, 2)",
+ "code": "def f(text, m, n):\n    text = \"{}{}{}\".format(text, text[:m], text[n:])\n    result = \"\"\n    for i in range(n, len(text)-m):\n        result = text[i] + result\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

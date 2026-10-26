@@ -1,0 +1,5 @@
+{
+ "call": "f(\"23157\")",
+ "code": "def f(numbers):\n    for i in range(len(numbers)):\n        if numbers.count('3') > 1:\n            return i\n    return -1",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

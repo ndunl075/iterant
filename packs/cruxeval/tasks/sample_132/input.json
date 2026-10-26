@@ -1,0 +1,5 @@
+{
+ "call": "f('abc', 'abcd')",
+ "code": "def f(a_str, prefix):\n    if a_str.removeprefix(prefix):\n        return a_str\n    else:\n        return prefix + a_str",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

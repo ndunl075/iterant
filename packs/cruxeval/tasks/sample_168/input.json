@@ -1,0 +1,5 @@
+{
+ "call": "f('spain', 'b', 4)",
+ "code": "def f(text, new_value, index):\n    key = text.maketrans(text[index], new_value)\n    return text.translate(key)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

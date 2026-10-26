@@ -1,0 +1,5 @@
+{
+ "call": "f([2, 3, 4, 6, -2])",
+ "code": "def f(nums):\n    for i in range(len(nums)-1, -1, -1):\n        if nums[i] % 2 == 1:\n            nums.insert(i+1, nums[i])\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

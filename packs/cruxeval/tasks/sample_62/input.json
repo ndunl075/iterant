@@ -1,0 +1,5 @@
+{
+ "call": "f({\"eating\" : \"ja\", \"books\" : \"nee\", \"piano\" : \"coke\", \"excitement\" : \"zoo\"})",
+ "code": "def f(user):\n    if len(list(user.keys())) > len(list(user.values())):\n        return tuple(user.keys())\n    return tuple(user.values())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([[1, 2, 3], [1, 2], 1], [[1, 2, 3], 3, [2, 1]])",
+ "code": "def f(array, elem):\n    array.extend(elem)\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

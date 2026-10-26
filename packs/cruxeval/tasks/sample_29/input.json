@@ -1,0 +1,5 @@
+{
+ "call": "f('-123   \\t+314')",
+ "code": "def f(text):\n    nums = list(filter(str.isnumeric, text))\n    assert len(nums) > 0\n    return ''.join(nums)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

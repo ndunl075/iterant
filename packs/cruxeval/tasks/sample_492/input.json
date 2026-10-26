@@ -1,0 +1,5 @@
+{
+ "call": "f('abbkebaniuwurzvr', 'm')",
+ "code": "def f(text, value):\n    ls = list(text)\n    if (ls.count(value)) % 2 == 0:\n        while value in ls:\n            ls.remove(value)\n    else:\n        ls.clear()\n    return ''.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('a loved')",
+ "code": "def f(text):\n    my_list = text.split()\n    my_list.sort(reverse=True)\n    return ' '.join(my_list)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

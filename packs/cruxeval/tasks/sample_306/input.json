@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 6, '1', '2', 0])",
+ "code": "def f(nums):\n    digits = []\n    for num in nums:\n        if (isinstance(num, str) and num.isnumeric()) or isinstance(num, int):\n            digits.append(num)\n    digits = list(map(int, digits))\n    return digits",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

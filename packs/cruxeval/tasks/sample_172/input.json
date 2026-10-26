@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(array):\n    for i in range(len(array)):\n        if array[i] < 0:\n            array.pop(i)\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

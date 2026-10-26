@@ -1,0 +1,5 @@
+{
+ "call": "f(\"first-second-third\")",
+ "code": "def f(n):\n    n = str(n)\n    return n[0] + '.'+n[1:].replace('-', '_')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

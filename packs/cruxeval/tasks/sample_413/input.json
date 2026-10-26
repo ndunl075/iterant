@@ -1,0 +1,5 @@
+{
+ "call": "f('jbucwc')",
+ "code": "def f(s):\n    return '{}{}{}'.format(s[3:], s[2], s[5:8])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

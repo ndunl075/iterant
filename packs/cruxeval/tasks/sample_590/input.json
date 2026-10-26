@@ -1,0 +1,5 @@
+{
+ "call": "f(\"25000   $\")",
+ "code": "def f(text):\n    for i in range(10, 0, -1):\n        text = text.lstrip(str(i))\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"abc\")",
+ "code": "def f(text):\n    if text.isdecimal():\n        return 'yes'\n    else:\n        return 'no'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

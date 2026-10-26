@@ -1,0 +1,5 @@
+{
+ "call": "f([\"La\", \"Q\", \"9\", \"La\", \"La\"])",
+ "code": "def f(strings):\n    occurances = {}\n    for string in strings:\n        if string not in occurances:\n            occurances[string] = strings.count(string)\n    return occurances",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

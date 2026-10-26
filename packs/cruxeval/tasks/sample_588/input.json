@@ -1,0 +1,5 @@
+{
+ "call": "f(['''1''', '+', '-', '**', '//', '*', '+'], '**')",
+ "code": "def f(items, target):\n    if target in items:\n        return items.index(target)\n    return -1",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

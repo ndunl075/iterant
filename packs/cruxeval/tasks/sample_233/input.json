@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3])",
+ "code": "def f(xs):\n    for idx in reversed(range(-len(xs)-1, -1)):\n        xs.insert(idx, xs.pop(0))\n    return xs",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('o', 'fnmart')",
+ "code": "def f(val, text):\n    indices = [index for index in range(len(text)) if text[index] == val]\n    if len(indices) == 0:\n        return -1\n    else:\n        return indices[0]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

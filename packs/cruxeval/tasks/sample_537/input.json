@@ -1,0 +1,5 @@
+{
+ "call": "f('abv', 'a')",
+ "code": "def f(text, value):\n    new_text = list(text)\n    try:\n        new_text.append(value)\n        length = len(new_text)\n    except IndexError:\n        length = 0\n    return '[' + str(length) + ']'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({'l':4, 'h':6, 'o':9})",
+ "code": "def f(m):\n    items = list(m.items())\n    for i in range(len(items)-2, -1, -1):\n        tmp = items[i]\n        items[i] = items[i+1] \n        items[i+1] = tmp\n    return ['{}={}', '{1}={0}'][len(items) % 2].format(\n        *m.keys(), **m\n    )",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

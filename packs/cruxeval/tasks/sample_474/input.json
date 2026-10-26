@@ -1,0 +1,5 @@
+{
+ "call": "f('#[)[]>[^e>\\n 8', -5)",
+ "code": "def f(txt, marker):\n    a = []\n    lines = txt.split('\\n')\n    for line in lines:\n        a.append(line.center(marker))\n    return '\\n'.join(a)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

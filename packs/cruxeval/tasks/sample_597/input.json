@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Jaafodsfa SOdofj AoaFjIs  JAFasIdfSa1\")",
+ "code": "def f(s):\n    return s.upper()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

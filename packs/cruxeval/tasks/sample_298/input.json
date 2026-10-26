@@ -1,0 +1,5 @@
+{
+ "call": "f('dst vavf n dmv dfvm gamcu dgcvb.')",
+ "code": "def f(text):\n    new_text = list(text)\n    for i in range(len(new_text)):\n        character = new_text[i]\n        new_character = character.swapcase()\n        new_text[i] = new_character\n    return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

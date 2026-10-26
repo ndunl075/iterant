@@ -1,0 +1,5 @@
+{
+ "call": "f('mmfbifen', 'i')",
+ "code": "def f(text, value):\n    if not value in text:\n        return ''\n    return text.rpartition(value)[0]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('19', 5)",
+ "code": "def f(text, num_digits):\n    width = max(1, num_digits)\n    return text.zfill(width)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

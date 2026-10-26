@@ -1,0 +1,5 @@
+{
+ "call": "f(\"9.twCpTf.H7 HPeaQ^ C7I6U,C:YtW\")",
+ "code": "def f(text):\n    valid_chars = ['-', '_', '+', '.', '/', ' ']\n    text = text.upper()\n    for char in text:\n        if char.isalnum() == False and char not in valid_chars:\n            return False\n    return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

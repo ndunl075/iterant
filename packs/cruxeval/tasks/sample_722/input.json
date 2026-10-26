@@ -1,0 +1,5 @@
+{
+ "call": "f(',wPzPppdl/')",
+ "code": "def f(text):\n    out = \"\"\n    for i in range(len(text)):\n        if text[i].isupper():\n            out += text[i].lower()\n        else:\n            out += text[i].upper()\n    return out",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

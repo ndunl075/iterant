@@ -1,0 +1,5 @@
+{
+ "call": "f('eftw{\u044c\u0422\u0441k_1', '\\\\')",
+ "code": "def f(text, value):\n    if isinstance(value, str):\n        return text.count(value) + text.count(value.lower())\n    return text.count(value)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

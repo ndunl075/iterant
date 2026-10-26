@@ -1,0 +1,5 @@
+{
+ "call": "f({7: 'ii5p', 1: 'o3Jwus', 3: 'lot9L', 2: '04g', 9: 'Wjf', 8: '5b', 0: 'te6', 5: 'flLO', 6: 'jq', 4: 'vfa0tW'}, 4, 'Wy', 'Wy', 1.0)",
+ "code": "def f(a, b, c, d, e):\n    key = d\n    if key in a:\n        num = a.pop(key)\n    if b > 3:\n        return ''.join(c)\n    else:\n        return num",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

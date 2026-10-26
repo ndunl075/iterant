@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(array):\n    a = []\n    array.reverse()\n    for i in range(len(array)):\n        if array[i] != 0:\n            a.append(array[i])\n    a.reverse()\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([10, 4], 3)",
+ "code": "def f(nums, val):\n    new_list = []\n    [new_list.extend([i] * val) for i in nums]\n    return sum(new_list)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

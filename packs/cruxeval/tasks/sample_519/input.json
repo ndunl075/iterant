@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(d):\n    d['luck'] = 42\n    d.clear()\n    return {1: False, 2 :0}",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

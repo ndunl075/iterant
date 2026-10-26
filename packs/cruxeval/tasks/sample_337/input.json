@@ -1,0 +1,5 @@
+{
+ "call": "f(\"5ll6\")",
+ "code": "def f(txt):\n    d = []\n    for c in txt:\n        if c.isdigit():\n            continue\n        if c.islower():\n            d.append(c.upper())\n        elif c.isupper():\n            d.append(c.lower())\n    return ''.join(d)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

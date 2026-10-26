@@ -1,0 +1,5 @@
+{
+ "call": "f('ncdsdfdaaa0a1cdscsk*XFd')",
+ "code": "def f(text):\n    return len(text.splitlines())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([7, 8, 2, 8])",
+ "code": "def f(lst):\n    lst.reverse()\n    lst.pop()\n    lst.reverse()\n    return lst",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

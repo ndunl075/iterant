@@ -1,0 +1,5 @@
+{
+ "call": "f('os||agx5')",
+ "code": "def f(text):\n    res = []\n    for ch in text.encode('utf-8'):\n        if ch == 61:\n            break\n        if ch == 0:\n            pass\n        res.append(f'{ch}; '.encode('utf-8'))\n    return b''.join(res)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"wwwwhhhtttpp\", 'w', 3)",
+ "code": "def f(text, char, min_count):\n    count = text.count(char)\n    if count < min_count:\n        return text.swapcase()\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

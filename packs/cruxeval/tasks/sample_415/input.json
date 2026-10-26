@@ -1,0 +1,5 @@
+{
+ "call": "f(((8, 5), (8, 2), (5, 3)))",
+ "code": "def f(array):\n    d = dict(array)\n    for key, value in d.items():\n        if value < 0 or value > 9:\n            return None\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

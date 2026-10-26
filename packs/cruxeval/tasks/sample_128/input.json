@@ -1,0 +1,5 @@
+{
+ "call": "f('Mammoth')",
+ "code": "def f(text):\n    odd = ''\n    even = ''\n    for i, c in enumerate(text):\n        if i % 2 == 0:\n            even += c\n        else:\n            odd += c\n    return even + odd.lower()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

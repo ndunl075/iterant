@@ -1,0 +1,5 @@
+{
+ "call": "f(5, 1)",
+ "code": "def f(value, width):\n    if value >= 0:\n        return str(value).zfill(width)\n\n    if value < 0:\n        return '-' + str(-value).zfill(width)\n    return ''",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

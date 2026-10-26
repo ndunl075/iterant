@@ -1,0 +1,5 @@
+{
+ "call": "f('1  \\t\\t\\t3')",
+ "code": "def f(string):\n    bigTab = 100\n    for i in range(10, 30):\n        if 0 < string.count('\\t') < 20:\n            bigTab = i\n            break\n    return string.expandtabs(bigTab)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({'a': 123, 'b': 456, 'c': 789})",
+ "code": "def f(d):\n    i = iter(d.items())\n    return next(i), next(i)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

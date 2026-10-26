@@ -1,0 +1,5 @@
+{
+ "call": "f('dummy33;d')",
+ "code": "def f(number):\n    return True if number.isdecimal() else False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

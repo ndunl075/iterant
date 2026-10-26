@@ -1,0 +1,5 @@
+{
+ "call": "f({'a': 1, 'b': 2, 'c': 3})",
+ "code": "def f(dct):\n    lst = []\n    for key in sorted(dct):\n        lst.append((key, dct[key]))\n    return lst",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

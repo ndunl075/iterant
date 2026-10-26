@@ -1,0 +1,5 @@
+{
+ "call": "f('?XyZ')",
+ "code": "def f(text):\n    uppers = 0\n    for c in text:\n        if c.isupper():\n            uppers += 1\n    return text.upper() if uppers >= 10 else text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

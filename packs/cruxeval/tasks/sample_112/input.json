@@ -1,0 +1,5 @@
+{
+ "call": "f('XYZ LittleRedRidingHood LiTTleBIGGeXEiT fault')",
+ "code": "def f(sentence):\n    ls = list(sentence)\n    for letter in ls:\n        if not letter.istitle():\n            ls.remove(letter)\n    return ''.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

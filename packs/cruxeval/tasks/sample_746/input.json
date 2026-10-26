@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(dct):\n    values = dct.values()\n    result = {}\n    for value in values:\n        item = value.split('.')[0]+'@pinc.uk'\n        result[value] = item\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('E wrestled evil until upperfeat', 'e')",
+ "code": "def f(text, letter):\n    if letter.islower(): letter = letter.upper()\n    text = ''.join([letter if char == letter.lower() else char for char in text])\n    return text.capitalize()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

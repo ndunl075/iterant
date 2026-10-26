@@ -1,0 +1,5 @@
+{
+ "call": "f(\"xabxfiwoexahxaxbxs\", \"xbabcabccb\")",
+ "code": "def f(perc, full):\n    reply = \"\"\n    i = 0\n    while perc[i] == full[i] and i < len(full) and i < len(perc):\n        if perc[i] == full[i]:\n            reply += \"yes \"\n        else:\n            reply += \"no \"\n        i += 1\n    return reply",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

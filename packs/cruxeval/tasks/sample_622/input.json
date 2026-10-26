@@ -1,0 +1,5 @@
+{
+ "call": "f('galgu')",
+ "code": "def f(s):\n    left, sep, right = s.rpartition('.')\n    new = sep.join([right, left])\n    _, sep, _ = new.rpartition('.')\n    return new.replace(sep, ', ')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3], 'nammo')",
+ "code": "def f(total, arg):\n    if type(arg) is list:\n        for e in arg:\n            total.extend(e)\n    else:\n        total.extend(arg)\n    return total",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -144,6 +145,38 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"  # body ends at close: simplest correct SSE relay
         timeout = cfg.socket_timeout_s
+        _slot = False
+        _timer: threading.Timer | None = None
+
+        def setup(self) -> None:
+            super().setup()
+            # One slot per connection from the first byte, so slow-drip clients count too.
+            self._slot = slots.acquire(blocking=False)
+            # Total deadline for headers + body (the socket timeout is per read only).
+            self._timer = threading.Timer(cfg.request_deadline_s, self._expire)
+            self._timer.daemon = True
+            self._timer.start()
+
+        def _expire(self) -> None:
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        def _body_received(self) -> None:
+            if self._timer is not None:
+                self._timer.cancel()
+
+        def finish(self) -> None:
+            self._body_received()
+            if self._slot:
+                self._slot = False
+                slots.release()
+            try:
+                super().finish()
+            except OSError:
+                pass
+
         _streaming = False
 
         def log_message(self, format: str, *args: object) -> None:
@@ -189,16 +222,14 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
                 return -1
 
         def do_POST(self) -> None:
-            if not slots.acquire(blocking=False):
+            if not self._slot:
                 self._send(503, error_body("overloaded_error", "iterant proxy: too many requests"))
                 self._drain(self._length())
                 return
             try:
                 self._post()
             except OSError:
-                pass  # client gone or timed out
-            finally:
-                slots.release()
+                pass  # client gone, timed out or past the deadline
 
         def _post(self) -> None:
             length = self._length()
@@ -215,6 +246,7 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
                 self._drain(length)
                 return
             raw = self.rfile.read(length)
+            self._body_received()
             if self.path.split("?")[0] != "/v1/messages":
                 self._send(
                     404,

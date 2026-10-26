@@ -77,6 +77,59 @@ BAD_BODIES = {
 }
 
 
+URL_DOC = {"type": "document", "source": {"type": "url", "url": "http://x/d.pdf"}}
+MALFORMED = {
+    "system_dict": {"system": URL_DOC},
+    "system_number": {"system": 5},
+    "system_item_str": {"system": ["text"]},
+    "content_dict": {"messages": [{"role": "user", "content": URL_DOC}]},
+    "content_number": {"messages": [{"role": "user", "content": 7}]},
+    "content_missing": {"messages": [{"role": "user"}]},
+    "content_item_str": {"messages": [{"role": "user", "content": ["x"]}]},
+    "messages_dict": {"messages": {"role": "user", "content": "x"}},
+    "messages_str": {"messages": "hi"},
+    "message_entry_str": {"messages": ["hi"]},
+    "tool_result_dict": {
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "1", "content": URL_DOC}],
+            }
+        ]
+    },
+    "tool_result_item_str": {
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "1", "content": ["x"]}],
+            }
+        ]
+    },
+    "image_no_source": {"messages": [{"role": "user", "content": [{"type": "image"}]}]},
+    "image_source_str": {
+        "messages": [{"role": "user", "content": [{"type": "image", "source": "http://x"}]}]
+    },
+    "tools_dict": {"tools": {"name": "t", "input_schema": {}}},
+    "tools_str": {"tools": "t"},
+    "tools_entry_str": {"tools": ["t"]},
+    "tool_choice_str": {"tool_choice": "auto"},
+    "metadata_str": {"metadata": "u"},
+    "stop_sequences_str": {"stop_sequences": "x"},
+    "stream_str": {"stream": "yes"},
+    "output_config_str": {"output_config": "medium"},
+}
+
+
+@pytest.mark.parametrize("name", list(MALFORMED))
+def test_malformed_shapes_fail_closed(make_stack, h, name):
+    s = make_stack()
+    token = s.proxy.issue_run_token(Role.TARGET, h.KEY)
+    body = {**h.msg_body(), **MALFORMED[name]}
+    status, raw = s.post(token, body)
+    assert status in (400, 403), raw  # never 200
+    assert s.fake.requests == []
+
+
 @pytest.mark.parametrize("name", list(BAD_BODIES))
 def test_target_allowlist_rejects(make_stack, h, name):
     s = make_stack()
@@ -381,3 +434,52 @@ def test_sample_events_are_wellformed(h):
     assert first[0].startswith(b"event: message_start") and rest[-1].startswith(
         b"event: message_stop"
     )
+
+
+def _head(token: str, length: int) -> str:
+    crlf = chr(13) + chr(10)
+    lines = [
+        "POST /v1/messages HTTP/1.1",
+        f"x-api-key: {token}",
+        f"content-length: {length}",
+        "",
+        "",
+    ]
+    return crlf.join(lines)
+
+
+def test_total_deadline_frees_slots_from_slow_drip(make_stack, h):
+    s = make_stack(max_concurrent=3, request_deadline_s=0.6)
+    token = s.proxy.issue_run_token(Role.TARGET, h.KEY)
+    head = _head(token, 1000)
+    drippers = [_raw(s, head) for _ in range(3)]
+    stop = threading.Event()
+
+    def drip(c: socket.socket) -> None:
+        while not stop.is_set():  # 1 byte every 0.2 s: each recv succeeds, the total never ends
+            try:
+                c.sendall(b"{")
+            except OSError:
+                return
+            stop.wait(0.2)
+
+    threads = [threading.Thread(target=drip, args=(c,), daemon=True) for c in drippers]
+    for t in threads:
+        t.start()
+    try:
+        other = s.proxy.issue_run_token(Role.TARGET, RunKey(1, "c1", "t1", 1))
+        assert s.post(other, h.msg_body())[0] == 503  # all slots held
+        stop.wait(1.2)  # past the 0.6 s deadline: the server closes them
+        s.fake.add(None, anthropic_message(model=h.HAIKU))
+        assert s.post(other, h.msg_body())[0] == 200
+    finally:
+        stop.set()
+        for c in drippers:
+            c.close()
+
+
+def test_rejection_log_is_bounded(make_stack):
+    s = make_stack(max_rejections=5)
+    for _ in range(50):
+        assert s.proxy.check_token("itr_nope") is not None
+    assert len(s.proxy.rejections) == 5

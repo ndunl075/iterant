@@ -54,58 +54,89 @@ def _bad(code: str, message: str) -> Rejection:
     return Rejection(400, "invalid_request_error", code, f"iterant proxy: {message}")
 
 
-def _check_blocks(content: object) -> Rejection | None:
-    for b in arr(content) or []:
+def _check_blocks(content: object, where: str, *, allow_none: bool = False) -> Rejection | None:
+    """``content`` must be a string or a list of block objects, all allowed. Fails closed:
+    any other shape is a 400, never skipped."""
+    if content is None and allow_none or isinstance(content, str):
+        return None
+    items = arr(content)
+    if items is None:
+        return _bad("malformed", f"{where} must be a string or a list of content blocks")
+    for b in items:
         block = obj(b)
         if block is None:
-            continue
+            return _bad("malformed", f"{where} must contain only content block objects")
         kind = block.get("type")
         if kind not in _ALLOWED_BLOCKS:
             return _bad("block_not_allowed", f"content block type {kind!r} is not allowed")
         if kind in ("image", "document"):
-            source = obj(block.get("source")) or {}
+            source = obj(block.get("source"))
+            if source is None:
+                return _bad("malformed", f"{kind} block needs a source object")
             if source.get("type") != "base64":
                 return _bad(
                     "source_not_allowed",
                     f"{kind} source type {source.get('type')!r} is not allowed (base64 only)",
                 )
         if kind == "tool_result":
-            nested = _check_blocks(block.get("content"))
+            nested = _check_blocks(block.get("content"), "tool_result content", allow_none=True)
             if nested is not None:
                 return nested
     return None
 
 
 def check_restricted(body: Obj, beta_header: str) -> Rejection | None:
-    """Allowlist for target and transfer requests (see module docstring)."""
+    """Allowlist for target and transfer requests (see module docstring).
+
+    The proxy is trusted base, so this fails closed: wherever a string, list or object
+    is expected, any other shape is rejected rather than skipped."""
     if beta_header.strip():
         return _bad("beta_not_allowed", "anthropic-beta headers are not allowed for this role")
     for key in body:
         if key not in _ALLOWED_KEYS:
             return _bad("field_not_allowed", f"request field {key!r} is not allowed for this role")
-    config = obj(body.get("output_config"))
-    if config is not None and set(config) - {"effort"}:
-        return _bad("field_not_allowed", "output_config may only set effort for this role")
+    if "output_config" in body:
+        config = obj(body["output_config"])
+        if config is None or set(config) - {"effort"}:
+            return _bad("field_not_allowed", "output_config may only set effort for this role")
+    if "metadata" in body and obj(body["metadata"]) is None:
+        return _bad("malformed", "metadata must be an object")
+    if "stop_sequences" in body:
+        stops = arr(body["stop_sequences"])
+        if stops is None or not all(isinstance(x, str) for x in stops):
+            return _bad("malformed", "stop_sequences must be a list of strings")
+    if "stream" in body and not isinstance(body["stream"], bool):
+        return _bad("malformed", "stream must be a boolean")
     thinking = body.get("thinking")
     if thinking is not None and thinking != {"type": "adaptive"}:
         return _bad("field_not_allowed", 'thinking must be omitted or {"type": "adaptive"}')
-    for t in arr(body.get("tools")) or []:
-        tool = obj(t)
-        if tool is None or tool.get("type", "custom") != "custom" or "input_schema" not in tool:
-            return _bad(
-                "tool_not_allowed", "only client-defined tools are allowed (no server tools)"
-            )
-    choice = obj(body.get("tool_choice"))
-    if body.get("tool_choice") is not None and (
-        choice is None or choice.get("type") not in ("auto", "none")
-    ):
-        return _bad("field_not_allowed", "tool_choice must be auto or none for this role")
-    rejection = _check_blocks(body.get("system"))
+    if "tools" in body:
+        tools = arr(body["tools"])
+        if tools is None:
+            return _bad("malformed", "tools must be a list")
+        for t in tools:
+            tool = obj(t)
+            if tool is None:
+                return _bad("malformed", "tools must contain only objects")
+            if tool.get("type", "custom") != "custom" or "input_schema" not in tool:
+                return _bad(
+                    "tool_not_allowed", "only client-defined tools are allowed (no server tools)"
+                )
+    if "tool_choice" in body:
+        choice = obj(body["tool_choice"])
+        if choice is None or choice.get("type") not in ("auto", "none"):
+            return _bad("field_not_allowed", "tool_choice must be auto or none for this role")
+    rejection = _check_blocks(body.get("system"), "system", allow_none=True)
     if rejection is not None:
         return rejection
-    for m in arr(body.get("messages")) or []:
+    messages = arr(body.get("messages"))
+    if messages is None:
+        return _bad("malformed", "messages must be a list")
+    for m in messages:
         msg = obj(m)
-        rejection = _check_blocks(msg.get("content")) if msg else None
+        if msg is None:
+            return _bad("malformed", "messages must contain only objects")
+        rejection = _check_blocks(msg.get("content"), "message content")
         if rejection is not None:
             return rejection
     return None

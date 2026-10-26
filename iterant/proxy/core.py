@@ -10,6 +10,7 @@ from __future__ import annotations
 import itertools
 import json
 import threading
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
@@ -75,7 +76,7 @@ class Proxy:
         self.config = config
         self.sessions = SessionRegistry(config.monotonic, config.token_ttl_s)
         self.ledger = Ledger(config.generation)
-        self.rejections: list[RejectedCall] = []
+        self.rejections: deque[RejectedCall] = deque(maxlen=config.max_rejections)
         self._ids = itertools.count(config.first_call_id)
         self._call_run_ids = itertools.count()
         self._lock = threading.Lock()

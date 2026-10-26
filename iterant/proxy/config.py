@@ -120,7 +120,9 @@ class ProxyConfig:
     token_ttl_s: float = 3600.0
     max_body_bytes: int = 8 * 1024 * 1024
     max_concurrent: int = 64  # requests in flight; more get a 503
-    socket_timeout_s: float = 30.0  # client socket read/write timeout
+    socket_timeout_s: float = 30.0  # client socket timeout per read/write
+    request_deadline_s: float = 30.0  # total time to receive a request's headers and body
+    max_rejections: int = 1000  # refused requests remembered in memory (oldest dropped)
     upstream_timeout_s: float = 600.0
     trust_env_proxy: bool = True
     first_call_id: int = 1  # ProxyCall.id is process-local; the archive sink should ignore it

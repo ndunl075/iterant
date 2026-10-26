@@ -191,6 +191,7 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:
             if not slots.acquire(blocking=False):
                 self._send(503, error_body("overloaded_error", "iterant proxy: too many requests"))
+                self._drain(self._length())
                 return
             try:
                 self._post()
@@ -211,6 +212,7 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
                 return
             if length > cfg.max_body_bytes:
                 self._send(413, error_body("request_too_large", "request body too large"))
+                self._drain(length)
                 return
             raw = self.rfile.read(length)
             if self.path.split("?")[0] != "/v1/messages":

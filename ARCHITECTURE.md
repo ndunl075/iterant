@@ -14,6 +14,7 @@
 5. **Frozen target model.** Gains must come from the agent's design, not from a bigger model or a bigger budget. The proxy enforces this.
 6. **Append-only state.** Every candidate, run, proxy call and decision lands in the archive, rejects included. Rows are inserted once and never replaced or deleted (enforced by triggers); a candidate's `stage`, `status` and spend only advance. Runs are keyed by `(batch, cand, task, rep, attempt)`. A run resumes on `(batch, cand, task, rep)`, and the latest attempt wins. Each batch stores its pack hash, and a batch whose stored hash differs from the current pack is never resumed.
 7. **Pinned tasks.** Task packs are hash-checked before every batch, and a mismatch aborts the batch.
+8. **Verdicts are decided outside candidate code.** Candidate code never runs in the process that decides a verdict. The check runs the candidate in a sandbox and reads back only a size-capped JSON result (never pickle or other executable formats). Expected values and hidden checks are never readable from the candidate's side.
 
 ## 2. User contract
 
@@ -192,6 +193,7 @@ This is the self-improvement story for researchers, and it dogfoods the platform
 | Use a bigger model or more budget | Proxy role caps; cost guard |
 | Hard-code train/select answers | Proposer is blind to select; task-ID grep; diff auditor; holdout rotation |
 | Forge logs or claim success | Scores come only from the grader and proxy |
+| Tamper with an in-process test harness (patch `unittest`, read the harness's globals) | Invariant 8: candidate code never runs in the verdict process; only capped JSON crosses back |
 | Exfiltrate the key, phone home | Key lives in the proxy; default-deny egress |
 | Escape the sandbox | microVM (release); non-root, no mounts, caps |
 | Ship a bad change to production | Iterant never merges; the user merges `iterant/champion` after reading the evidence report |

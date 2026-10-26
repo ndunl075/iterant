@@ -1,0 +1,5 @@
+name = "cruxeval-o"
+version = "1"
+
+[policy]
+agent_code_exec = "forbidden"

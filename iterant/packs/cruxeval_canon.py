@@ -1,0 +1,124 @@
+"""Canonical, type-tagged encoding of a Python literal, for the CRUXEval-O pack.
+
+This module is the single source of the canonicalizer. It is stdlib-only and imports nothing
+from ``iterant``, because the converter embeds its exact text into every task's ``run`` script
+(executed by the grader in a sandbox) and also imports it host-side to compute ``check``.
+
+Two answers are equal exactly when their encodings are equal, and the encoding follows Python
+``==`` except where CRUXEval keeps types apart: ``True`` is not ``1``, a tuple is not a list, a
+set is not a list, ``1`` is not ``"1"``.
+
+* ``None`` -> ``["none"]``; ``bool`` -> ``["bool", "true"|"false"]``; ``str`` -> ``["str", s]``;
+  ``bytes`` -> ``["bytes", hex]``.
+* ``int`` and ``float`` share a number space, as ``==`` does: a finite float with an integral
+  value (so ``1.0`` and ``-0.0``) encodes as the ``int``; any other float is
+  ``["float", repr(x)]``, which gives ``nan``, ``inf`` and ``-inf`` one fixed spelling each.
+  NaN equals NaN here, otherwise a NaN answer could never pass.
+* ``complex`` with a zero imaginary part encodes as its real part; otherwise
+  ``["complex", real, imag]``.
+* ``list``/``tuple``/``set``/``frozenset`` -> ``["list"|"tuple"|"set", *items]``; sets sort their
+  items by encoded text. ``dict`` -> ``["dict", k1, v1, k2, v2, ...]`` sorted by encoded key,
+  so insertion order is ignored, as ``==`` ignores it.
+
+Containers add one JSON level each, so the grader's depth limit (32) holds for ``MAX_DEPTH``
+levels of nesting. The ``run`` script reads ``answer.txt``, strips whitespace and one optional
+code fence, evaluates it with ``ast.literal_eval`` (never ``eval``) and prints
+``{"answer": <encoding>}``. Any failure (missing or oversized file, bad UTF-8, a syntax error,
+trailing junk, too deep, an unsupported type) exits 1 and prints nothing.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import sys
+from typing import Any, cast
+
+MAX_ANSWER_BYTES = 64 * 1024
+MAX_DEPTH = 20
+ANSWER_FILE = "answer.txt"
+_FENCE_TAGS = {"", "python", "py", "text"}
+
+
+def _dumps(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+
+
+def _number(value: int | float) -> list[str]:
+    if isinstance(value, float) and value.is_integer():  # False for nan and the infinities
+        value = int(value)
+    if isinstance(value, int):
+        return ["int", str(value)]  # str() of a huge int raises ValueError: fails cleanly
+    return ["float", repr(value)]
+
+
+def canonical(value: object, depth: int = 0) -> list[Any]:
+    """Type-tagged encoding of ``value``; raises ``ValueError``/``TypeError`` if unsupported."""
+    if depth > MAX_DEPTH:
+        raise ValueError("too deep")
+    if value is None:
+        return ["none"]
+    if isinstance(value, bool):
+        return ["bool", "true" if value else "false"]
+    if isinstance(value, (int, float)):
+        return _number(value)
+    if isinstance(value, complex):
+        if value.imag == 0:
+            return _number(value.real)
+        return ["complex", _number(value.real), _number(value.imag)]
+    if isinstance(value, str):
+        return ["str", value]
+    if isinstance(value, bytes):
+        return ["bytes", value.hex()]
+    if isinstance(value, (list, tuple)):
+        items = list(cast("list[object]", value))
+        tag = "list" if isinstance(value, list) else "tuple"
+        return [tag, *(canonical(v, depth + 1) for v in items)]
+    if isinstance(value, (set, frozenset)):
+        members = list(cast("set[object]", value))
+        return ["set", *sorted((canonical(v, depth + 1) for v in members), key=_dumps)]
+    if isinstance(value, dict):
+        pairs = [
+            (canonical(k, depth + 1), canonical(v, depth + 1))
+            for k, v in cast("dict[object, object]", value).items()
+        ]
+        pairs.sort(key=lambda kv: (_dumps(kv[0]), _dumps(kv[1])))
+        return ["dict", *(part for pair in pairs for part in pair)]
+    raise TypeError("unsupported type")
+
+
+def encode_answer(value: object) -> str:
+    """The exact text ``run`` prints (without the newline) for an answer ``value``."""
+    return _dumps({"answer": canonical(value)})
+
+
+def _unfence(text: str) -> str:
+    if text.startswith("```") and text.endswith("```") and len(text) >= 6:
+        inner = text[3:-3]
+        head, newline, rest = inner.partition("\n")
+        if newline and head.strip() in _FENCE_TAGS:
+            inner = rest
+        return inner.strip()
+    return text
+
+
+def parse_answer(raw: bytes) -> object:
+    """Literal value of the bytes of ``answer.txt``; raises on anything but one literal."""
+    if len(raw) > MAX_ANSWER_BYTES:
+        raise ValueError("too large")
+    return ast.literal_eval(_unfence(raw.decode("utf-8").strip()))  # pyright: ignore[reportAny]
+
+
+def main() -> None:
+    try:
+        with open(ANSWER_FILE, "rb") as handle:
+            raw = handle.read(MAX_ANSWER_BYTES + 1)
+        out = encode_answer(parse_answer(raw))
+    except Exception:
+        sys.exit(1)
+    sys.stdout.buffer.write((out + "\n").encode("ascii"))  # bytes: no newline translation
+    sys.stdout.buffer.flush()
+
+
+if __name__ == "__main__":
+    main()

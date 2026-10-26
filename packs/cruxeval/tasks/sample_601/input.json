@@ -1,0 +1,5 @@
+{
+ "call": "f('csharp')",
+ "code": "def f(text):\n    t = 5\n    tab = []\n    for i in text:\n        if i.lower() in 'aeiouy':\n            tab.append(i.upper() * t)\n        else:\n            tab.append(i * t)\n    return ' '.join(tab)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

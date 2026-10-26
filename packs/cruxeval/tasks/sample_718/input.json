@@ -1,0 +1,5 @@
+{
+ "call": "f('ThisIsSoAtrocious')",
+ "code": "def f(text):\n    t = text\n    for i in text:\n        text = text.replace(i, '')\n    return str(len(text)) + t",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

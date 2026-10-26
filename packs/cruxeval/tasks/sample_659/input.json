@@ -1,0 +1,5 @@
+{
+ "call": "f(['yR?TAJhIW?n', 'o11BgEFDfoe', 'KnHdn2vdEd', 'wvwruuqfhXbGis'])",
+ "code": "def f(bots):\n    clean = []\n    for username in bots:\n        if not username.isupper():\n            clean.append(username[:2] + username[-3:])\n    return len(clean)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

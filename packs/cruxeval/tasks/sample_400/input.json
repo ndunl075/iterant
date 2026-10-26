@@ -1,0 +1,5 @@
+{
+ "call": "f('I am hungry! eat food.')",
+ "code": "def f(multi_string):\n    cond_string = map(str.isascii, multi_string.split())\n    if True in cond_string:\n        return ', '.join(x for x in multi_string.split() if x.isascii())\n    return ''",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

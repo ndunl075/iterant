@@ -1,0 +1,5 @@
+{
+ "call": "f('so456')",
+ "code": "def f(text):\n    return sum(1 for c in text if c.isdigit())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

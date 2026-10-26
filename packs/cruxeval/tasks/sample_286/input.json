@@ -1,0 +1,5 @@
+{
+ "call": "f([1,2,3,4,5,6,7,8,9,10], 11, 4)",
+ "code": "def f(array, x, i):\n    if i < -len(array) or i > len(array) - 1:\n        return 'no'\n    temp = array[i]\n    array[i] = x\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

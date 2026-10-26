@@ -1,0 +1,5 @@
+{
+ "call": "f(\"\\ta\", 3)",
+ "code": "def f(text, tab_size):\n    res = ''\n    text = text.replace('\\t', ' '*(tab_size-1))\n    for i in range(len(text)):\n        if text[i] == ' ':\n            res += '|'\n        else:\n            res += text[i]\n    return res",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

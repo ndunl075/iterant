@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3], 4)",
+ "code": "def f(array, L):\n    if L <= 0:\n        return array\n    if len(array) < L:\n        array.extend(f(array, L - len(array)))\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

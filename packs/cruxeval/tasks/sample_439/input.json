@@ -1,0 +1,5 @@
+{
+ "call": "f('coscifysu')",
+ "code": "def f(value):\n    parts = value.partition(' ')[::2]\n    return ''.join(parts)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

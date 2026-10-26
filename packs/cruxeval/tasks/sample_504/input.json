@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 1, 1, 1])",
+ "code": "def f(values):\n    values.sort()\n    return values",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

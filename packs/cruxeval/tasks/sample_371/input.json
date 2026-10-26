@@ -1,0 +1,5 @@
+{
+ "call": "f([11, 21, 0, 11])",
+ "code": "def f(nums):\n    for odd in nums[:]:\n        if odd % 2 != 0:\n            nums.remove(odd)\n    sum_ = 0\n    for num in nums:\n        sum_ += num\n    return sum_",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

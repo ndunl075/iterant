@@ -1,0 +1,5 @@
+{
+ "call": "f('abc', 'e')",
+ "code": "def f(text, char):\n    return char.islower() and text.islower()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

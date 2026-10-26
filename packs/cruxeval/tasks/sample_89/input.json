@@ -1,0 +1,5 @@
+{
+ "call": "f('o')",
+ "code": "def f(char):\n    if char not in 'aeiouAEIOU':\n        return None\n    if char in 'AEIOU':\n        return char.lower()\n    return char.upper()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('btrburger', 'b')",
+ "code": "def f(text, value):\n    indexes = []\n    for i in range(len(text)):\n        if text[i] == value and (i == 0 or text[i-1] != value):\n            indexes.append(i) \n    if len(indexes) % 2 == 1:\n        return text\n    return text[indexes[0]+1:indexes[-1]]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('biec')",
+ "code": "def f(input_string):\n    table = str.maketrans('aioe', 'ioua')\n    while 'a' in input_string or 'A' in input_string:\n        input_string = input_string.translate(table)\n    return input_string",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(['condor', 'eyes', 'gay', 'isa' ], 'd')",
+ "code": "def f(strings, substr):\n    list = [s for s in strings if s.startswith(substr)]\n    return sorted(list, key=len)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

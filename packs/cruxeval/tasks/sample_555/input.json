@@ -1,0 +1,5 @@
+{
+ "call": "f(\"odes\\tcode\\twell\", 2)",
+ "code": "def f(text, tabstop):\n    text = text.replace('\\n', '_____')\n    text = text.replace('\\t', tabstop * ' ')\n    text = text.replace('_____', '\\n')\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

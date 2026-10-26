@@ -1,0 +1,5 @@
+{
+ "call": "f({}, 'hbd')",
+ "code": "def f(char_map, text):\n    new_text = ''\n    for ch in text:\n        val = char_map.get(ch)\n        if val is None:\n            new_text += ch\n        else:\n            new_text += val\n    return new_text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([3, 4, 1, 2, 3])",
+ "code": "def f(nums):\n    count = len(nums) // 2\n    for _ in range(count):\n        nums.pop(0)\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

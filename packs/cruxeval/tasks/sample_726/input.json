@@ -1,0 +1,5 @@
+{
+ "call": "f(\"jcle oq wsnibktxpiozyxmopqkfnrfjds\")",
+ "code": "def f(text):\n    ws = 0\n    for s in text:\n        if s.isspace():\n            ws += 1\n    return ws, len(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

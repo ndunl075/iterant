@@ -1,0 +1,5 @@
+{
+ "call": "f('avacado', 'va', '-')",
+ "code": "def f(text, old, new):\n    if len(old) > 3:\n        return text\n    if old in text and ' ' not in text:\n        return text.replace(old, new*len(old))\n    while old in text:\n        text = text.replace(old, new)\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('mjs', 'mjqwmjsqjwisojqwiso')",
+ "code": "def f(prefix, text):\n    if text.startswith(prefix):\n        return text\n    else:\n        return prefix + text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('\u0441 bishop.Swift')",
+ "code": "def f(text):\n    result = ''\n    for char in text:\n        if char.isalnum():\n            result += char.upper()\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

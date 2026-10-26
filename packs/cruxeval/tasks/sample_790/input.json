@@ -1,0 +1,5 @@
+{
+ "call": "f({'i': 1, 'love': 'parakeets'})",
+ "code": "def f(d):\n    r = {\n        'c': d.copy(),\n        'd': d.copy()\n    }\n    return (r['c'] is r['d'], r['c'] == r['d'])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

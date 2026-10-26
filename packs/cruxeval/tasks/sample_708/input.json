@@ -1,0 +1,5 @@
+{
+ "call": "f('    jcmfxv     ')",
+ "code": "def f(string):\n    l = list(string)\n    for i in reversed(range(len(l))):\n        if l[i] != ' ':\n            break\n        l.pop(i)\n    return ''.join(l)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

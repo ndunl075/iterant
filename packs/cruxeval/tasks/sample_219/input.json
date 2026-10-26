@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Hello\", \")\")",
+ "code": "def f(s1, s2):\n    for k in range(0, len(s2)+len(s1)):\n        s1 += s1[0]\n        if s1.find(s2) >= 0:\n            return True\n    return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

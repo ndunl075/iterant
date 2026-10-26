@@ -1,0 +1,5 @@
+{
+ "call": "f([\"a\", \"b\", \"c\"], \" \")",
+ "code": "def f(a, b):\n    a = b.join(a)\n    lst = []\n    for i in range(1, len(a)+1, 2):\n        lst.append(a[i-1:][:i])\n        lst.append(a[i-1:][i:])\n    return lst",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

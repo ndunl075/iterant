@@ -1,0 +1,5 @@
+{
+ "call": "f(['r', '9'])",
+ "code": "def f(students):\n    seatlist = students\n    seatlist.reverse()\n    cnt = 0\n    for cnt in range(len(seatlist)):\n        cnt += 2\n        seatlist[cnt - 1:cnt] = ['+']\n    seatlist.append('+')\n    return seatlist",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

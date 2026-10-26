@@ -1,0 +1,5 @@
+{
+ "call": "f('13:45:56', 'shift_jis')",
+ "code": "def f(text, encoding):\n    try:\n        return text.encode(encoding)\n    except LookupError:\n        return str(LookupError)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

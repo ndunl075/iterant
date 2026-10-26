@@ -1,0 +1,5 @@
+{
+ "call": "f([6, 2, 1, 1, 4, 1], 5)",
+ "code": "def f(nums, rmvalue):\n    res = nums[:]\n    while rmvalue in res:\n        popped = res.pop(res.index(rmvalue))\n        if popped != rmvalue:\n            res.append(popped)\n    return res",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

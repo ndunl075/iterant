@@ -1,0 +1,5 @@
+{
+ "call": "f(\"try.\", 5)",
+ "code": "def f(str, n):\n    if len(str) < n:\n        return str\n    else:\n        return str.removeprefix(str[:n])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

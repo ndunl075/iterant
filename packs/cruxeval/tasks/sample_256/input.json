@@ -1,0 +1,5 @@
+{
+ "call": "f('dorfunctions', '2')",
+ "code": "def f(text, sub):\n    a = 0\n    b = len(text) - 1\n\n    while a <= b:\n        c = (a + b) // 2\n        if text.rfind(sub) >= c:\n            a = c + 1\n        else:\n            b = c - 1\n\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

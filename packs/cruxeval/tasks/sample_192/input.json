@@ -1,0 +1,5 @@
+{
+ "call": "f('!klcd!ma:ri', '!')",
+ "code": "def f(text, suffix):\n    output = text\n    while text.endswith(suffix):\n        output = text[:-len(suffix)]\n        text = output\n    return output",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

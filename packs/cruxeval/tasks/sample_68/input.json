@@ -1,0 +1,5 @@
+{
+ "call": "f('omeunhwpvr.dq', 'omeunh')",
+ "code": "def f(text, pref):\n    if text.startswith(pref):\n        n = len(pref)\n        text = '.'.join(text[n:].split('.')[1:] + text[:n].split('.')[:-1])\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

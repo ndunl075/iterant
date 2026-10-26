@@ -1,0 +1,5 @@
+{
+ "call": "f({'a': 2, 'b': [], 'c': {}}, 0)",
+ "code": "def f(d, count):\n    new_dict = {}\n    for _ in range(count):\n        d = d.copy()\n        new_dict = {**d, **new_dict}\n    return new_dict",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

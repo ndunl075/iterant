@@ -1,0 +1,5 @@
+{
+ "call": "f(\"x\")",
+ "code": "def f(text):\n    try:\n        return text.isalpha()\n    except:\n        return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

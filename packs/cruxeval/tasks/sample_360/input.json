@@ -1,0 +1,5 @@
+{
+ "call": "f('g', 15)",
+ "code": "def f(text, n):\n    if len(text) <= 2:\n        return text\n    leading_chars = text[0] * (n - len(text) + 1)\n    return leading_chars + text[1:-1] + text[-1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

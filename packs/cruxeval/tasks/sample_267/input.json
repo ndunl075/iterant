@@ -1,0 +1,5 @@
+{
+ "call": "f('sowpf', -7)",
+ "code": "def f(text, space):\n    if space < 0:\n        return text\n    return text.ljust(len(text) // 2 + space)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

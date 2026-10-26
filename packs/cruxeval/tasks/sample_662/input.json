@@ -1,0 +1,5 @@
+{
+ "call": "f(['Dan', 'Joe', 'Dusty'])",
+ "code": "def f(values):\n    names = ['Pete', 'Linda', 'Angela']\n    names.extend(values)\n    names.sort()\n    return names",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

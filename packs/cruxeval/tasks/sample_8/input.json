@@ -1,0 +1,5 @@
+{
+ "call": "f('UppEr', 0)",
+ "code": "def f(string, encryption):\n    if encryption == 0:\n        return string\n    else:\n        return string.upper().encode('rot13')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

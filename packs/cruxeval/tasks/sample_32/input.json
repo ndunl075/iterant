@@ -1,0 +1,5 @@
+{
+ "call": "f('volume', 'l')",
+ "code": "def f(s, sep):\n    reverse = ['*' + e for e in s.split(sep)]\n    return ';'.join(reversed(reverse))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

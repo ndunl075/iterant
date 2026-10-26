@@ -1,0 +1,5 @@
+{
+ "call": "f(''.join(['A'] * 20))",
+ "code": "def f(text):\n    n = 0\n    for char in text:\n        if char.isupper():\n            n += 1\n    return n",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

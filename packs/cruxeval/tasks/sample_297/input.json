@@ -1,0 +1,5 @@
+{
+ "call": "f(6173)",
+ "code": "def f(num):\n    if 0 < num < 1000 and num != 6174:\n        return 'Half Life'\n    return 'Not found'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

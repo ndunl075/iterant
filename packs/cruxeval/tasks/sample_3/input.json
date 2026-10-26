@@ -1,0 +1,5 @@
+{
+ "call": "f('bcksrut', 'q')",
+ "code": "def f(text, value):\n    text_list = list(text)\n    text_list.append(value)\n    return ''.join(text_list)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('ykdfhp')",
+ "code": "def f(x):\n    if x.islower():\n        return x\n    else:\n        return x[::-1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

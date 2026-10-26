@@ -1,0 +1,5 @@
+{
+ "call": "f(\"qy. dg. rnvprt rse.. irtwv tx..\", \"wtwdoacb\")",
+ "code": "def f(items, target):\n    for i in items.split():\n        if i in target:\n            return items.index(i)+1\n        if i.index('.') == len(i)-1 or i.index('.') == 0:\n            return 'error'\n    return '.'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({'AAA': 'fr'})",
+ "code": "def f(zoo):\n    return dict((v, k) for k, v in zoo.items())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

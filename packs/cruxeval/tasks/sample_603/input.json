@@ -1,0 +1,5 @@
+{
+ "call": "f('not numbers')",
+ "code": "def f(sentences):\n    if all([sentence.isdecimal() for sentence in sentences.split('.')]):\n        return 'oscillating' \n    else:\n        return 'not oscillating'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

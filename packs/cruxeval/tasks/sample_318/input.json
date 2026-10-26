@@ -1,0 +1,5 @@
+{
+ "call": "f('234rtccde', 'e')",
+ "code": "def f(value, char):\n    total = 0\n    for c in value:\n        if c == char or c == char.lower():\n            total += 1\n    return total",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

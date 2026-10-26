@@ -1,0 +1,5 @@
+{
+ "call": "f({\"l\": 1, \"t\": 2, \"x:\": 3})",
+ "code": "def f(d):\n    d = d.copy()\n    d.popitem()\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

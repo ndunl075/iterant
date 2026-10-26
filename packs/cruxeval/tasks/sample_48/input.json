@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(names):\n    if names == []:\n        return \"\"\n    smallest = names[0]\n    for name in names[1:]:\n        if name < smallest:\n            smallest = name\n    names.remove(smallest)\n    return names.join(smallest)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

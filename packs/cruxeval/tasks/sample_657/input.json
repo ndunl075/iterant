@@ -1,0 +1,5 @@
+{
+ "call": "f(\"djhasghasgdha\")",
+ "code": "def f(text):\n    for punct in '!.?,:;':\n        if text.count(punct) > 1:\n            return 'no'\n        if text.endswith(punct):\n            return 'no'\n    return text.title()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

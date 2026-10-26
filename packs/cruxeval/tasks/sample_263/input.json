@@ -1,0 +1,5 @@
+{
+ "call": "f([\"gloss\", \"banana\", \"barn\", \"lawn\"], [])",
+ "code": "def f(base, delta):\n    for j in range(len(delta)):\n        for i in range(len(base)):\n            if base[i] == delta[j][0]:\n                assert delta[j][1] != base[i]\n                base[i] = delta[j][1]\n    return base",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

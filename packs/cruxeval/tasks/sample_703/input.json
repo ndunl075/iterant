@@ -1,0 +1,5 @@
+{
+ "call": "f('vzzv2sg', 'z')",
+ "code": "def f(text, char):\n    count = text.count(char*2)\n    return text[count:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

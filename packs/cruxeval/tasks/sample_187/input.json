@@ -1,0 +1,5 @@
+{
+ "call": "f({27:39}, 1)",
+ "code": "def f(d, index):\n    length = len(d.items())\n    idx = index % length\n    v = d.popitem()[1]\n    for _ in range(idx):\n        d.popitem()\n    return v",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

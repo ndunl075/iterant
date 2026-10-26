@@ -1,0 +1,5 @@
+{
+ "call": "f(['dZwbSR', 'wijHeq', 'qluVok', 'dxjxbF'])",
+ "code": "def f(lines):\n    for i in range(len(lines)):\n        lines[i] = lines[i].center(len(lines[-1]))\n    return lines",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

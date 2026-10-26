@@ -1,0 +1,5 @@
+{
+ "call": "f(\"a\\nkgf\\nasd\\n\")",
+ "code": "def f(text):\n    a = len(text)\n    count = 0\n    while text:\n        if text.startswith('a'):\n            count += text.find(' ')\n        else:\n            count += text.find('\\n')\n        text = text[text.find('\\n')+1:text.find('\\n')+a+1]\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

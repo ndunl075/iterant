@@ -1,0 +1,5 @@
+{
+ "call": "f(1, [1, 2, 3])",
+ "code": "def f(n, array):\n    final = [array.copy()] \n    for i in range(n):\n        arr = array.copy()\n        arr.extend(final[-1])\n        final.append(arr)\n    return final",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

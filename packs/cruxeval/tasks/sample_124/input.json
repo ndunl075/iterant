@@ -1,0 +1,5 @@
+{
+ "call": "f('i like you', ' ', -1)",
+ "code": "def f(txt, sep, sep_count):\n    o = ''\n    while sep_count > 0 and txt.count(sep) > 0:\n        o += txt.rsplit(sep, 1)[0] + sep\n        txt = txt.rsplit(sep, 1)[1]\n        sep_count -= 1\n    return o + txt",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

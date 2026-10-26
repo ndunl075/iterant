@@ -1,0 +1,5 @@
+{
+ "call": "f([1,2])",
+ "code": "def f(digits):\n    digits.reverse()\n    if len(digits) < 2:\n        return digits\n    for i in range(0, len(digits), 2):\n        digits[i], digits[i+1] = digits[i+1], digits[i]\n    return digits",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('dEXE')",
+ "code": "def f(text):\n    s = text.lower()\n    for i in range(len(s)):\n        if s[i] == 'x':\n            return 'no'\n    return text.isupper()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"towaru\", \"UTF-8\")",
+ "code": "def f(string, code):\n    t = ''\n    try:\n        t = string.encode(code)\n        if t.endswith(b'\\n'):\n            t = t[:-1]\n        t = t.decode('UTF-8')\n        return t\n    except:\n        return t",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

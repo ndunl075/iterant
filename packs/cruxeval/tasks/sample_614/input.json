@@ -1,0 +1,5 @@
+{
+ "call": "f('zjegiymjc', 'j', 2)",
+ "code": "def f(text, substr, occ):\n    n = 0\n    while True:\n        i = text.rfind(substr)\n        if i == -1:\n            break\n        elif n == occ:\n            return i\n        else:\n            n += 1\n            text = text[:i]\n    return -1",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

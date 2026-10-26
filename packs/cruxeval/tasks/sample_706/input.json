@@ -1,0 +1,5 @@
+{
+ "call": "f(\"ab\", \"xy\")",
+ "code": "def f(r, w):\n    a = []\n    if r[0] == w[0] and w[-1] == r[-1]:\n        a.append(r)\n        a.append(w)\n    else:\n        a.append(w)\n        a.append(r)\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

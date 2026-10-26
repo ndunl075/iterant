@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 7, -1, -3])",
+ "code": "def f(lst):\n    new = list()\n    i = len(lst)-1\n    for _ in range(len(lst)):\n        if i%2 == 0:\n            new.append(-lst[i])\n        else:\n            new.append(lst[i])\n        i -= 1\n    return new",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

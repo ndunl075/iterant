@@ -1,0 +1,5 @@
+{
+ "call": "f([2, 3, 5, 2, 4, 5, 2, 89])",
+ "code": "def f(ints):\n    counts = [0] * 301\n\n    for i in ints:\n        counts[i] += 1\n\n    r = []\n    for i in range(len(counts)):\n        if counts[i] >= 3:\n            r.append(str(i))\n    counts.clear()\n    return ' '.join(r)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

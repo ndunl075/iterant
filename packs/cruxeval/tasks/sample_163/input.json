@@ -1,0 +1,5 @@
+{
+ "call": "f('w', '))', 7)",
+ "code": "def f(text, space_symbol, size):\n    spaces = ''.join(space_symbol for i in range(size-len(text)))\n    return text + spaces",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

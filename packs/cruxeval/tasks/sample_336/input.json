@@ -1,0 +1,5 @@
+{
+ "call": "f('234dsfssdfs333324314', 's')",
+ "code": "def f(s, sep):\n    s += sep\n    return s.rpartition(sep)[0]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

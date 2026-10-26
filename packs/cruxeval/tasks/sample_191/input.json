@@ -1,0 +1,5 @@
+{
+ "call": "f('Ohno')",
+ "code": "def f(string):\n    if string.isupper():\n        return True\n    else:\n        return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

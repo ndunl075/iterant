@@ -1,0 +1,5 @@
+{
+ "call": "f(['ix', 'dxh', 'snegi', 'wiubvu'], '')",
+ "code": "def f(numbers, prefix):\n    return sorted(n[len(prefix):] if (len(n) > len(prefix) and n.startswith(prefix)) else n\n                  for n in numbers)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

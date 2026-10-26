@@ -1,0 +1,5 @@
+{
+ "call": "f('flak')",
+ "code": "def f(w):\n    ls = list(w)\n    omw = ''\n    while len(ls) > 0:\n        omw += ls.pop(0)\n        if len(ls) * 2 > len(w):\n            return w[len(ls):] == omw\n    return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

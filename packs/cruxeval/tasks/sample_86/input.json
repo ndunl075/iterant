@@ -1,0 +1,5 @@
+{
+ "call": "f(['sdfs', 'drcr', '2e'], ['sdfs', 'dr2c', 'QWERTY'], 0)",
+ "code": "def f(instagram, imgur, wins):\n    photos = [instagram, imgur]\n    if instagram == imgur:\n        return wins\n    if wins == 1:\n        return photos.pop()\n    else:\n        photos.reverse()\n        return photos.pop()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

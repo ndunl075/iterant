@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 1], 2, 3)",
+ "code": "def f(values, item1, item2):\n    if values[-1] == item2:\n        if values[0] not in values[1:]:\n            values.append(values[0])\n    elif values[-1] == item1:\n        if values[0] == item2:\n            values.append(values[0])\n    return values",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([2, 15], [15, 1])",
+ "code": "def f(array, list):\n    array.extend(list)\n    [e for e in array if e % 2 == 0]\n    return [e for e in array if e >= 10]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

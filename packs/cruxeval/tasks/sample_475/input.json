@@ -1,0 +1,5 @@
+{
+ "call": "f([1], 0)",
+ "code": "def f(array, index):\n    if index < 0:\n        index = len(array) + index\n    return array[index]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

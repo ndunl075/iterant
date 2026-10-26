@@ -1,0 +1,5 @@
+{
+ "call": "f('00000000 00000000 01101100 01100101 01101110')",
+ "code": "field = 0\n\ndef f(text):\n    global g, field\n    field = text.replace(' ', '')\n    g = text.replace('0', ' ')\n    text = text.replace('1', 'i')\n\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

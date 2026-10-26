@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 0, 1, 2, 1])",
+ "code": "def f(nums):\n    for i in range(len(nums) - 1, -1, -3):\n        if nums[i] == 0:\n            nums.clear()\n            return False\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

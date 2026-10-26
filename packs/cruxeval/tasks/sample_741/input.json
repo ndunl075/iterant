@@ -1,0 +1,5 @@
+{
+ "call": "f([6, 8, 2, 5, 3, 1, 9, 7], 6)",
+ "code": "def f(nums, p):\n    prev_p = p - 1\n    if prev_p < 0: prev_p = len(nums) - 1\n    return nums[prev_p]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

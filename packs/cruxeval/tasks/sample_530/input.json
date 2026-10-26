@@ -1,0 +1,5 @@
+{
+ "call": "f(\"@@@ff\", '@')",
+ "code": "def f(s, ch):\n    sl = s\n    if ch in s:\n        sl = s.lstrip(ch)\n        if len(sl) == 0:\n            sl = sl + '!?'\n    else:\n        return 'no'\n    return sl",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

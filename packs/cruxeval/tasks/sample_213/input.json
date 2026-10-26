@@ -1,0 +1,5 @@
+{
+ "call": "f(\"(ac)\")",
+ "code": "def f(s):\n    return s.replace('(', '[').replace(')', ']')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

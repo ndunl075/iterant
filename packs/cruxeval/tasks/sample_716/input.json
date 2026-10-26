@@ -1,0 +1,5 @@
+{
+ "call": "f([2, 1, 2, 3, 1, 6, 3, 8])",
+ "code": "def f(nums):\n    count = len(nums)\n    while len(nums) > (count//2):\n        nums.clear()\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

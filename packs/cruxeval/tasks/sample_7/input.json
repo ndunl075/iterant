@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(list):\n    original = list[:]\n    while len(list) > 1:\n        list.pop(len(list) - 1)\n        for i in range(len(list)):\n            list.pop(i)\n    list = original[:]\n    if list:\n        list.pop(0)\n    return list",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

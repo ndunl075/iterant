@@ -1,0 +1,5 @@
+{
+ "call": "f('dog,cat')",
+ "code": "def f(text):\n    string_a, string_b = text.split(',')\n    return -(len(string_a) + (len(string_b)))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

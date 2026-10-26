@@ -1,0 +1,5 @@
+{
+ "call": "f('bwmm7h')",
+ "code": "def f(num):\n    letter = 1\n    for i in '1234567890':\n        num = num.replace(i,'')\n        if len(num) == 0: break\n        num = num[letter:] + num[:letter]\n        letter += 1\n    return num",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('friends and love', 'and', 3)",
+ "code": "def f(text, suffix, num):\n    str_num = str(num)\n    return text.endswith(suffix + str_num)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

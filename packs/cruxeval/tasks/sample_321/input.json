@@ -1,0 +1,5 @@
+{
+ "call": "f({}, {'desciduous': 2})",
+ "code": "def f(update, starting):\n    d = starting.copy()\n    for k in update:\n        if k in d:\n            d[k] += update[k]\n        else:\n            d[k] = update[k]\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([5, 8, 6, 8, 4])",
+ "code": "def f(list_x):\n    item_count = len(list_x)\n    new_list = []\n    for i in range(item_count):\n        new_list.append(list_x.pop())\n    return new_list",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

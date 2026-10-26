@@ -1,0 +1,5 @@
+{
+ "call": "f({}, 1)",
+ "code": "def f(array, elem):\n    result = array.copy()\n    while result:\n        key, value = result.popitem()\n        if elem == key or elem == value:\n            result.update(array)\n        del result[key]\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

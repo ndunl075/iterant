@@ -1,0 +1,5 @@
+{
+ "call": "f('abba', 'bab')",
+ "code": "def f(s, o):\n    if s.startswith(o):\n        return s\n    return o + f(s, o[-2::-1])",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

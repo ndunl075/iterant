@@ -1,0 +1,5 @@
+{
+ "call": "f(\"\\t\\t\\ttab tab tabulates\")",
+ "code": "def f(text):\n    a = text.split('\\n')\n    b = []\n    for i in range(len(a)):\n        c = a[i].replace('\\t', '    ')\n        b.append(c)\n    return '\\n'.join(b)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

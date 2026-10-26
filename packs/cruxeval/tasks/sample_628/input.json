@@ -1,0 +1,5 @@
+{
+ "call": "f([4, 5, 3, 6, 1], 5)",
+ "code": "def f(nums, delete):\n    nums.remove(delete)\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

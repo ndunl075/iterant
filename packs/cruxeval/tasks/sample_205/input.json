@@ -1,0 +1,5 @@
+{
+ "call": "f(\"##fiu##nk#he###wumun##\")",
+ "code": "def f(a):\n    for _ in range(10):\n        for j in range(len(a)):\n            if a[j] != '#':\n                a = a[j:]\n                break\n        else:\n            a = \"\"\n            break\n    while a[-1] == '#':\n        a = a[:-1]\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

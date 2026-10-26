@@ -1,0 +1,5 @@
+{
+ "call": "f('llomnrpc', 'x')",
+ "code": "def f(text, char):\n    char_index = text.find(char)\n    result = []\n    if char_index > 0:\n        result = list(text[:char_index])\n    result.extend(list(char)+list(text[char_index+len(char):]))\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

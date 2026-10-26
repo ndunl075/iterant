@@ -1,0 +1,5 @@
+{
+ "call": "f('no asw', 'j', 1)",
+ "code": "def f(text, fill, size):\n    if size < 0:\n        size = -size\n    if len(text) > size:\n        return text[len(text) - size:]\n    return text.rjust(size, fill)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('$78'.upper(), '$')",
+ "code": "def f(line, char):\n    count = line.count(char)\n    for i in range(count+1, 0, -1):\n        line = line.center(len(line)+i // len(char), char)\n    return line",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

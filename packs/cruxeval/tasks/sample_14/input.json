@@ -1,0 +1,5 @@
+{
+ "call": "f('   OOP   ')",
+ "code": "def f(s):\n    arr = list(s.strip())\n    arr.reverse()\n    return ''.join(arr)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

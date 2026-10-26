@@ -1,0 +1,5 @@
+{
+ "call": "f('unrndqafi', 'c', 2)",
+ "code": "def f(a, b, n):\n    result = m = b\n    for _ in range(n):\n        if m:\n            a, m = a.replace(m, '', 1), None\n            result = m = b\n    return result.join(a.split(b))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

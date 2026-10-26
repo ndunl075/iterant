@@ -1,0 +1,5 @@
+{
+ "call": "f({1: -9, 0: -7}, {1: 2, 0: 3})",
+ "code": "def f(original, string):\n    temp = dict(original)\n    for a, b in string.items():\n        temp[b] = a\n    return temp",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

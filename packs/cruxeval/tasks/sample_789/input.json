@@ -1,0 +1,5 @@
+{
+ "call": "f('bR', -1)",
+ "code": "def f(text, n):\n    if n < 0 or len(text) <= n:\n        return text\n    result = text[0 : n]\n    i = len(result) - 1\n    while i >= 0:\n        if result[i] != text[i]:\n            break\n        i -= 1\n    return text[0 : i + 1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

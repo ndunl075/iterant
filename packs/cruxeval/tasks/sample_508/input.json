@@ -1,0 +1,5 @@
+{
+ "call": "f('ertubwi', 'p', 5)",
+ "code": "def f(text, sep, maxsplit):\n    splitted = text.rsplit(sep, maxsplit)\n    length = len(splitted)\n    new_splitted = splitted[:length // 2]\n    new_splitted.reverse()\n    new_splitted += splitted[length // 2:]\n    return sep.join(new_splitted)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

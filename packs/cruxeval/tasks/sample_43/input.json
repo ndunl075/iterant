@@ -1,0 +1,5 @@
+{
+ "call": "f(\"6 ** 2\")",
+ "code": "def f(n):\n    for i in str(n):\n        if not i.isdigit():\n            n = -1\n            break\n    return n",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

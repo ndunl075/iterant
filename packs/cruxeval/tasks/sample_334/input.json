@@ -1,0 +1,5 @@
+{
+ "call": "f('00', ['nU', ' 9 rCSAz', 'w', ' lpA5BO', 'sizL', 'i7rlVr'])",
+ "code": "def f(a, b):\n    return a.join(b)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

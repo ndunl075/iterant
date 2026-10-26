@@ -1,0 +1,5 @@
+{
+ "call": "f(r'a\\tb', 4)",
+ "code": "def f(input_string, spaces):\n    return input_string.expandtabs(spaces)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

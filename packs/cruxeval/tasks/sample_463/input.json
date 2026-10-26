@@ -1,0 +1,5 @@
+{
+ "call": "f({-1: -1, 5: 5, 3: 6, -4: -4})",
+ "code": "def f(dict):\n    result = dict.copy()\n    remove_keys = []\n    for k, v in dict.items():\n        if v in dict:\n            del result[k]\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

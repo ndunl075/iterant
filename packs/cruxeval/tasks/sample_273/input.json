@@ -1,0 +1,5 @@
+{
+ "call": "f('.NET')",
+ "code": "def f(name):\n    new_name =''\n    name = name[::-1]\n    for i in range(len(name)):\n        n = name[i]\n        if n !='.' and  new_name.count('.')<2:\n            new_name=n+new_name\n        else:\n            break\n    return new_name",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('mTYWLMwbLRVOqNEf.oLsYkZORKE[Ko[{n')",
+ "code": "def f(text):\n    if text and text.isupper():\n        cs = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)\n        return text.translate(cs)\n    return text.lower()[:3]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

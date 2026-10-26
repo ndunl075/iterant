@@ -1,0 +1,5 @@
+{
+ "call": "f('new-medium-performing-application - XQuery 2.2', '0123456789-')",
+ "code": "def f(text, chars):\n    if chars:\n        text = text.rstrip(chars)\n    else:\n        text = text.rstrip(' ')\n    if text == '':\n        return '-'\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

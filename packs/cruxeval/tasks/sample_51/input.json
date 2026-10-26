@@ -1,0 +1,5 @@
+{
+ "call": "f(21)",
+ "code": "s = '<' * 10\ndef f(num):\n    if num % 2 == 0:\n        return s\n    else:\n        return num - 1",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"398 Is A Poor Year To Sow\")",
+ "code": "def f(text):\n    text = text.replace(' x', ' x.')\n    if text.istitle(): return 'correct'\n    text = text.replace(' x.', ' x')\n    return 'mixed'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

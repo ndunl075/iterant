@@ -1,0 +1,5 @@
+{
+ "call": "f(';,,,?')",
+ "code": "def f(text):\n    count = text.count(text[0])\n    ls = list(text)\n    for _ in range(count):\n        ls.remove(ls[0])\n    return ''.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

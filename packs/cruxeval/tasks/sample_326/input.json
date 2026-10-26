@@ -1,0 +1,5 @@
+{
+ "call": "f('Thisisastring')",
+ "code": "def f(text):\n    number = 0\n    for t in text:\n        if t.isnumeric():\n            number += 1\n    return number",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

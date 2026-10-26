@@ -1,0 +1,5 @@
+{
+ "call": "f('If you want to live a happy life! Daniel', 'Daniel')",
+ "code": "def f(s, x):\n    count = 0\n    while s[:len(x)] == x and count < len(s)-len(x):\n        s = s[len(x):]\n        count += len(x)\n    return s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({1:1, 2:2, 3:3})",
+ "code": "def f(dic):\n    dic_op = dic.copy()\n    for key, val in dic.items():\n        dic_op[key] = val * val\n    return dic_op",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

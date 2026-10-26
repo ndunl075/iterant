@@ -1,0 +1,5 @@
+{
+ "call": "f([-6, -5, -7, -8, 2])",
+ "code": "def f(nums):\n    count = len(nums)\n    for num in range(2, count):\n        nums.sort()\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([2, 0])",
+ "code": "def f(lst):\n    lst.clear()\n    for i in lst:\n        if i == 3:\n            return False\n    else:\n        return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

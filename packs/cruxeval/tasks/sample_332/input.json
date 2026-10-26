@@ -1,0 +1,5 @@
+{
+ "call": "f([-6, -2, 1, -3, 0, 1])",
+ "code": "def f(nums):\n    count = len(nums)\n    if count == 0:\n        nums = [0] * int(nums.pop())\n    elif count % 2 == 0:\n        nums.clear()\n    else:\n        del nums[:count//2:]\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

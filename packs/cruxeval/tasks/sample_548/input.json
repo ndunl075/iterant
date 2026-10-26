@@ -1,0 +1,5 @@
+{
+ "call": "f('spider', 'ed')",
+ "code": "def f(text, suffix):\n    if suffix and text and text.endswith(suffix):\n        return text.removesuffix(suffix)\n    else:\n        return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

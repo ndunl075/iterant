@@ -1,0 +1,5 @@
+{
+ "call": "f('###', \"ph>t#A#BiEcDefW#ON#iiNCU\", '.')",
+ "code": "def f(replace, text, hide):\n    while hide in text:\n        replace += 'ax'\n        text = text.replace(hide, replace, 1)\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

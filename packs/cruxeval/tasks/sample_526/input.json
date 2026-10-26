@@ -1,0 +1,5 @@
+{
+ "call": "f('ekwies', 's', 'rpg', 1)",
+ "code": "def f(label1, char, label2, index):\n    m = label1.rindex(char)\n    if m >= index:\n        return label2[:m - index + 1]\n    return label1 + label2[index - m - 1:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

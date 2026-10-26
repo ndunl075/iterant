@@ -1,0 +1,5 @@
+{
+ "call": "f('magazine', 25, '.')",
+ "code": "def f(text, length, fillchar):\n    size = len(text)\n    return text.center(length, fillchar)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

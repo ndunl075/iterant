@@ -1,0 +1,5 @@
+{
+ "call": "f(6,8,8)",
+ "code": "def f(num1, num2, num3):\n    nums = [num1, num2, num3]\n    nums.sort()    \n    return f'{nums[0]},{nums[1]},{nums[2]}'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

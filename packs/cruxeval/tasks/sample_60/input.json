@@ -1,0 +1,5 @@
+{
+ "call": "f('raruwa')",
+ "code": "def f(doc):\n    for x in doc:\n        if x.isalpha():\n            return x.capitalize()\n    return '-'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

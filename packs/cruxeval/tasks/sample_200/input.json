@@ -1,0 +1,5 @@
+{
+ "call": "f('jao mt', 'house')",
+ "code": "def f(text, value):\n    length = len(text)\n    index = 0\n    while length > 0:\n        value = text[index] + value\n        length -= 1\n        index += 1\n    return value",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('wlace A')",
+ "code": "def f(text):\n    count = len(text)\n    for i in range(-count+1, 0):\n        text = text + text[i]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

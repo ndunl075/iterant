@@ -1,0 +1,5 @@
+{
+ "call": "f('asfdellos', 'Ta')",
+ "code": "def f(text, chars):\n    chars = list(chars)\n    text = list(text)\n    new_text = text\n    while len(new_text) > 0 and text:\n        if new_text[0] in chars:\n            new_text = new_text[1:]\n        else:\n            break \n    return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

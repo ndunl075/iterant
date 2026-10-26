@@ -1,0 +1,5 @@
+{
+ "call": "f('nzoh')",
+ "code": "def f(text):\n    ls = list(text)\n    for i in range(0, len(ls)):\n        if ls[i]!='+':\n            ls.insert(i, '+')\n            ls.insert(i, '*')\n            break\n    return '+'.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

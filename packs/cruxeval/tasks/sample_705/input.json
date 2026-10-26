@@ -1,0 +1,5 @@
+{
+ "call": "f(['Sydney', 'Hong Kong', 'Melbourne', 'Sao Paolo', 'Istanbul', 'Boston'], 'Somewhere ')",
+ "code": "def f(cities, name):\n    if not name:\n        return cities\n    if name and name != 'cities':\n        return []\n    return [name + city for city in cities]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

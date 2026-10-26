@@ -1,0 +1,5 @@
+{
+ "call": "f('faqo osax f', 'f')",
+ "code": "def f(text, suffix):\n    text += suffix\n    while text[-len(suffix):] == suffix:\n        text = text[:-1]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

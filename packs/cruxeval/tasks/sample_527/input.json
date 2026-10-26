@@ -1,0 +1,5 @@
+{
+ "call": "f(\"!?\", \"\")",
+ "code": "def f(text, value):\n    return text.ljust(len(value), \"?\")",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

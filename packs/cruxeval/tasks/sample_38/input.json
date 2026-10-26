@@ -1,0 +1,5 @@
+{
+ "call": "f('1oE-err bzz-bmm')",
+ "code": "def f(string):\n    return string.title().replace(' ', '')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

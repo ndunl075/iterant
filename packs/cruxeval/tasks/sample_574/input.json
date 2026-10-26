@@ -1,0 +1,5 @@
+{
+ "call": "f(['George', 'Michael', 'George', 'Costanza'])",
+ "code": "def f(simpons):\n    while simpons:\n        pop = simpons.pop()\n        if pop == pop.title():\n            return pop\n    return pop",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

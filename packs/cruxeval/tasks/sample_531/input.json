@@ -1,0 +1,5 @@
+{
+ "call": "f(\"Ibaskdjgblw asdl \", \"djgblw\")",
+ "code": "def f(text, x):\n    if text.removeprefix(x) == text:\n        return f(text[1:], x)\n    else:\n        return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

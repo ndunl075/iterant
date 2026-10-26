@@ -1,0 +1,5 @@
+{
+ "call": "f('ax')",
+ "code": "def f(text):\n    text = text.upper()\n    count_upper = 0\n    for char in text:\n        if char.isupper():\n            count_upper += 1\n        else:\n            return 'no'\n    return count_upper // 2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

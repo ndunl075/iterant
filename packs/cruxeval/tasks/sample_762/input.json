@@ -1,0 +1,5 @@
+{
+ "call": "f('this And cPanel')",
+ "code": "def f(text):\n    text = text.lower()\n    capitalize = text.capitalize()\n    return text[:1] + capitalize[1:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

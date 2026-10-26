@@ -1,0 +1,5 @@
+{
+ "call": "f(\"n wez szize lnson tilebi it 504n.\\n\")",
+ "code": "def f(file):\n    return file.index('\\n')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

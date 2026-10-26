@@ -1,0 +1,5 @@
+{
+ "call": "f()",
+ "code": "def f():\n    d = {\n        'Russia': [('Moscow', 'Russia'), ('Vladivostok', 'Russia')],\n        'Kazakhstan': [('Astana', 'Kazakhstan')],\n    }\n    return list(d.keys())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([6, 1], 3)",
+ "code": "def f(nums, pos):\n    s = slice(None)\n    if pos % 2:\n        s = slice(None, -1)\n    nums[s].reverse()\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

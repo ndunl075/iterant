@@ -1,0 +1,5 @@
+{
+ "call": "f('tflb omn rtt', 'm')",
+ "code": "def f(text, chars):\n    listchars = list(chars)\n    first = listchars.pop()\n    for i in listchars:\n        text = text[0:text.find(i)]+i+text[text.find(i)+1:]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

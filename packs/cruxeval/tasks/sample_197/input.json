@@ -1,0 +1,5 @@
+{
+ "call": "f(1, 1234567890)",
+ "code": "def f(temp, timeLimit):\n    s = timeLimit // temp\n    e = timeLimit % temp\n    return [f'{e} oC', f'{s} {e}'][s > 1]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

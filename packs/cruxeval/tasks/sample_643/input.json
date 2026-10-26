@@ -1,0 +1,5 @@
+{
+ "call": "f('damdrodm', 'm')",
+ "code": "def f(text, suffix):\n    if text.endswith(suffix):\n        text = text[:-1] + text[-1:].swapcase()\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

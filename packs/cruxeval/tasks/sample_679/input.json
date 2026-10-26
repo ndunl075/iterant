@@ -1,0 +1,5 @@
+{
+ "call": "f('meet')",
+ "code": "def f(text):\n    if text == '':\n        return False\n    first_char = text[0]\n    if text[0].isdigit():\n        return False\n    for last_char in text:\n        if (last_char != '_') and not last_char.isidentifier():\n            return False\n    return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

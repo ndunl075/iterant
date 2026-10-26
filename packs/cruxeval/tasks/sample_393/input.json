@@ -1,0 +1,5 @@
+{
+ "call": "f('scala')",
+ "code": "def f(text):\n    ls = text[::-1]\n    text2 = ''\n    for i in range(len(ls) - 3, 0, -3):\n        text2 += '---'.join(ls[i:i + 3]) + '---'\n    return text2[:-3]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

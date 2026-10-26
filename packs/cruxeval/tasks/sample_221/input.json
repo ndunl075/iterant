@@ -1,0 +1,5 @@
+{
+ "call": "f('bpxa24fc5.', '.')",
+ "code": "def f(text, delim):\n    first, second = text.split(delim)\n    return second + delim + first",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

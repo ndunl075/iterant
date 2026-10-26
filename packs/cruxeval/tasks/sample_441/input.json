@@ -1,0 +1,5 @@
+{
+ "call": "f({37: 'forty-five'}, '23', 'what?')",
+ "code": "def f(base, k, v):\n    base[k] = v\n    return base",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

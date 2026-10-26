@@ -1,0 +1,5 @@
+{
+ "call": "f('--4/0-209')",
+ "code": "def f(string):\n    while string:\n        if string[-1].isalpha():\n            return string\n        string = string[:-1]\n    return string",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

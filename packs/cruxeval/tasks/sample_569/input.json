@@ -1,0 +1,5 @@
+{
+ "call": "f(\"11 1 1\")",
+ "code": "def f(txt):\n    coincidences = {}\n    for c in txt:\n        if c in coincidences:\n            coincidences[c] += 1\n        else:\n            coincidences[c] = 1\n    return sum(coincidences.values())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

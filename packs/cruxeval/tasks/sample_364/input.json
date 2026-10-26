@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 3, 0, 1], lambda x: x < 2)",
+ "code": "def f(nums, verdict):\n    res = [x for x in nums if x != 0]\n    result = [[x, verdict(x)] for x in res]\n    if result:\n        return result\n    return 'error - no numbers or all zeros!'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

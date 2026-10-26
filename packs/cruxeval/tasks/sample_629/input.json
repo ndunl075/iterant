@@ -1,0 +1,5 @@
+{
+ "call": "f('catNG', 'NG')",
+ "code": "def f(text, dng):\n    if dng not in text:\n        return text\n    if text[-len(dng):] == dng:\n        return text[:-len(dng)]\n    return text[:-1] + f(text[:-2], dng)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

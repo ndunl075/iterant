@@ -1,0 +1,5 @@
+{
+ "call": "f(\"FSA\")",
+ "code": "def f(s):\n    count = {}\n    for i in s:\n        if i.islower():\n            count[i.lower()] = s.count(i.lower()) + count.get(i.lower(), 0)\n        else:\n            count[i.lower()] = s.count(i.upper()) + count.get(i.lower(), 0)\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

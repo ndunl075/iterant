@@ -1,0 +1,5 @@
+{
+ "call": "f(['__', '1', '.', '0', 'r0', '__', 'a_j', '6', '__', '6'])",
+ "code": "def f(strands):\n    subs = strands\n    for i, j in enumerate(subs):\n        for _ in range(len(j) // 2):\n            subs[i] = subs[i][-1:] + subs[i][1:-1] + subs[i][0]\n    return ''.join(subs)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"master. \")",
+ "code": "def f(name):\n    return [name[0], name[1][::-1][0]]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

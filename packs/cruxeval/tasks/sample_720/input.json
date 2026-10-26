@@ -1,0 +1,5 @@
+{
+ "call": "f('bfreratrrbdbzagbretaredtroefcoiqrrneaosf'.split('-'), 'n')",
+ "code": "def f(items, item):\n    while items[-1] == item:\n        items.pop()\n    items.append(item)\n    return len(items)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

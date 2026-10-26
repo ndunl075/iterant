@@ -1,0 +1,5 @@
+{
+ "call": "f(dict(e=1, d=2, c=3))",
+ "code": "def f(d):\n    i = len(d) - 1\n    key = list(d.keys())[i]\n    d.pop(key, None)\n    return key, d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

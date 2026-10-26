@@ -1,0 +1,5 @@
+{
+ "call": "f(['a', 'b'], ['car', 'dog'])",
+ "code": "def f(l1, l2):\n    if len(l1) != len(l2):\n        return {}\n    return dict.fromkeys(l1, l2)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

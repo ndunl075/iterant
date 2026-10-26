@@ -1,0 +1,5 @@
+{
+ "call": "f([\"avc  a .d e\"], \"\")",
+ "code": "def f(names, excluded):\n    excluded = excluded\n    for i in range(len(names)):\n        if excluded in names[i]:\n            names[i] = names[i].replace(excluded, \"\")\n    return names",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

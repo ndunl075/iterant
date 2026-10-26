@@ -1,0 +1,5 @@
+{
+ "call": "f({'inf': ['a', 'b'], 'a': [\"inf\", \"c\"], 'd': [\"inf\"]})",
+ "code": "def f(data):\n    members = []\n    for item in data:\n        for member in data[item]:\n            if member not in members:\n                members.append(member)\n    return sorted(members)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([5, 2, 7, 2, 3, 5])",
+ "code": "def f(lists):\n    dic = {}\n    for n in lists:\n        if n in dic:\n            dic[n].append(lists.pop(lists.index(n)))\n        else:\n            dic[n] = lists[:lists.index(n) + 1]\n    return str(dic).replace(' ', '')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"345gerghjehg\", \"345\")",
+ "code": "def f(haystack, needle):\n    for i in range(haystack.find(needle), -1, -1):\n        if haystack[i:] == needle:\n            return i\n    return -1",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

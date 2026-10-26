@@ -1,0 +1,5 @@
+{
+ "call": "f('hello.txt', '/')",
+ "code": "def f(text, suffix):\n    if suffix.startswith(\"/\"):\n        return text + suffix[1:]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

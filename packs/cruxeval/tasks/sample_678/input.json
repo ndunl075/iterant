@@ -1,0 +1,5 @@
+{
+ "call": "f(\"HI\")",
+ "code": "def f(text):\n    freq = dict()\n    for c in text.lower():\n        if c in freq:\n            freq[c] += 1\n        else:\n            freq[c] = 1\n    return freq",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

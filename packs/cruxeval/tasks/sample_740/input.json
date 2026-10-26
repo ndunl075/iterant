@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3, 4], 3)",
+ "code": "def f(plot, delin):\n    if delin in plot:\n        split = plot.index(delin)\n        first = plot[:split]\n        second = plot[split + 1:]\n        return first + second\n    else:\n        return plot",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

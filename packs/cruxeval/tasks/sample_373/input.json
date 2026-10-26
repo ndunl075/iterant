@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3])",
+ "code": "def f(orig):\n    copy = orig\n    copy.append(100)\n    orig.pop()\n    return copy",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

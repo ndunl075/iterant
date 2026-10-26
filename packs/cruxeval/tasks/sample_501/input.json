@@ -1,0 +1,5 @@
+{
+ "call": "f('qpfi jzm', 'j')",
+ "code": "def f(text, char):\n    index = text.rindex(char)\n    result = list(text)\n    while index > 0:\n        result[index] = result[index-1]\n        result[index-1] = char\n        index -= 2\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

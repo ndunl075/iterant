@@ -1,0 +1,5 @@
+{
+ "call": "f([4, 2, 5, 1, 3, 2, 6])",
+ "code": "def f(selfie):\n    lo = len(selfie)\n    for i in range(lo-1, -1, -1):\n        if selfie[i] == selfie[0]:\n            selfie.remove(selfie[lo-1])\n    return selfie",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

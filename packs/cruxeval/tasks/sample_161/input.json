@@ -1,0 +1,5 @@
+{
+ "call": "f('difkj rinpx', 'k')",
+ "code": "def f(text, value):\n    left, _, right = text.partition(value)\n    return right + left",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

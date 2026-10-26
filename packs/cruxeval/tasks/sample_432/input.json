@@ -1,0 +1,5 @@
+{
+ "call": "f(-5, 'G5ogb6f,c7e.EMm')",
+ "code": "def f(length, text):\n    if len(text) == length:\n        return text[::-1]\n    return False",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

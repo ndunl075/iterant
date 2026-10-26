@@ -1,0 +1,5 @@
+{
+ "call": "f('bestest', 'bestest')",
+ "code": "def f(text, prefix):\n    idx = 0\n    for letter in prefix:\n        if text[idx] != letter:\n            return None\n        idx += 1\n    return text[idx:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

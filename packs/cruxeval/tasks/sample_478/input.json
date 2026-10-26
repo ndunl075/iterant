@@ -1,0 +1,5 @@
+{
+ "call": "f('meow meow')",
+ "code": "def f(sb):\n    d = {}\n    for s in sb:\n        d[s] = d.get(s, 0) + 1\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

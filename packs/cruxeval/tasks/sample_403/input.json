@@ -1,0 +1,5 @@
+{
+ "call": "f('hrsiajiajieihruejfhbrisvlmmy', 'hr')",
+ "code": "def f(full, part):\n    length = len(part)\n    index = full.find(part)\n    count = 0\n    while index >= 0:\n        full = full[index + length:]\n        index = full.find(part)\n        count += 1\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

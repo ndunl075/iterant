@@ -1,0 +1,5 @@
+{
+ "call": "f(\"qwfasgahh329kn12a23\")",
+ "code": "def f(s):\n    count = 0\n    digits = \"\"\n    for c in s:\n        if c.isdigit():\n            count += 1\n            digits += c\n    return [digits, count]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

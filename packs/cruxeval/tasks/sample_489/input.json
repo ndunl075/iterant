@@ -1,0 +1,5 @@
+{
+ "call": "f('coscifysu', 'cos')",
+ "code": "def f(text, value):\n    return text.removeprefix(value.lower())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

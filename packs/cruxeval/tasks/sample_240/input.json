@@ -1,0 +1,5 @@
+{
+ "call": "f(3.121)",
+ "code": "def f(float_number):\n    number = str(float_number)\n    dot = number.find('.')\n    if dot != -1:\n        return number[:dot] + '.' + number[dot+1:].ljust(2, '0')\n    return number + '.00'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

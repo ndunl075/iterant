@@ -1,0 +1,5 @@
+{
+ "call": "f('abcdefghijklmnopqrstuvwxyz', \"uppercased # % ^ @ ! vz.\")",
+ "code": "def f(alphabet, s):\n    a = [x for x in alphabet if x.upper() in s]\n    if s.upper() == s:\n        a.append('all_uppercased')\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

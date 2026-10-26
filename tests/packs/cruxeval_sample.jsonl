@@ -1,0 +1,10 @@
+{"code": "def f(nums):\n    output = []\n    for n in nums:\n        output.append((nums.count(n), n))\n    output.sort(reverse=True)\n    return output", "input": "[1, 1, 3, 1, 3, 1]", "output": "[(4, 1), (4, 1), (4, 1), (4, 1), (2, 3), (2, 3)]", "id": "sample_0"}
+{"code": "def f(a, b, c):\n    result = {}\n    for d in a, b, c:\n        result.update(dict.fromkeys(d))\n    return result", "input": "(1, ), (1, ), (1, 2)", "output": "{1: None, 2: None}", "id": "sample_1"}
+{"code": "def f(text):\n    new_text = list(text)\n    for i in '+':\n        if i in new_text:\n            new_text.remove(i)\n    return ''.join(new_text)", "input": "'hbtofdeiequ'", "output": "'hbtofdeiequ'", "id": "sample_2"}
+{"code": "def f(text, value):\n    text_list = list(text)\n    text_list.append(value)\n    return ''.join(text_list)", "input": "'bcksrut', 'q'", "output": "'bcksrutq'", "id": "sample_3"}
+{"code": "def f(array):\n    s = ' '\n    s += ''.join(array)\n    return s", "input": "[' ', '  ', '    ', '   ']", "output": "'           '", "id": "sample_4"}
+{"id": "edge_set", "code": "def f(x):\n    return set(x)", "input": "[3, 1, 2]", "output": "{1, 2, 3}"}
+{"id": "edge_bytes", "code": "def f(s):\n    return s.encode()", "input": "'h\\u00e9'", "output": "b'h\\xc3\\xa9'"}
+{"id": "edge_float", "code": "def f(x):\n    return x / 4", "input": "1", "output": "0.25"}
+{"id": "edge_nested", "code": "def f(x):\n    return {'a': (1, [True, None]), 'b': {2, 1}}", "input": "0", "output": "{'b': {2, 1}, 'a': (1, [True, None])}"}
+{"id": "edge_unicode", "code": "def f(x):\n    return x + '\u00fc'", "input": "'\\u4e2d'", "output": "'\\u4e2d\\u00fc'"}

@@ -1,0 +1,5 @@
+{
+ "call": "f('iq')",
+ "code": "def f(n):\n    length = len(n) + 2\n    revn = list(n)\n    result = ''.join(revn)\n    revn.clear()\n    return result + ('!' * length)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

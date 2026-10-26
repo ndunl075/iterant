@@ -1,0 +1,5 @@
+{
+ "call": "f('mJkLbn')",
+ "code": "def f(text):\n    i = (len(text) + 1) // 2\n    result = list(text)\n    while i < len(text):\n        t = result[i].lower()\n        if t == result[i]:\n            i += 1\n        else:\n            result[i] = t\n        i += 2\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([6])",
+ "code": "def f(album_sales):\n    while len(album_sales) != 1:\n        album_sales.append(album_sales.pop(0))\n    return album_sales[0]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

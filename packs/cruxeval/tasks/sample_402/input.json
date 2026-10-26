@@ -1,0 +1,5 @@
+{
+ "call": "f(0, ['aaa', 'bbb'])",
+ "code": "def f(n, l):\n    archive = {}\n    for _ in range(n):\n        archive.clear()\n        archive.update({x + 10: x * 10 for x in l})\n    return archive",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

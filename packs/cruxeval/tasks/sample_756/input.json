@@ -1,0 +1,5 @@
+{
+ "call": "f('')",
+ "code": "def f(text):\n    if text.isalnum() and all(i.isdigit() for i in text):\n        return 'integer'\n    return 'string'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

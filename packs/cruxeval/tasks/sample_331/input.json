@@ -1,0 +1,5 @@
+{
+ "call": "f('', 'abc')",
+ "code": "def f(strand, zmnc):\n    poz = strand.find(zmnc)\n    while poz != -1:\n        strand = strand[poz + 1:]\n        poz = strand.find(zmnc)\n    return strand.rfind(zmnc)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

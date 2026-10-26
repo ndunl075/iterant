@@ -1,0 +1,5 @@
+{
+ "call": "f('   Rock   Paper   SCISSORS  ')",
+ "code": "def f(title):\n    return title.lower()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

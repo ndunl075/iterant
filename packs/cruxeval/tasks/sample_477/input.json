@@ -1,0 +1,5 @@
+{
+ "call": "f('|xduaisf')",
+ "code": "def f(text):\n    topic, sep, problem = text.rpartition('|')\n    if problem == 'r':\n        problem = topic.replace('u', 'p')\n    return topic, problem",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

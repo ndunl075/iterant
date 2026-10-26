@@ -1,0 +1,5 @@
+{
+ "call": "f('upper case', 'lower case')",
+ "code": "def f(text, repl):\n    trans = str.maketrans(text.lower(), repl.lower())\n    return text.translate(trans)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

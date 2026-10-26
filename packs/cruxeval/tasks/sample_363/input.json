@@ -1,0 +1,5 @@
+{
+ "call": "f([1])",
+ "code": "def f(nums):\n    nums.sort()\n    n = len(nums)\n    new_nums = [nums[n//2]]\n    \n    if n % 2 == 0:\n        new_nums = [nums[n//2 - 1], nums[n//2]]\n    \n    for i in range(0, n//2):\n        new_nums.insert(0, nums[n-i-1])\n        new_nums.append(nums[i])\n    return new_nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('Josh')",
+ "code": "def f(text):\n    ls = list(text)\n    ls[0], ls[-1] = ls[-1].upper(), ls[0].upper()\n    return ''.join(ls).istitle()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({2: 0.76, 5: [3, 6, 9, 12]})",
+ "code": "def f(d):\n    result = {}\n    for k, v in d.items():\n        if isinstance(k, float):\n            for i in v:\n                result[i] = k\n        else:\n            result[k] = v\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

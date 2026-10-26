@@ -1,0 +1,5 @@
+{
+ "call": "f([58], [21, 92])",
+ "code": "def f(array, values):\n    array.reverse()\n    for value in values:\n        array.insert(len(array) // 2, value)\n    array.reverse()\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

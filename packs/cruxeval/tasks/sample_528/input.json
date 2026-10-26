@@ -1,0 +1,5 @@
+{
+ "call": "f('papeluchis')",
+ "code": "def f(s):\n    b = ''\n    c = ''\n    for i in s:\n        c = c + i\n        if s.rfind(c) > -1:\n            return s.rfind(c)\n    return 0",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

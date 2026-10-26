@@ -1,0 +1,5 @@
+{
+ "call": "f('a', 100)",
+ "code": "def f(text, tab_size):\n    return text.replace('\\t', ' '*tab_size)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('980jio80jic kld094398IIl ')",
+ "code": "def f(text):\n    short = ''\n    for c in text:\n        if(c.islower()):\n            short += c\n    return short",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

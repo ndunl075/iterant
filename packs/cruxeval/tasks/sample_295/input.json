@@ -1,0 +1,5 @@
+{
+ "call": "f(['apple', 'apple', 'pear', 'banana', 'pear', 'orange', 'orange'])",
+ "code": "def f(fruits):\n    if fruits[-1] == fruits[0]:\n        return 'no'\n    else:\n        fruits.pop(0)\n        fruits.pop()\n        fruits.pop(0)\n        fruits.pop()\n        return fruits",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

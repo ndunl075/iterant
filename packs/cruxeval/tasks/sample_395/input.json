@@ -1,0 +1,5 @@
+{
+ "call": "f(\"11\")",
+ "code": "def f(s):\n    for i in range(len(s)):\n        if s[i].isdecimal():\n            return i + (s[i] == '0')\n        elif s[i] == '0':\n            return -1\n    return -1",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('=xtanp|sugv?z', 3, 6)",
+ "code": "def f(text, lower, upper):\n    return text[lower:upper].isascii()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

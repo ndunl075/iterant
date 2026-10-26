@@ -1,0 +1,5 @@
+{
+ "call": "f([ 'oH', 'ee', 'mb', 'deft', 'n', 'zz', 'f', 'abA' ], 'zz')",
+ "code": "def f(seq, v):\n    a = []\n    for i in seq:\n        if i.endswith(v):\n            a.append(i*2)\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

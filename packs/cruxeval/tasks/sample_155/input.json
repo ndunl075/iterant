@@ -1,0 +1,5 @@
+{
+ "call": "f(\"dskjs hjcdjnxhjicnn\", 4)",
+ "code": "def f(ip, n):\n    i = 0\n    out = ''\n    for c in ip:\n        if i == n:\n            out += '\\n'\n            i = 0\n        i += 1\n        out += c\n    return out",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f({'2': 2, '0': 1, '1': 2})",
+ "code": "def f(counts):\n    dict = {}\n    for k, v in counts.items():\n        count = counts[k]\n        if count not in dict:\n            dict[count] = []\n        dict[count].append(k)\n    counts.update(dict)\n    return counts",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(['k', 'x', 'c', 'x', 'x', 'b', 'l', 'f', 'r', 'n', 'g'])",
+ "code": "def f(li):\n    return [li.count(i) for i in li]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('one two three four five', 3)",
+ "code": "def f(s, n):\n    ls = s.rsplit()\n    out = []\n    while len(ls) >= n:\n        out += ls[-n:]\n        ls = ls[:-n]\n    return ls + ['_'.join(out)]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(1341240312)",
+ "code": "def f(n):\n    for n in str(n):\n        if n not in \"012\" and n not in list(range(5, 10)):\n            return False\n    return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

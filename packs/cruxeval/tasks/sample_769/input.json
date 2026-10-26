@@ -1,0 +1,5 @@
+{
+ "call": "f('akA?riu')",
+ "code": "def f(text):\n    text_list = [char for char in text]\n    for i, char in enumerate(text_list):\n        text_list[i] = char.swapcase()\n    return ''.join(text_list)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

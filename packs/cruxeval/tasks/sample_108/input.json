@@ -1,0 +1,5 @@
+{
+ "call": "f(1)",
+ "code": "def f(var):\n    amount = len(var) if type(var) == list else 0\n    if type(var) == dict:\n        amount = len(var.keys())\n    nonzero = amount if amount > 0 else 0\n    return nonzero",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

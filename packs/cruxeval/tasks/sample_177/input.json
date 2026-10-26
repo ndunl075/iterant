@@ -1,0 +1,5 @@
+{
+ "call": "f('Hey DUdE THis $nd^ &*&this@#')",
+ "code": "def f(text):\n    text = list(text)\n    for i in range(len(text)):\n        if i % 2 == 1:\n            text[i] = text[i].swapcase()\n    return ''.join(text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

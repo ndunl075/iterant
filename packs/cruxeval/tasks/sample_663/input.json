@@ -1,0 +1,5 @@
+{
+ "call": "f([], 2)",
+ "code": "def f(container, cron):\n    if not cron in container:\n        return container\n    pref = container[:container.index(cron)].copy()\n    suff = container[container.index(cron) + 1:].copy()\n    return pref + suff",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

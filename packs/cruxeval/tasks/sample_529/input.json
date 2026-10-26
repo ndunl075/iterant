@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3])",
+ "code": "def f(array):\n    prev = array[0]\n    newArray = array[:]\n    for i in range(1, len(array)):\n        if prev != array[i]:\n            newArray[i] = array[i]\n        else:\n            del newArray[i]\n        prev = array[i]\n    return newArray",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

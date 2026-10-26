@@ -1,0 +1,5 @@
+{
+ "call": "f(\"dp ef1 gh2\")",
+ "code": "def f(letters):\n    count = 0\n    for l in letters:\n        if l.isdigit():\n            count += 1\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

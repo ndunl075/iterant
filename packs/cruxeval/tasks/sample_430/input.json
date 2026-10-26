@@ -1,0 +1,5 @@
+{
+ "call": "f([5, 1, 3, 7, 8], ['', 0, -1, []])",
+ "code": "def f(arr1, arr2):\n    new_arr = arr1.copy()\n    new_arr.extend(arr2)\n    return new_arr",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

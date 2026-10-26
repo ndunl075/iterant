@@ -1,0 +1,5 @@
+{
+ "call": "f(\"ewriyat emf rwto segya\", \"tey\", \"dgo\")",
+ "code": "def f(text, char1, char2):\n    t1a = []\n    t2a = []\n    for i in range(len(char1)):\n        t1a.append(char1[i])\n        t2a.append(char2[i])\n    t1 = text.maketrans(dict(zip(t1a, t2a)))\n    return text.translate(t1)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

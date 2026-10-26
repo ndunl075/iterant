@@ -1,0 +1,5 @@
+{
+ "call": "f([4, 5])",
+ "code": "def f(nums):\n    count = len(nums)\n    score = {0: \"F\", 1: \"E\", 2: \"D\", 3: \"C\", 4: \"B\", 5: \"A\", 6: \"\"}\n    result = []\n    for i in range(count):\n        result.append(score.get(nums[i]))\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

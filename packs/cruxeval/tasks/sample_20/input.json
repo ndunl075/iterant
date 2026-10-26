@@ -1,0 +1,5 @@
+{
+ "call": "f('was,')",
+ "code": "def f(text):\n    result = ''\n    for i in range(len(text)-1, -1, -1):\n        result += text[i]\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

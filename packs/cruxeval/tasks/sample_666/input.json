@@ -1,0 +1,5 @@
+{
+ "call": "f({ 0: [], 1: [] }, { 0: [0, 0, 0, 0], 2: [2, 2, 2] })",
+ "code": "def f(d1, d2):\n    mmax = 0\n    for k1 in d1:\n        if p := len(d1[k1])+len(d2.get(k1, [])):\n            if p > mmax:\n                mmax = p\n    return mmax",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('.,,,,,. \u0645\u0646\u0628\u062a')",
+ "code": "def f(item):\n    modified = item.replace('. ', ' , ').replace('&#33; ', '! ').replace('. ', '? ').replace('. ', '. ')\n    return modified[0].upper() + modified[1:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

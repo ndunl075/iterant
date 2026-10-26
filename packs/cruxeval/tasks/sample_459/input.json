@@ -1,0 +1,5 @@
+{
+ "call": "f(['b', 'vzjmc', 'f', 'ae', '0'], dict())",
+ "code": "def f(arr, d):\n    for i in range(1, len(arr), 2):\n        d.update({arr[i]: arr[i-1]})\n\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

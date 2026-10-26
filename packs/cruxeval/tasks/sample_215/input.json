@@ -1,0 +1,5 @@
+{
+ "call": "f(')')",
+ "code": "def f(text):\n    new_text = text\n    while len(text) > 1 and text[0] == text[-1]:\n        new_text = text = text[1:-1]\n    return new_text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

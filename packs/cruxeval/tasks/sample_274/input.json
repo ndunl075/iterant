@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3], 4)",
+ "code": "def f(nums, target):\n    count = 0\n    for n1 in nums:\n        for n2 in nums:\n            count += (n1+n2==target)\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f([6, 4, 2, 8, 15], (lambda x: x.reverse()))",
+ "code": "def f(list, operation):\n    new_list = list[:]\n    new_list.sort()\n    operation(new_list)\n    return list",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

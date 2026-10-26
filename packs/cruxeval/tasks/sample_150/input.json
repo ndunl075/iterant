@@ -1,0 +1,5 @@
+{
+ "call": "f([-2, 4, -4], 0)",
+ "code": "def f(numbers, index):\n    for n in numbers[index:]:\n        numbers.insert(index, n)\n        index += 1\n    return numbers[:index]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

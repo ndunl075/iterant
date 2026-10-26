@@ -1,0 +1,5 @@
+{
+ "call": "f('abc', 8)",
+ "code": "def f(s, amount):\n    return (amount - len(s)) * 'z' + s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

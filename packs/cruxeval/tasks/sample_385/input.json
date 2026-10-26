@@ -1,0 +1,5 @@
+{
+ "call": "f([0, 2, 1, 2, 6, 2, 6, 3, 0])",
+ "code": "def f(lst):\n    i = 0\n    new_list = []\n    while i < len(lst):\n        if lst[i] in lst[i+1:]:\n            new_list.append(lst[i])\n            if len(new_list) == 3:\n                return new_list\n        i += 1\n    return new_list",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

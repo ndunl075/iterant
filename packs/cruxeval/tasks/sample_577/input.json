@@ -1,0 +1,5 @@
+{
+ "call": "f([(1, 'pos')])",
+ "code": "def f(items):\n    result = []\n    for number in items:\n        d = dict(items).copy()\n        d.popitem()\n        result.append(d)\n        items = d\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

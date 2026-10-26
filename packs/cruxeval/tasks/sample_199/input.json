@@ -1,0 +1,5 @@
+{
+ "call": "f('mnmnj krupa...##!@#!@#$$@##', '@')",
+ "code": "def f(str, char):\n    base = char * (str.count(char) + 1)\n    return str.removesuffix(base)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

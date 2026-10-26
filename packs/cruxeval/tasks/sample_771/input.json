@@ -1,0 +1,5 @@
+{
+ "call": "f((1, 2, 3, 4, 5, 6, 7, 8))",
+ "code": "def f(items):\n    items = list(items)\n    odd_positioned = []\n    while len(items) > 0:\n        position = items.index(min(items))\n        items.pop(position)\n        item = items.pop(position)\n        odd_positioned.append(item)\n    return odd_positioned",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

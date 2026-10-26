@@ -1,0 +1,5 @@
+{
+ "call": "f(\"wys silak v5 e4fi rotbi fwj 78 wigf t8s lcl\")",
+ "code": "def f(text):\n    m = 0\n    cnt = 0\n    for i in text.split():\n        if len(i) > m:\n            cnt += 1\n            m = len(i)\n    return cnt",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('dga nqdk\\rull qcha kl', 1)",
+ "code": "def f(text, separator):\n    splitted = text.splitlines()\n    if separator:\n        return [' '.join(s) for s in splitted]\n    else:\n        return splitted",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

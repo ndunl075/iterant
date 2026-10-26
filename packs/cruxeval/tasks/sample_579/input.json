@@ -1,0 +1,5 @@
+{
+ "call": "f('')",
+ "code": "def f(text):\n    if text.istitle():\n        if len(text) > 1 and text.lower() != text:\n            return text[0].lower() + text[1:]\n    elif text.isalpha():\n        return text.capitalize()\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

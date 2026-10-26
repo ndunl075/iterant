@@ -1,0 +1,5 @@
+{
+ "call": "f(372359)",
+ "code": "def f(n):\n    t = 0\n    b = ''\n    digits = list(map(int, str(n)))\n    for d in digits:\n        if d == 0: t += 1\n        else: break\n    for _ in range(t):\n        b += str(1) + '0' + str(4)\n    b += str(n)\n    return b",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

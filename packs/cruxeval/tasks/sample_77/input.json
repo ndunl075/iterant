@@ -1,0 +1,5 @@
+{
+ "call": "f('h ,lpvvkohh,u', 'i')",
+ "code": "def f(text, character):\n    subject = text[text.rfind(character):]\n    return subject*text.count(character)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

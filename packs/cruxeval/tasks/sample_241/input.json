@@ -1,0 +1,5 @@
+{
+ "call": "f('ED20 CW')",
+ "code": "def f(postcode):\n    return postcode[postcode.index('C'):]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

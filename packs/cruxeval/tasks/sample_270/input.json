@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(dic):\n    d = {}\n    for key in dic:\n        d[key] = dic.popitem(last = False)[1]\n    return d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

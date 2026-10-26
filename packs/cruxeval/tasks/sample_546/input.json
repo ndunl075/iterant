@@ -1,0 +1,5 @@
+{
+ "call": "f('[CHARRUNNERS]Do you know who the other was? [NEGMENDS]', '[CHARRUNNERS]')",
+ "code": "def f(text, speaker):\n    while text.startswith(speaker):\n        text = text[len(speaker):]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

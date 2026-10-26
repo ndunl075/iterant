@@ -1,0 +1,5 @@
+{
+ "call": "f('2imo 12 tfiqr.', 'm')",
+ "code": "def f(forest, animal):\n    index = forest.index(animal)\n    result = list(forest)\n    while index < len(forest)-1:\n        result[index] = forest[index+1]\n        index += 1\n    if index == len(forest)-1:\n        result[index] = '-'\n    return ''.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

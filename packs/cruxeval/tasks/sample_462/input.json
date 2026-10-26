@@ -1,0 +1,5 @@
+{
+ "call": "f('ldebgp o', 'o')",
+ "code": "def f(text, value):\n    length = len(text)\n    letters = list(text)\n    if value not in letters:\n        value = letters[0]\n    return value * length",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

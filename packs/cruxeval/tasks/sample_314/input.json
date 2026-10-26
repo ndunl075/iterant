@@ -1,0 +1,5 @@
+{
+ "call": "f('244, 105, -90')",
+ "code": "def f(text):\n    if ',' in text:\n        before, _, after = text.partition(',')\n        return after + ' ' + before\n    return ',' + text.partition(' ')[-1] + ' 0'",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('fnuiyh', 'ni')",
+ "code": "def f(str,toget):\n    if str.startswith(toget): return str[len(toget):]\n    else: return str",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

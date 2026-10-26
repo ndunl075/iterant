@@ -1,0 +1,6 @@
+This pack is derived from CRUXEval (https://github.com/facebookresearch/cruxeval),
+Copyright (c) 2023 Meta, used under the MIT License (see LICENSE).
+
+Function sources, call inputs and expected outputs come from data/cruxeval.jsonl at the commit
+named in README.md. Iterant adds the task layout, the parse-only `run` script, the canonical
+encoding in `check`, the difficulty tags and the split assignment.

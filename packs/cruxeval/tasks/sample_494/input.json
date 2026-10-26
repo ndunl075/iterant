@@ -1,0 +1,5 @@
+{
+ "call": "f(\"1\", 3)",
+ "code": "def f(num, l):\n    t = \"\"\n    while l > len(num):\n        t += '0'\n        l -= 1\n    return t + num",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

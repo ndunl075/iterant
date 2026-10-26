@@ -1,0 +1,5 @@
+{
+ "call": "f('CJU', 'BFS', 'WBYDZPVES', 'Y')",
+ "code": "def f(a, b, c, d):\n    return a and b or c and d",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

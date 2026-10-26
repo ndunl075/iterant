@@ -1,0 +1,5 @@
+{
+ "call": "f(8999,2)",
+ "code": "def f(integer, n):\n    i = 1\n    text = str(integer)\n    while (i+len(text) < n):\n        i += len(text)\n    return text.zfill(i+len(text))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

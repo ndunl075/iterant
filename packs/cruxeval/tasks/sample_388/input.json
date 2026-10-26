@@ -1,0 +1,5 @@
+{
+ "call": "f(\"2nm_28in\", \"nm\")",
+ "code": "def f(text, characters):\n    character_list = list(characters) + [' ', '_']\n\n    i = 0\n    while i < len(text) and text[i] in character_list:\n        i += 1\n\n    return text[i:]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

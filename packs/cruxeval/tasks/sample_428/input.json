@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(nums):\n    for i in range(len(nums)):\n        if not i % 2:\n            nums.append(nums[i] * nums[i + 1])\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

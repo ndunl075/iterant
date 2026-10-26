@@ -1,0 +1,5 @@
+{
+ "call": "f('present/here/car%2Fwe')",
+ "code": "def f(sample):\n    i = -1\n    while sample.find('/', i+1) != -1:\n        i = sample.find('/', i+1)\n    return sample.rindex('/', 0, i)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

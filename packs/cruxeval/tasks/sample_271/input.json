@@ -1,0 +1,5 @@
+{
+ "call": "f('uufhl', 'l')",
+ "code": "def f(text, c):\n    ls = list(text)\n    if c not in text:\n        raise ValueError('Text has no {c}')\n    ls.pop(text.rindex(c))\n    return ''.join(ls)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

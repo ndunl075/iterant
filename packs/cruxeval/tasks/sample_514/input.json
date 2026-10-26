@@ -1,0 +1,5 @@
+{
+ "call": "f('-stew---corn-and-beans-in soup-.-')",
+ "code": "def f(text):\n    for item in text.split():\n        text = text.replace('-{}'.format(item), ' ').replace('{}-'.format(item), ' ')\n    return text.strip('-')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

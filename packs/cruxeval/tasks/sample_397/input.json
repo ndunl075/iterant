@@ -1,0 +1,5 @@
+{
+ "call": "f(['x', 'u', 'w', 'j', 3, 6])",
+ "code": "def f(ls):\n    return dict.fromkeys(ls, 0)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

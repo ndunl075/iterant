@@ -1,0 +1,5 @@
+{
+ "call": "f(\"\", \"sdasdnakjsda80\")",
+ "code": "def f(x, y):\n    tmp = ''.join(['0' if c == '9' else '9' for c in y[::-1]])\n    if (x.isnumeric() and tmp.isnumeric()):\n        return x + tmp\n    else:\n        return x",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

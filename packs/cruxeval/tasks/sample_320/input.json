@@ -1,0 +1,5 @@
+{
+ "call": "f('USaR')",
+ "code": "def f(text):\n    index = 1\n    while index < len(text):\n        if text[index] != text[index - 1]:\n            index += 1\n        else:\n            text1 = text[:index]\n            text2 = text[index:].swapcase()\n            return text1 + text2\n    return text.swapcase()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

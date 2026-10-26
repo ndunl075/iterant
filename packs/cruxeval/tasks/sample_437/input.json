@@ -1,0 +1,5 @@
+{
+ "call": "f(['john', 'doe', 'the', 'john', 'doe'])",
+ "code": "def f(tap_hierarchy):\n    hierarchy = {}\n    for gift in tap_hierarchy:\n        hierarchy = hierarchy.fromkeys(gift, None)\n    return hierarchy",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

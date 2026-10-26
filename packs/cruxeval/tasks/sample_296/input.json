@@ -1,0 +1,5 @@
+{
+ "call": "f(\"https://www.www.ekapusta.com/image/url\")",
+ "code": "def f(url):\n    return url.removeprefix('http://www.')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(['lsi', 's', 't', 't', 'd'], 0)",
+ "code": "def f(chemicals, num):\n    fish = chemicals[1:]\n    chemicals.reverse()\n    for i in range(num):\n        fish.append(chemicals.pop(1))\n    chemicals.reverse()\n    return chemicals",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

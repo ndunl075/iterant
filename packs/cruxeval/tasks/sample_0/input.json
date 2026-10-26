@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 1, 3, 1, 3, 1])",
+ "code": "def f(nums):\n    output = []\n    for n in nums:\n        output.append((nums.count(n), n))\n    output.sort(reverse=True)\n    return output",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

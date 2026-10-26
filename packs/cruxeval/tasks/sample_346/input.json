@@ -1,0 +1,5 @@
+{
+ "call": "f('docs.doc')",
+ "code": "def f(filename):\n    suffix = filename.split('.')[-1]\n    f2 = filename + suffix[::-1]\n    return f2.endswith(suffix)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

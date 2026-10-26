@@ -1,0 +1,5 @@
+{
+ "call": "f(\"abca dea ead\")",
+ "code": "def f(s):\n    count = 0\n    for c in s:\n        if s.rindex(c) != s.index(c):\n            count+=1\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

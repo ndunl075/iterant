@@ -1,0 +1,5 @@
+{
+ "call": "f('ab cd', 'x', 2)",
+ "code": "def f(test, sep, maxsplit):\n    try:\n        return test.rsplit(sep, maxsplit)\n    except:\n        return test.rsplit()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

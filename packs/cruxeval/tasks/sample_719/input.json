@@ -1,0 +1,5 @@
+{
+ "call": "f(\"if (x) {y = 1;} else {z = 1;}\")",
+ "code": "def f(code):\n    lines = code.split(']')\n    result = []\n    level = 0\n    for line in lines:\n        result.append(line[0] + ' ' + '  ' * level + line[1:])\n        level += line.count('{') - line.count('}')\n    return '\\n'.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

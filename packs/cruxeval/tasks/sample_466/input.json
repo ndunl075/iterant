@@ -1,0 +1,5 @@
+{
+ "call": "f('-----\\t\\n\\tth\\n-----')",
+ "code": "def f(text):\n    length = len(text)\n    index = 0\n    while index < length and text[index].isspace():\n        index += 1\n    return text[index:index+5]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

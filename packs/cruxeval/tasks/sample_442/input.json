@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, 3, 4])",
+ "code": "def f(lst):\n    res = []\n    for i in range(len(lst)):\n        if lst[i] % 2 == 0:\n            res.append(lst[i])\n\n    return lst.copy()",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

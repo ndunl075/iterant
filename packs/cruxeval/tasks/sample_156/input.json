@@ -1,0 +1,5 @@
+{
+ "call": "f('tqzym', 5, 'c')",
+ "code": "def f(text, limit, char):\n    if limit < len(text):\n        return text[0:limit]\n    return text.ljust(limit, char)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

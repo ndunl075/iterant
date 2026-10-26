@@ -1,0 +1,5 @@
+{
+ "call": "f(['e', 'f', 'j', 'x', 'r', 'k'], ['a', 'v', '2', 'im', 'nb', 'vj', 'z'])",
+ "code": "def f(names, winners):\n    ls = [names.index(name) for name in names if name in winners]\n    ls.sort(reverse=True)\n    return ls",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

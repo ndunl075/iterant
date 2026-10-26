@@ -1,0 +1,5 @@
+{
+ "call": "f('', 'A')",
+ "code": "def f(string, substring):\n    while string.startswith(substring):\n        string = string[len(substring):len(string)]\n    return string",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

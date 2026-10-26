@@ -1,0 +1,5 @@
+{
+ "call": "f('egmdartoa', 'good')",
+ "code": "def f(text, sub):\n    index = []\n    starting = 0\n    while starting != -1:\n        starting = text.find(sub, starting)\n        if starting != -1:\n            index.append(starting)\n            starting += len(sub)\n    return index",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

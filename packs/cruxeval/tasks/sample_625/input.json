@@ -1,0 +1,5 @@
+{
+ "call": "f(\"bwiajegrwjd??djoda,?\")",
+ "code": "def f(text):\n    count = 0\n    for i in text:\n        if i in '.?!.,':\n            count += 1\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

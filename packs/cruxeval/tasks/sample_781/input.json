@@ -1,0 +1,5 @@
+{
+ "call": "f('shivajimonto6', '6')",
+ "code": "def f(s, ch):\n    if ch not in s:\n        return ''\n    s = s.partition(ch)[2][::-1]\n    for i in range(len(s)):\n        s = s.partition(ch)[2][::-1]\n    return s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

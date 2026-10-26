@@ -1,0 +1,5 @@
+{
+ "call": "f('01,001')",
+ "code": "def f(s):\n    nums = ''.join(filter(lambda c:c.isdecimal(), s))\n    if nums == '': return 'none'\n    m = max([int(num) for num in nums.split(',')])\n    return str(m)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

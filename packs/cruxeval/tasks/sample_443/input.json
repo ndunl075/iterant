@@ -1,0 +1,5 @@
+{
+ "call": "f(\"lorem ipsum\")",
+ "code": "def f(text):\n    for space in text:\n        if space == ' ':\n            text = text.lstrip()\n        else:\n            text = text.replace('cd', space)\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

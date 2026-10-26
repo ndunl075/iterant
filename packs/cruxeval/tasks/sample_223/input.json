@@ -1,0 +1,5 @@
+{
+ "call": "f([1, 2, -1, 4], 2)",
+ "code": "def f(array, target):\n    count, i = 0, 1\n    for j in range(1, len(array)):\n        if ((array[j] > array[j-1]) and (array[j] <= target)): count += i\n        elif array[j] <= array[j-1]: i = 1\n        else: i += 1\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

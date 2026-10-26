@@ -1,0 +1,5 @@
+{
+ "call": "f(\"some\", \"1\")",
+ "code": "def f(text, elem):\n    if elem != '':\n        while text.startswith(elem):\n            text = text.replace(elem, '')\n        while elem.startswith(text):\n            elem = elem.replace(text, '')\n    return [elem, text]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

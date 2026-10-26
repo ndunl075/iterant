@@ -1,0 +1,5 @@
+{
+ "call": "f({'-4':'4','1':'2','-':'-3'})",
+ "code": "def f(d):\n    keys = []\n    for k in d:\n        keys.append('%s => %s' % (k, d[k]))\n    return keys",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

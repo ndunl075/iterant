@@ -1,0 +1,5 @@
+{
+ "call": "f('a1a8', '1', 'n2')",
+ "code": "def f(text, char, replace):\n    return text.replace(char, replace)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

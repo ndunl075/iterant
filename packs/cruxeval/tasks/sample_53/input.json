@@ -1,0 +1,5 @@
+{
+ "call": "f(\"URW rNB\")",
+ "code": "def f(text):\n    occ = {}\n    for ch in text:\n        name = {'a': 'b', 'b': 'c', 'c': 'd', 'd': 'e', 'e': 'f'}\n        name = name.get(ch, ch)\n        occ[name] = occ.get(name, 0) + 1\n    return [x for _, x in occ.items()]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

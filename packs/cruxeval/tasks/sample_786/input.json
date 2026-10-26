@@ -1,0 +1,5 @@
+{
+ "call": "f('19kefp7', '9')",
+ "code": "def f(text, letter):\n    if letter in text:\n        start = text.index(letter)\n        return text[start + 1:] + text[:start + 1]\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

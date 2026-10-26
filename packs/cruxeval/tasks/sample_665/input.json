@@ -1,0 +1,5 @@
+{
+ "call": "f(\"acbced\")",
+ "code": "def f(chars):\n    s = \"\"\n    for ch in chars:\n        if chars.count(ch) % 2 == 0:\n            s += ch.upper()\n        else:\n            s += ch\n    return s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

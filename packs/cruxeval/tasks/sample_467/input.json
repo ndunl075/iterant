@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(nums):\n    copy = nums.copy()\n    newDict = dict()\n    for k in copy:\n        newDict[k] = len(copy[k])\n    return newDict",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

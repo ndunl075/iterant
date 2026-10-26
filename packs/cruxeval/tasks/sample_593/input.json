@@ -1,0 +1,5 @@
+{
+ "call": "f([], 14)",
+ "code": "def f(nums, n):\n    pos = len(nums) - 1\n    for i in range(-len(nums), 0):\n        nums.insert(pos, nums[i])\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

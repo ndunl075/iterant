@@ -1,0 +1,5 @@
+{
+ "call": "f(\"fubarbaz\")",
+ "code": "def f(t):\n    a, sep, b = t.rpartition('-')\n    if len(b) == len(a):\n        return 'imbalanced'\n    return a + b.replace(sep, '')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

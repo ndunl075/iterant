@@ -1,0 +1,5 @@
+{
+ "call": "f({'R': 0, 'T': 3, 'F': -6, 'K': 0})",
+ "code": "def f(obj):\n    for k, v in obj.items():\n        if v >= 0:\n            obj[k] = -v\n    return obj",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

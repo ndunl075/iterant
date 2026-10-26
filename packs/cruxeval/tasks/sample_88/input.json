@@ -1,0 +1,5 @@
+{
+ "call": "f(\"he\", \"hello\")",
+ "code": "def f(s1, s2):\n    if s2.endswith(s1):\n        s2 = s2[:len(s1) * -1]\n    return s2",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

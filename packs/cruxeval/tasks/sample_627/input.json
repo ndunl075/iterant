@@ -1,0 +1,5 @@
+{
+ "call": "f([('u', 1), ('s', 7), ('u', -5)])",
+ "code": "def f(parts):\n    return list(dict(parts).values())",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

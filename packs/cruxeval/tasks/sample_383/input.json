@@ -1,0 +1,5 @@
+{
+ "call": "f('ellod!p.nkyp.exa.bi.y.hain', '.n.in.ha.y')",
+ "code": "def f(text, chars):\n    result = list(text)\n    while chars in result[-3::-2]:\n        result.remove(result[-3])\n        result.remove(result[-3])\n    return ''.join(result).strip('.')",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

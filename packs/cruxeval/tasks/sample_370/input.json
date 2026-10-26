@@ -1,0 +1,5 @@
+{
+ "call": "f('     i')",
+ "code": "def f(text):\n    for char in text:\n        if not char.isspace():\n            return False\n    return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

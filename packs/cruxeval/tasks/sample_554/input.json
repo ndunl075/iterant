@@ -1,0 +1,5 @@
+{
+ "call": "f([2, 0, 1, 9999, 3, -5])",
+ "code": "def f(arr):\n    return list(reversed(arr))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

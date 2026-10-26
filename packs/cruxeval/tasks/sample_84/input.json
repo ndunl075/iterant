@@ -1,0 +1,5 @@
+{
+ "call": "f(\"nwv mef ofme bdryl\")",
+ "code": "def f(text):\n    arr = text.split()\n    result = []\n    for item in arr:\n        if item.endswith('day'):\n            item += 'y'\n        else:\n            item += 'day'\n        result.append(item)\n    return ' '.join(result)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

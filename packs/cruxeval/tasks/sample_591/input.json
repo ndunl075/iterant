@@ -1,0 +1,5 @@
+{
+ "call": "f([6, 3, 0, 7, 4, 8])",
+ "code": "def f(arr): \n    counts = [0] * 9 \n    ans = [] \n    for ele in arr: counts[ele - 1] += 1 \n    for i in range(len(counts)): \n        while counts[i] > 0: \n            counts[i] -= 1 \n            ans.append(i + 1)\n    return counts, ans",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

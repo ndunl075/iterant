@@ -1,0 +1,5 @@
+{
+ "call": "f(\"h,e,l,l,o,wo,r,ld,\")",
+ "code": "def f(letters):\n    letters_only = letters.strip(\"., !?*\")\n    return \"....\".join(letters_only.split(\" \"))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

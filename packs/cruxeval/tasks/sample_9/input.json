@@ -1,0 +1,5 @@
+{
+ "call": "f('#284376598')",
+ "code": "def f(t):\n    for c in t:\n        if not c.isnumeric():\n            return False\n    return True",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

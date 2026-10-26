@@ -1,0 +1,5 @@
+{
+ "call": "f(\"x--y-z-5-C\")",
+ "code": "def f(text):\n    d = {}\n    for char in text.replace('-', '').lower():\n        d[char] = d[char] + 1 if char in d else 1\n    d = sorted(d.items(), key=lambda x: x[1])\n    return [val for i, val in d]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

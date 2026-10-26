@@ -1,0 +1,5 @@
+{
+ "call": "f([3, -2, 0])",
+ "code": "def f(array):\n    array.reverse()\n    array.clear()\n    array.extend('x'*len(array))\n    array.reverse()\n    return array",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

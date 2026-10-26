@@ -1,0 +1,5 @@
+{
+ "call": "f('undbs l', 1)",
+ "code": "def f(text, position):\n    length = len(text)\n    index = position % (length + 1)\n    if position < 0 or index < 0:\n        index = -1\n    new_text = list(text)\n    new_text.pop(index)\n    return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

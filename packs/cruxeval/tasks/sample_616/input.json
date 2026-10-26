@@ -1,0 +1,5 @@
+{
+ "call": "f('\\n\\ny\\n')",
+ "code": "def f(body):\n    ls = list(body)\n    dist = 0\n    for i in range(0, len(ls) - 1):\n        if ls[i - 2 if i - 2 >= 0 else 0] == '\\t':\n            dist += (1 + ls[i - 1].count('\\t')) * 3\n        ls[i] = '[' + ls[i] + ']'\n    return ''.join(ls).expandtabs(4 + dist)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('DSUWeqExTQdCMGpqur', 'a', 'x')",
+ "code": "def f(text, lower, upper):\n    count = 0\n    new_text = list()\n    for char in text:\n        char = lower if char.isdecimal() else upper\n        if char in ['p', 'C']:\n            count += 1\n        new_text.append(char)\n    return count, ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

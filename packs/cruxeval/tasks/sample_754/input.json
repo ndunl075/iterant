@@ -1,0 +1,5 @@
+{
+ "call": "f(['1', '2', '2', '44', '0', '7', '20257'])",
+ "code": "def f(nums):\n    nums = ['{0:{fill}>{width}}'.format(val, **{'fill': '0', 'width': nums[0]}) for val in nums[1:]]\n    return [str(val) for val in nums]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

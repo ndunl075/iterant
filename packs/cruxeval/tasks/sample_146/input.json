@@ -1,0 +1,5 @@
+{
+ "call": "f(5)",
+ "code": "def f(single_digit):\n    result = []\n    for c in range(1, 11):\n        if c != single_digit:\n            result.append(c)\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

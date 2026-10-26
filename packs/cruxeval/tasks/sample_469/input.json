@@ -1,0 +1,5 @@
+{
+ "call": "f('sduyai', 1, 'y')",
+ "code": "def f(text, position, value):\n   length = len(text)\n   index = position % (length)\n   if position < 0:\n       index = length // 2\n   new_text = list(text)\n   new_text.insert(index, value)\n   new_text.pop(length-1)\n   return ''.join(new_text)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

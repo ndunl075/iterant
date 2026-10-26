@@ -1,0 +1,5 @@
+{
+ "call": "f(\"aboba 212 has 0 digits\")",
+ "code": "def f(phrase):\n    ans = 0\n    for w in phrase.split():\n        for ch in w:\n            if ch == \"0\":\n                ans += 1\n    return ans",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

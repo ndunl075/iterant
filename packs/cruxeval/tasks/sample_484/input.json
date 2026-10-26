@@ -1,0 +1,5 @@
+{
+ "call": "f(['91', '16', '6r', '5r', 'egr', '', 'f', 'q1f', '-2'])",
+ "code": "def f(arr):\n    result = []\n    for item in arr:\n        try:\n            if item.isnumeric():\n                result.append(int(item)*2)\n        except ValueError:\n            result.append(item[::-1])\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

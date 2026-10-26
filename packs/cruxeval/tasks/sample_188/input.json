@@ -1,0 +1,5 @@
+{
+ "call": "f([\"a\", \"b\", \"car\", \"d\"])",
+ "code": "def f(strings):\n    new_strings = []\n    for string in strings:\n        first_two = string[:2]\n        if first_two.startswith('a') or first_two.startswith('p'):\n            new_strings.append(first_two)\n\n    return new_strings",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

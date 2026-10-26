@@ -1,0 +1,5 @@
+{
+ "call": "f([4, 3, 2, 1, 2, -1, 4, 2])",
+ "code": "def f(nums):\n    nums.clear()\n    for num in nums:\n        nums.append(num*2)\n    return nums",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

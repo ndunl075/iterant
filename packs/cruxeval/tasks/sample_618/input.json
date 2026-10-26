@@ -1,0 +1,5 @@
+{
+ "call": "f('9', '8', 2)",
+ "code": "def f(match, fill, n):\n    return fill[:n] + match",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

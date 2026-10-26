@@ -1,0 +1,5 @@
+{
+ "call": "f({0: 0, 1: 0, 2: 0, 3: 0, 4: 0})",
+ "code": "def f(bag):\n    values = list(bag.values())\n    tbl = {}\n    for v in range(100):\n        if v in values:\n            tbl[v] = values.count(v)\n    return tbl",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

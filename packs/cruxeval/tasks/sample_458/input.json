@@ -1,0 +1,5 @@
+{
+ "call": "f('mmm34mIm', 'mm3', ',po')",
+ "code": "def f(text, search_chars, replace_chars):\n    trans_table = str.maketrans(search_chars, replace_chars)\n    return text.translate(trans_table)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('A(hiccup)A')",
+ "code": "def f(text):\n    created = []\n    for line in text.splitlines():\n        if line == '':\n            break\n        created.append(list(list(line.rstrip())[::-1][flush]))\n    return created[::-1]\n\nflush = 0",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

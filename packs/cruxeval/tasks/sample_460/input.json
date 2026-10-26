@@ -1,0 +1,5 @@
+{
+ "call": "f('GENERAL NAGOOR', 5)",
+ "code": "def f(text, amount):\n    length = len(text)\n    pre_text = '|'\n    if amount >= length:\n        extra_space = amount - length\n        pre_text += ' ' * (extra_space // 2)\n        return pre_text + text + pre_text\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

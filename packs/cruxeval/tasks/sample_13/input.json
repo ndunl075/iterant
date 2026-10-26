@@ -1,0 +1,5 @@
+{
+ "call": "f(['sharron', 'Savannah', 'Mike Cherokee'])",
+ "code": "def f(names):\n    count = len(names)\n    numberOfNames = 0\n    for i in names:\n        if i.isalpha():\n            numberOfNames += 1\n    return numberOfNames",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

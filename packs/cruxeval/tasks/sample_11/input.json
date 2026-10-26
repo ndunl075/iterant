@@ -1,0 +1,5 @@
+{
+ "call": "f({}, {'foo': 'bar'})",
+ "code": "def f(a, b):\n    for key, value in b.items():\n        if key not in a:\n            a[key] = [value]\n        else:\n            a[key].append(value)\n    return a",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

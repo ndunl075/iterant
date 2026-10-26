@@ -1,0 +1,5 @@
+{
+ "call": "f(\"x\", \"$\", \"2xz&5H3*1a@#a*1hris\")",
+ "code": "def f(n, m, text):\n    if text.strip() == '':\n        return text\n    head, mid, tail = text[0], text[1:-1], text[-1]\n    joined = head.replace(n, m) + mid.replace(n, m) + tail.replace(n, m)\n    return joined",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

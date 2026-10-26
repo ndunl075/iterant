@@ -1,0 +1,5 @@
+{
+ "call": "f(\"987yhNSHAshd 93275yrgSgbgSshfbsfB\")",
+ "code": "def f(line):\n    count = 0\n    a = []\n    for i in range(len(line)):\n        count += 1\n        if count%2==0:\n            a.append(line[i].swapcase())\n        else:\n            a.append(line[i])\n    return ''.join(a)",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f(\"timetable, 2mil\")",
+ "code": "def f(text):\n    (k, l) = (0, len(text) - 1)\n    while not text[l].isalpha():\n        l -= 1\n    while not text[k].isalpha():\n        k += 1\n    if k != 0 or l != len(text) - 1:\n        return text[k: l+1]\n    else:\n        return text[0]",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

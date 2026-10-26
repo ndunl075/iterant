@@ -1,0 +1,5 @@
+{
+ "call": "f('xqc', 'mRcwVqXsRDRb')",
+ "code": "def f(n, s):\n    if s.startswith(n):\n        pre, _ = s.split(n, 1)\n        return pre + n + s[len(n):]\n    return s",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

@@ -1,0 +1,5 @@
+{
+ "call": "f('gsd avdropj')",
+ "code": "def f(tokens):\n    tokens = tokens.split()\n    if len(tokens) == 2:\n        tokens = list(reversed(tokens))\n    result = ' '.join([tokens[0].ljust(5), tokens[1].ljust(5)])\n    return result",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

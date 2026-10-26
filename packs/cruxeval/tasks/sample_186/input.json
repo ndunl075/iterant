@@ -1,0 +1,5 @@
+{
+ "call": "f('pvtso')",
+ "code": "def f(text):\n    return ' '.join(map(str.lstrip, text.split()))",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

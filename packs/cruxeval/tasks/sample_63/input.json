@@ -1,0 +1,5 @@
+{
+ "call": "f('ndbtdabdahesyehu', 'n')",
+ "code": "def f(text, prefix):\n    while text.startswith(prefix):\n        text = text[len(prefix):] or text\n    return text",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

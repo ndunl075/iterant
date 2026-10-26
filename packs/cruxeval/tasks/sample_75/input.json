@@ -1,0 +1,5 @@
+{
+ "call": "f([-1, 2, 1, -8, 2], 2)",
+ "code": "def f(array, elem):\n    ind = array.index(elem)\n    return ind * 2 + array[-ind - 1] * 3",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

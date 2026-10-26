@@ -1,0 +1,5 @@
+{
+ "call": "f({})",
+ "code": "def f(graph):\n    new_graph = {}\n    for key, value in graph.items():\n        new_graph[key] = {}\n        for subkey in value:\n            new_graph[key][subkey] = ''\n    return new_graph",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

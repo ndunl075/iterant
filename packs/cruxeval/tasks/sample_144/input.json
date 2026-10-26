@@ -1,0 +1,5 @@
+{
+ "call": "f([])",
+ "code": "def f(vectors):\n    sorted_vecs = []\n    for vec in vectors:\n        vec.sort()\n        sorted_vecs.append(vec)\n    return sorted_vecs",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

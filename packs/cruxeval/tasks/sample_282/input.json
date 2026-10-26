@@ -1,0 +1,5 @@
+{
+ "call": "f('xinyyexyxx', 'xx')",
+ "code": "def f(s1, s2):\n    position = 1\n    count = 0\n    while position > 0:\n        position = s1.find(s2, position)\n        count += 1\n        position += 1\n    return count",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

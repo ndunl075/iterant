@@ -1,0 +1,5 @@
+{
+ "call": "f('Pinneaple')",
+ "code": "def f(name):\n    if name.islower():\n        name = name.upper()\n    else:\n        name = name.lower()\n    return name",
+ "instructions": "Predict the exact return value. Write only a Python literal to /out/answer.txt."
+}

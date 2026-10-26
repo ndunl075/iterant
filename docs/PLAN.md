@@ -20,7 +20,7 @@
 ## Open (Nico decides)
 1. License (default Apache-2.0).
 2. Tagline. Working: "Autotune for AI agents." Alternate: "It edits itself. The evals decide."
-3. Spend: W3 calibration ~$20, then the first real run with a hard cap of $300.
+3. ~~Spend~~ Decided: **$0 budget.** The project never spends money. Statistical calibration uses simulation, end-to-end runs use local models, and the paid `claude` profile ships untested by us; contributors who use it report real costs.
 
 ## Waves
 
@@ -38,7 +38,7 @@ The current main SHA goes into every brief at launch. Workers own only the liste
 | # | Worker | Owns | Model / effort | Tier |
 |---|---|---|---|---|
 | 1 | sandbox: Podman + Docker-flagged backends, conformance suite | `iterant/sandbox/` | Sonnet high | 2 |
-| 2 | proxy: key custody, `ANTHROPIC_BASE_URL` passthrough, role caps, USD ledger, call log | `iterant/proxy/` | Sonnet high | 2 |
+| 2 | proxy: key custody, Anthropic + OpenAI-compatible (Ollama) upstreams, role caps, token/USD ledger, call log | `iterant/proxy/` | Sonnet high | 2 |
 | 3 | packs + grader: format, splitter, hash check, first starter pack, grader in a fresh sandbox | `iterant/packs/`, `iterant/grader/` | Sonnet high | 2 |
 | 4 | target + reference agent: `iterant.toml` parser, genome allowlist, image build, `examples/` agent | `iterant/target/`, `examples/` | Sonnet high | 2 |
 | 5 | stats: paired bootstrap, acceptance rule, `power()`, estimate math | `iterant/stats/` | Sonnet medium | 1 |
@@ -54,22 +54,20 @@ The current main SHA goes into every brief at launch. Workers own only the liste
 | 11 | report: static HTML evidence report per promotion | `iterant/report/` | Sonnet medium | 1 |
 | 12 | firecracker backend (passes the W1 conformance suite) | `iterant/sandbox/firecracker/` | Sonnet high | 2 |
 
-**W3: calibration + red team** (spend needs Nico's go)
+**W3: calibration + red team** ($0)
 - Worker 13: red-team CI suite, one malicious diff per threat row (Sonnet high, T2).
-- Architect runs, on the reference agent:
-  - `estimate` + A/A via resampling (~800 runs, ~$16)
-  - First run of 20 candidates (cap $300)
-  - Proposer A/B: Opus 5.5 high vs. Fable 5.1 high, compared on accepts per $
+- Worker 14: a stats simulator that generates synthetic pass/fail runs with known true gains, used to verify the A/A false-accept rate, power and the acceptance rule. This needs no LLM (Sonnet medium, T1).
+- Architect runs, on the reference agent with a local model: `estimate`, A/A via resampling, then a first run of 20 candidates.
 
 **W4: release**
 - README with a 5-minute demo on the reference agent, a threat-model doc, CONTRIBUTING.
 - Firecracker becomes the default.
 - Tier 0 batch review for the docs.
 
-**v1:** archive parent sampling, provider-agnostic proxy, eval bootstrap from logs (human-reviewed checks), research mode (`iterant meta`), more starter packs.
+**v1:** archive parent sampling, more providers, eval bootstrap from logs (human-reviewed checks), research mode (`iterant meta`), more starter packs.
 
 ## Kill / pivot criteria
 - A/A false accept above 5% → the stats are broken. Run nothing else until fixed.
-- No accepts after 30 candidates on the reference agent → try the Fable proposer before blaming the loop.
+- No accepts after 30 candidates on the reference agent → try a stronger local proposer model before blaming the loop.
 - Select gains fail to confirm on holdout after ~30 candidates → the pack is too small or the idea doesn't work. Stop adding features and grow the pack, or stop.
 - Three design partners can't produce a usable pack in a day → the eval barrier is the product. Build eval bootstrap before anything else.

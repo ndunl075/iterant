@@ -33,7 +33,7 @@ max_usd_per_run = 0.10
 pack = "evals/support-pack"   # see below
 ```
 - The agent reaches the LLM through `ANTHROPIC_BASE_URL`, which points at the proxy. The official SDKs read that variable, so the agent needs no code changes.
-- v0 supports Anthropic models only. v1 adds a provider-agnostic proxy.
+- The proxy speaks the Anthropic API and the OpenAI-compatible API, so local models (Ollama, llama.cpp) run the whole loop for $0. Hosted models are opt-in, and the user pays the provider.
 
 **2. Task pack** (`pack.toml` + `tasks/<id>/`):
 - `input.json` is visible to the agent.
@@ -127,7 +127,7 @@ Every backend runs non-root with no host mounts, a CPU/mem/disk/time cap and def
 - `runs(cand, task, split, rep, score, in_tok, out_tok, usd, wall_s, refusal, infra_err)`
 - `promotions(gen, cand, select_delta, select_p, holdout_delta, holdout_p)`
 
-**Stack:** Python 3.12, uv, pytest, ruff, pyright, the official `anthropic` SDK. No other LLM client in Iterant itself.
+**Stack:** Python 3.12, uv, pytest, ruff, pyright, the official `anthropic` SDK for Claude, and the `openai` SDK only for OpenAI-compatible local endpoints. Tests use a recorded-fixture fake LLM and never call a live model.
 
 ## 6. Runtime model routing
 
@@ -140,6 +140,12 @@ Every backend runs non-root with no host mounts, a CPU/mem/disk/time cap and def
 | Transfer check (optional) | the user's production model | user's choice | `test` split per promotion | Confirms gains found on a cheap model hold on the production model |
 | Grader | none | n/a | n/a | The pack's hidden checks. No LLM judge in v0 (judges are hackable). |
 
+**Profiles:**
+- `free` (default): every role runs on one local model through Ollama, at $0. Expect fewer accepted candidates, because a weak proposer makes weaker proposals.
+- `claude`: the table above, paid by the user.
+
+The proxy treats both identically. Caps are in tokens for `free` and USD for `claude`.
+
 Request rules for Iterant's own calls (Claude API as of 2026-10):
 - Omit `thinking` or send `{type:"adaptive"}`, and set `output_config.effort` explicitly (Opus and Haiku 5.5 default to medium). Disabling thinking or sending `budget_tokens` returns a 400.
 - No `temperature`/`top_p`/`top_k`, no prefill, no forced `tool_choice` (use `auto` + `strict: true`).
@@ -147,7 +153,7 @@ Request rules for Iterant's own calls (Claude API as of 2026-10):
 - Put `cache_control` on the stable prefix and check that `usage.cache_read_input_tokens` > 0.
 - Refusals: always check `stop_reason`. Proposer and auditor use `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`). **Target-agent traffic is never rerouted**, because a silent model swap corrupts the measurement. A refused run counts as `infra_err`: retry it once, then drop that task pair from both arms. Track refusal rate; self-improvement content may trip the Sonnet `frontier_llm` classifier.
 
-Spend for the reference agent is an estimate; measure it in Wave 3:
+`claude` profile spend for the reference agent is an estimate, measured by the first user who opts in:
 - Target agent: ~$0.01–0.03 per run.
 - Proposer: ~$1 per candidate.
 - One candidate that reaches CONFIRM: ~$10–15.

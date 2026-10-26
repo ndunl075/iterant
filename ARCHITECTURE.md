@@ -14,7 +14,7 @@
 5. **Frozen target model.** Gains must come from the agent's design, not from a bigger model or a bigger budget. The proxy enforces this.
 6. **Append-only state.** Every candidate, run, proxy call and decision lands in the archive, rejects included. Rows are inserted once and never replaced or deleted (enforced by triggers); a candidate's `stage`, `status` and spend only advance. Runs are keyed by `(batch, cand, task, rep, attempt)`. A run resumes on `(batch, cand, task, rep)`, and the latest attempt wins. Each batch stores its pack hash, and a batch whose stored hash differs from the current pack is never resumed.
 7. **Pinned tasks.** Task packs are hash-checked before every batch, and a mismatch aborts the batch.
-8. **Verdicts are decided outside untrusted code.** Agent output (`/out`) is untrusted data. The process that compares results to expected values never executes, imports or deserializes it: it reads only regular files (no symlinks, hard links or special files; file count and total size capped) and never through pickle, eval or import. If a check must execute agent-produced code, that code runs in a separate sandbox with no hidden checks or expected values mounted, and only one JSON object crosses back (strict parser, at most 64 KiB, depth-limited). The verdict is a score in [0, 1]; NaN, infinity, a missing or malformed result, or a timeout scores 0.0. Hidden checks and expected values are mounted only in sandboxes that never execute agent-produced code.
+8. **Verdicts are decided outside untrusted code.** Agent output (`/out`) is untrusted data. The grader sandbox that holds hidden checks and expected values never executes, imports or deserializes it: it reads `/out` only as regular files (no symlinks, hard links or special files; at most 1,000 files and 16 MiB total) and parses them only as text or strict JSON. If a check must execute agent-produced code, that code runs in a separate fresh sandbox with no hidden checks or expected values mounted, and only one JSON object crosses back (strict parser, at most 64 KiB, depth-limited). The verdict is a score in [0, 1]; NaN, infinity, a missing or malformed result, or a timeout of the check's wall-clock limit scores 0.0.
 
 ## 2. User contract
 
@@ -38,7 +38,7 @@ pack = "evals/support-pack"   # see below
 
 **2. Task pack** (`pack.toml` + `tasks/<id>/`):
 - `input.json` is visible to the agent.
-- `check` is hidden: a command that reads `/out` and exits 0 for pass, or prints a score from 0 to 1. It runs only in the grader.
+- `check` is hidden: a trusted pack command that reads `/out` as data and prints a score from 0 to 1, or exits 0 for pass (1.0) and non-zero for fail (0.0). It runs only in a fresh grader sandbox. Checks that must execute agent-produced code follow invariant 8.
 - Each task is assigned a split: `train`, `select`, `holdout` or `test`. Iterant does this automatically and stratifies by the pack's `tags`.
 
 **Onboarding helpers:**
@@ -193,7 +193,7 @@ This is the self-improvement story for researchers, and it dogfoods the platform
 | Use a bigger model or more budget | Proxy role caps; cost guard |
 | Hard-code train/select answers | Proposer is blind to select; task-ID grep; diff auditor; holdout rotation |
 | Forge logs or claim success | Scores come only from the grader and proxy |
-| Tamper with the grader (patch its test framework, read its memory, plant symlinks or huge files in `/out`) | Invariant 8: agent output is plain data to the verdict process; agent code runs only in a separate sandbox without expected values |
+| Tamper with the grader (patch its test framework, read its memory, plant symlinks or huge files in `/out`) | Invariant 8: agent output is plain data to the grader; agent code runs only in a separate fresh sandbox without expected values |
 | Exfiltrate the key, phone home | Key lives in the proxy; default-deny egress |
 | Escape the sandbox | microVM (release); non-root, no mounts, caps |
 | Ship a bad change to production | Iterant never merges; the user merges `iterant/champion` after reading the evidence report |

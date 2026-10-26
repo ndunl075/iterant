@@ -6,5 +6,13 @@ from iterant.grader.grader import (
     GradeResult,
     interpret,
 )
+from iterant.grader.outfiles import OutputRejected, collect_out_files
 
-__all__ = ["OUT_DIR", "GradeResult", "Grader", "interpret"]
+__all__ = [
+    "OUT_DIR",
+    "GradeResult",
+    "Grader",
+    "OutputRejected",
+    "collect_out_files",
+    "interpret",
+]

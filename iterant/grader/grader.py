@@ -36,11 +36,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from iterant.contracts import ExecResult, SandboxBackend, Task
+from iterant.grader.outfiles import OutputRejected, check_limits
 
 OUT_DIR = "/out"
 RUN_PATH = "/run/run.sh"
 MAX_RESULT_BYTES = 64 * 1024
 MAX_RESULT_DEPTH = 32
+DEFAULT_TIMEOUT_S = 120.0  # wall-clock limit of one check; ``Grader(timeout=...)`` overrides
 _NOT_RUNNABLE = {126, 127}
 
 
@@ -149,7 +151,7 @@ class Grader:
         image: str,
         pack_root: Path,
         *,
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_TIMEOUT_S,
         cpu: float = 1.0,
         mem: int = 1024,
         disk: int = 1024,
@@ -171,6 +173,10 @@ class Grader:
             targets = {_out_path(rel): data for rel, data in out_files.items()}
         except ValueError:
             return done(None, "bad out file path")
+        try:
+            check_limits(out_files)
+        except OutputRejected:
+            return done(0.0, None)  # the agent produced it: a score, not an infra error
         check = PurePosixPath(task.check)
         try:
             run = self._root.joinpath(*check.parent.parts, "run").read_bytes()

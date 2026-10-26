@@ -20,7 +20,7 @@ from iterant.contracts import (
     VisibleInputPath,
 )
 from iterant.grader import Grader, GradeResult, interpret
-from iterant.grader.grader import MAX_RESULT_BYTES, parse_result, same
+from iterant.grader.grader import DEFAULT_TIMEOUT_S, MAX_RESULT_BYTES, parse_result, same
 from iterant.packs import load_pack
 
 OnExec = Callable[["FakeSandbox", str, float], ExecResult]
@@ -318,3 +318,26 @@ def test_synthetic_pack_end_to_end(tmp_path: Path) -> None:
     crash = grader.grade(task, solve("exit 3\n"))
     forged = grader.grade(task, solve('printf \'{"sum": 1, "score": 1}\'\n'))
     assert (good.score, wrong.score, crash.score, forged.score) == (1.0, 0.0, 0.0, 0.0)
+
+
+def test_oversized_output_scores_zero_without_a_sandbox(tmp_path: Path) -> None:
+    backend = FakeBackend(says({"v": 1}))
+    many = {f"f{i}": b"" for i in range(1001)}
+    r = Grader(backend, "img", tmp_path).grade(make_task(tmp_path), many)
+    assert r.score == 0.0 and not backend.sandboxes
+
+
+def test_timeout_with_a_correct_result_scores_zero(tmp_path: Path) -> None:
+    backend = FakeBackend(lambda *_a: res(-1, '{"v": 1}', "", True))
+    assert Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {}).score == 0.0
+
+
+def test_default_wall_clock_limit_is_a_named_constant(tmp_path: Path) -> None:
+    seen: list[float] = []
+
+    def on_exec(_sb: FakeSandbox, _cmd: str, timeout: float) -> ExecResult:
+        seen.append(timeout)
+        return res(0, "{}")
+
+    Grader(FakeBackend(on_exec), "img", tmp_path).grade(make_task(tmp_path, {}), {})
+    assert seen == [DEFAULT_TIMEOUT_S]

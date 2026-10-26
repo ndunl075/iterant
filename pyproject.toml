@@ -35,6 +35,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyright]
 include = ["iterant", "tests"]
+exclude = ["**/.venv", "**/__pycache__"]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
 strict = ["iterant"]

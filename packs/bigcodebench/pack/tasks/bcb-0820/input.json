@@ -1,5 +1,0 @@
-{
- "task_id": "BigCodeBench/820",
- "instruction": "Create a list of random words of a certain length.\nThe function should raise the exception for: ValueError: If num_words or word_length is negative.\nThe function should output with:\n    words (list): A list of random words.\nYou should write self-contained code starting with:\n```\nimport random\nimport string\n# Constants\nLETTERS = string.ascii_letters\ndef task_func(num_words, word_length):\n```",
- "output_file": "/out/solution.py"
-}

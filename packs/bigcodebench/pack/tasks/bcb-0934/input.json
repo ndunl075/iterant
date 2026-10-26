@@ -1,5 +1,0 @@
-{
- "task_id": "BigCodeBench/934",
- "instruction": "Count the occurrence of each adjacent pair of letters from left to right in a word and encode the result as an MD5 hash.\nThe function should output with:\n    dict: A dictionary where keys are adjacent letter pairs and values are their counts.\nYou should write self-contained code starting with:\n```\nfrom collections import Counter\nimport hashlib\ndef task_func(word: str) -> dict:\n```",
- "output_file": "/out/solution.py"
-}

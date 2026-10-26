@@ -1,5 +1,0 @@
-{
- "task_id": "BigCodeBench/268",
- "instruction": "Create a Python dictionary with a specified number of keys and values.\nNote that: Keys are randomly selected from a predefined list of letters, and values are consecutive integers starting from 1. Due to the randomness in key selection, the actual keys in the dictionary may vary in each execution.\nThe function should output with:\n    dict: A Python dictionary with keys as strings and values as lists of integers.\nYou should write self-contained code starting with:\n```\nimport collections\nimport random\n# Constants\nLETTERS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']\ndef task_func(n_keys, n_values):\n```",
- "output_file": "/out/solution.py"
-}

@@ -1,5 +1,0 @@
-{
- "task_id": "BigCodeBench/712",
- "instruction": "Move all files with a particular extension from one directory to another.\nThe function should output with:\n    result (int): The count of files that were moved.\nYou should write self-contained code starting with:\n```\nimport os\nimport shutil\nimport glob\ndef task_func(source_dir, dest_dir, extension):\n```",
- "output_file": "/out/solution.py"
-}

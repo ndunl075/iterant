@@ -1,5 +1,0 @@
-{
- "task_id": "BigCodeBench/566",
- "instruction": "Inspects a given function 'f' and returns its specifications, including the function's name, whether it is a lambda function, its arguments, defaults, and annotations. This method utilizes the inspect and types modules to introspect function properties.\nThe function should output with:\n    dict: A dictionary containing details about the function, such as its name, if it's a lambda function,\n    arguments, default values, and annotations.\nYou should write self-contained code starting with:\n```\nimport inspect\nimport types\ndef task_func(f):\n```",
- "output_file": "/out/solution.py"
-}

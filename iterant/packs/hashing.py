@@ -9,7 +9,7 @@ Canonical form of the hash, ``H = sha256``::
         H.update(len(data).to_bytes(8, "big")); H.update(data)
 
 Every file counts (``pack.toml``, ``splits.json``, each task's ``input.json``,
-``check`` and ``task.toml``, notices), so any change to a task, a check, the tags
+``run``, ``check`` and ``task.toml``, notices), so any change to a task, a check, the tags
 or the split assignment changes the hash. Lengths are prefixed, so no two
 different listings share a byte stream. Symlinks and Windows junctions are refused: a link
 could point outside the pack and make the hash depend on files it does not cover.

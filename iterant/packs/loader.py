@@ -5,7 +5,10 @@ Layout::
     pack.toml                 name = "...", version = "..."
     splits.json               seed + {task id: split}; written by ``split_pack``
     tasks/<id>/input.json     visible to the agent
-    tasks/<id>/check          hidden: a shell script run as ``sh check`` by the grader
+    tasks/<id>/run            shell script run by the grader in a sandbox (cwd /out): it executes
+                              the agent output and prints one JSON object. No expected values.
+    tasks/<id>/check          hidden JSON: the exact object `run` must print. Read only by the
+                              grader process, never copied into a sandbox.
     tasks/<id>/task.toml      optional: tags = ["a", "b"]
 
 Any other files (LICENSE, NOTICE, README) are allowed and are covered by the hash.
@@ -56,7 +59,7 @@ def _discover(root: Path) -> list[tuple[str, tuple[str, ...]]]:
             raise PackError(f"unexpected file in tasks/: {entry.name}")
         if not _ID.fullmatch(entry.name):
             raise PackError(f"bad task id {entry.name!r}")
-        for required in ("input.json", "check"):
+        for required in ("input.json", "run", "check"):
             if not (entry / required).is_file():
                 raise PackError(f"task {entry.name}: missing {required}")
         tags: tuple[str, ...] = ()

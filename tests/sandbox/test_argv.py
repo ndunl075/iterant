@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Sequence
 from typing import cast
@@ -198,6 +199,27 @@ def test_proxy_only_without_proxy_url_raises() -> None:
         PodmanBackend(runner=FakeRunner()).create("img", 1, 64, 64, 60)
 
 
+def work_tmpfs(argv: list[str]) -> str:
+    (t,) = [
+        argv[i + 1] for i, a in enumerate(argv) if a == "--tmpfs" and argv[i + 1][:6] == "/work:"
+    ]
+    return t
+
+
+def test_podman_work_tmpfs_flags_exact() -> None:
+    r = FakeRunner()
+    make(r).create("img", 1, 64, 128, 60, net="default-deny")
+    assert work_tmpfs(runs(r)[0]) == "/work:rw,exec,nosuid,nodev,size=128m,mode=0700,U"
+
+
+def test_docker_work_tmpfs_flags_exact() -> None:
+    r = FakeRunner()
+    DockerBackend(PROXY, unsafe_container=True, runner=r).create("img", 1, 64, 128, 60)
+    assert work_tmpfs(runs(r)[-1]) == (
+        "/work:rw,exec,nosuid,nodev,size=128m,mode=0700,uid=10001,gid=10001"
+    )
+
+
 def test_docker_requires_unsafe_flag() -> None:
     with pytest.raises(UnsafeContainerError):
         DockerBackend(PROXY, runner=FakeRunner())
@@ -344,7 +366,8 @@ def test_exec_timeout_kills_its_own_process_group() -> None:
     kill = r.calls[-1][-1]
     pidfile = next(c[-2] for c in r.calls if "sleep 99" in c).split(">")[1].split(";")[0].strip()
     assert f"cat {pidfile}" in kill and "kill -9 -$p" in kill and "kill -1" not in kill
-    assert "-1" not in kill.replace("-$p", "")  # never signals the whole sandbox
+    # every kill targets exactly the recorded group (`-$p`): never pid -1 or a bare signal
+    assert re.findall(r"kill (?:-\d+ )?(\S*)", kill) == ["-$p", "-$p"]
     assert not r.find("rm", "-f")  # kill confirmed: sandbox stays up
     sb.exec("true", 1)  # still usable
 

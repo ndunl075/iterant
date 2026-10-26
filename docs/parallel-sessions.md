@@ -20,10 +20,10 @@ Read all of this before you start. Your brief says what to build; this says how 
 ## Tests, network and money
 - $0 budget: never call a paid API or service.
 - No internet from tests. A stub server on localhost (bind port 0, let the OS pick) is fine.
-- Anything that needs a container runtime, an image pull or `/dev/kvm` is a local-only test: mark it `podman`, `docker` or `firecracker` and make it skip cleanly when the runtime is missing. Expect those to skip on Windows; don't spend attempts making them run there.
+- Anything that needs a container runtime, an image pull or `/dev/kvm` is a local-only test: mark it `podman`, `docker` or `firecracker` and make it skip cleanly when the runtime is missing (e.g. `pytest.mark.skipif(shutil.which("podman") is None, ...)`, or a fixture in `tests/<module>/conftest.py`). Expect those to skip on Windows; don't spend attempts making them run there.
 
 ## Working
-- Work in your own worktree and branch. Touch only the paths your brief says you own, plus `tests/<your module>/`.
+- Work in your own worktree and branch. Touch only the paths your brief says you own, plus their test directories under `tests/`.
 - After 2 failed attempts at the same problem, stop and report what you tried, what you saw, and your best guess.
 - Run long builds and tests in the background. Redirect long output to a file and read only the summary and failures.
 - Before deleting a folder, remove any junctions or symlinks inside it first.
@@ -41,7 +41,7 @@ Read all of this before you start. Your brief says what to build; this says how 
 - Stop when the PR is open and CI is green. Workers never merge.
 
 ## Local-only checks
-CI runs the four commands on Linux and skips the marked tests. The architect runs these on the exact head before merging:
+CI runs the four commands on Linux and deselects the marked tests (`-m "not podman and not docker and not firecracker"`). The architect runs these on the exact head before merging:
 - The four commands on Windows (Nico's machine).
 - `podman`-marked tests on a machine with rootless Podman; `docker`-marked tests with Docker; `firecracker`-marked tests on Linux with `/dev/kvm`.
 

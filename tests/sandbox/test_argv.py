@@ -349,7 +349,7 @@ def test_exec_argv_and_result() -> None:
     res = sb.exec("echo hi", 5)
     assert (res.exit_code, res.stdout, res.stderr, res.timed_out) == (3, "out", "err", False)
     c = r.find("echo hi")[0]
-    assert c[:2] == ["podman", "exec"] and "setsid" in c and c[-1] == "echo hi"
+    assert c[:2] == ["podman", "exec"] and "setsid" in c and "-w" in c and c[-1] == "echo hi"
     assert "echo $$ >" in c[-2] and "rm -f" in c[-2]  # records its group id, removes it after
     with pytest.raises(ValueError):
         sb.exec("true", 0)

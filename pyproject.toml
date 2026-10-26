@@ -19,6 +19,11 @@ packages = ["iterant"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers --import-mode=importlib"
+markers = [
+    "podman: needs rootless Podman",
+    "firecracker: needs Linux and /dev/kvm",
+]
 
 [tool.ruff]
 line-length = 100

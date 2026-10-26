@@ -2,25 +2,24 @@
 
 Invariant 8 (verdicts are decided outside untrusted code) shapes the flow:
 
-1. The agent's ``/out`` files go into a fresh, no-egress sandbox together with the task's
-   ``run`` script, which holds no expected values. ``run`` executes the agent's output
-   there and prints one JSON object.
+1. The agent's files go under ``AGENT_DIR`` in a fresh, no-egress sandbox, next to the
+   task's ``run`` script (``RUN_PATH``), which holds no expected values. ``run`` executes
+   the agent's output there and prints one JSON object. (Paths are under ``/work``: the
+   sandbox root is read-only and ``/work`` is its only writable, executable disk.)
 2. The sandbox is destroyed. Its stdout is the only thing that crosses back. This process
    never executes, imports or unpickles it: it is parsed as strict JSON (at most
-   ``MAX_RESULT_BYTES``, depth-limited, no NaN/Infinity, no duplicate keys).
+   ``MAX_RESULT_BYTES``, depth-limited, finite numbers only, no duplicate keys).
 3. The hidden ``check`` (JSON, the exact expected object) is read from the trusted pack
    here and compared here. It is never written into any sandbox.
 
-Scoring:
-
-* exit 126/127 means "could not run": an infra error. ``run`` may use it only before it
-  touches agent code.
-* any other non-zero exit, a timeout, or a kill (exit > 128, OOM) is 0.0: once ``run``
-  executes agent code, the agent may be the cause.
-* exit 0 with a missing, oversized or malformed result is 0.0. Exit 0 with a well-formed
-  result scores 1.0 if it equals the expected object (types included: ``1`` is not
-  ``true``), else 0.0.
-* a broken pack file or sandbox is an infra error (``score is None``), never a score.
+An infra error (``score is None``) may come only from things the agent cannot influence:
+unreadable pack files, sandbox create failure, a failed trusted write, a failed trusted
+pre-flight exec, or a backend exception while running ``run``. Everything the agent
+influences scores 0.0: an invalid output path, a failed write of its files, any non-zero
+exit (including 126/127), a timeout or kill, and a missing, oversized or malformed result.
+A timeout is checked first; a non-zero exit scores 0.0 even if a result was printed.
+A well-formed result scores 1.0 if it equals the expected object (types included: ``1``
+is not ``true``), else 0.0.
 
 ``GradeResult.error`` holds fixed messages only: sandbox output and paths are
 candidate-controlled or hidden, and must never reach the proposer or analyst.
@@ -29,6 +28,7 @@ candidate-controlled or hidden, and must never reach the proposer or analyst.
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -38,12 +38,12 @@ from typing import Any, cast
 from iterant.contracts import ExecResult, SandboxBackend, Task
 from iterant.grader.outfiles import OutputRejected, check_limits
 
-OUT_DIR = "/out"
-RUN_PATH = "/run/run.sh"
+AGENT_DIR = "/work/out"
+RUN_PATH = "/work/.grader/run.sh"
 MAX_RESULT_BYTES = 64 * 1024
 MAX_RESULT_DEPTH = 32
 DEFAULT_TIMEOUT_S = 120.0  # wall-clock limit of one check; ``Grader(timeout=...)`` overrides
-_NOT_RUNNABLE = {126, 127}
+PREFLIGHT_TIMEOUT_S = 30.0
 
 
 @dataclass(frozen=True)
@@ -76,34 +76,36 @@ def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def _depth(value: Any) -> int:
-    depth = 0
+def _validate(value: Any) -> None:
+    """Raise ``ValueError`` if ``value`` nests too deep or holds a non-finite float."""
     stack: list[tuple[Any, int]] = [(value, 1)]
     while stack:
         item, level = stack.pop()
-        children: list[Any]
+        if level > MAX_RESULT_DEPTH:
+            raise ValueError("too deep")
+        if isinstance(item, float) and not math.isfinite(item):
+            raise ValueError("non-finite number")
         if isinstance(item, dict):
-            children = list(cast("dict[str, Any]", item).values())
+            stack.extend((c, level + 1) for c in cast("dict[str, Any]", item).values())
         elif isinstance(item, list):
-            children = list(cast("list[Any]", item))
-        else:
-            continue
-        depth = max(depth, level)
-        stack.extend((c, level + 1) for c in children)
-    return depth
+            stack.extend((c, level + 1) for c in cast("list[Any]", item))
 
 
-def parse_result(text: str) -> dict[str, Any]:
-    """Strictly parse a sandbox's stdout as one JSON object; raise ``ValueError`` if bad."""
+def parse_json(text: str) -> dict[str, Any]:
+    """Strictly parse ``text`` as one JSON object; raise ``ValueError`` if bad."""
     if len(text.encode("utf-8", "surrogatepass")) > MAX_RESULT_BYTES:
         raise ValueError("too large")
     try:
         value = json.loads(text, parse_constant=_reject_constant, object_pairs_hook=_no_duplicates)
     except RecursionError as exc:  # nesting beyond the parser's own limit
         raise ValueError("too deep") from exc
-    if not isinstance(value, dict) or _depth(value) > MAX_RESULT_DEPTH:
-        raise ValueError("not an object, or too deep")
+    if not isinstance(value, dict):
+        raise ValueError("not an object")
+    _validate(value)
     return cast("dict[str, Any]", value)
+
+
+parse_result = parse_json
 
 
 def same(a: Any, b: Any) -> bool:
@@ -121,25 +123,25 @@ def same(a: Any, b: Any) -> bool:
     return isinstance(a, str) and isinstance(b, str) and a == b or a is None and b is None
 
 
-def interpret(result: ExecResult, expected: Any) -> tuple[float | None, str | None]:
-    """Map a ``run`` execution to ``(score, None)`` or ``(None, infra error)``."""
-    code = result.exit_code
-    if code in _NOT_RUNNABLE:
-        return None, f"run script could not run (exit {code})"
-    if result.timed_out or code != 0:
-        return 0.0, None
+def interpret(result: ExecResult, expected: Any) -> float:
+    """Score one ``run`` execution (agent-influenced, so never an infra error)."""
+    if result.timed_out or result.exit_code != 0:
+        return 0.0
     try:
-        got = parse_result(result.stdout)
+        got = parse_json(result.stdout)
     except ValueError:
-        return 0.0, None
-    return (1.0 if same(got, expected) else 0.0), None
+        return 0.0
+    return 1.0 if same(got, expected) else 0.0
 
 
-def _out_path(rel: str) -> str:
+def _agent_path(rel: str) -> str | None:
+    """Sandbox path for an agent file, or None if ``rel`` is not a canonical relative path."""
+    if not rel or "\\" in rel or "\0" in rel:
+        return None
     path = PurePosixPath(rel)
-    if not rel or "\\" in rel or "\0" in rel or path.is_absolute() or ".." in path.parts:
-        raise ValueError("bad out file path")
-    return f"{OUT_DIR}/{path.as_posix()}"
+    if path.is_absolute() or path.as_posix() != rel or {"", ".", ".."} & set(rel.split("/")):
+        return None
+    return f"{AGENT_DIR}/{rel}"
 
 
 class Grader:
@@ -163,24 +165,26 @@ class Grader:
         self._cpu, self._mem, self._disk = cpu, mem, disk
 
     def grade(self, task: Task, out_files: Mapping[str, bytes]) -> GradeResult:
-        """Score one run. ``out_files`` maps paths relative to ``/out`` to their bytes."""
+        """Score one run. ``out_files`` maps canonical paths relative to the agent's out dir."""
         start = time.monotonic()
 
         def done(score: float | None, error: str | None) -> GradeResult:
             return GradeResult(score, error, time.monotonic() - start)
 
-        try:
-            targets = {_out_path(rel): data for rel, data in out_files.items()}
-        except ValueError:
-            return done(None, "bad out file path")
+        targets: dict[str, bytes] = {}
+        for rel, data in out_files.items():
+            target = _agent_path(rel)
+            if target is None:
+                return done(0.0, None)
+            targets[target] = data
         try:
             check_limits(out_files)
         except OutputRejected:
-            return done(0.0, None)  # the agent produced it: a score, not an infra error
+            return done(0.0, None)
         check = PurePosixPath(task.check)
         try:
             run = self._root.joinpath(*check.parent.parts, "run").read_bytes()
-            expected = json.loads(self._root.joinpath(*check.parts).read_bytes())
+            expected = parse_json(self._root.joinpath(*check.parts).read_bytes().decode("utf-8"))
         except (ValueError, OSError):
             return done(None, "cannot read pack files")
 
@@ -196,17 +200,28 @@ class Grader:
         except Exception:
             return done(None, "sandbox create failed")
         try:
-            for path, data in targets.items():
-                sandbox.put(path, data)
-            sandbox.put(RUN_PATH, run)
-            cmd = f"mkdir -p {OUT_DIR} && cd {OUT_DIR} && sh {RUN_PATH}"
-            result = sandbox.exec(cmd, self._timeout)
-        except Exception as exc:
-            return done(None, f"sandbox error: {type(exc).__name__}")
+            # Trusted steps first: if any of them fails, the agent had no say in it.
+            try:
+                sandbox.put(RUN_PATH, run)
+                pre = sandbox.exec(
+                    f"mkdir -p {AGENT_DIR} && test -r {RUN_PATH}", PREFLIGHT_TIMEOUT_S
+                )
+            except Exception as exc:
+                return done(None, f"sandbox error: {type(exc).__name__}")
+            if pre.timed_out or pre.exit_code != 0:
+                return done(None, "sandbox preflight failed")
+            try:
+                for path, data in targets.items():
+                    sandbox.put(path, data)
+            except Exception:
+                return done(0.0, None)  # e.g. a file where another needs a directory
+            try:
+                result = sandbox.exec(f"cd {AGENT_DIR} && exec sh {RUN_PATH}", self._timeout)
+            except Exception as exc:
+                return done(None, f"sandbox error: {type(exc).__name__}")
         finally:
             try:
                 sandbox.destroy()
             except Exception:  # destroy is best-effort; the backend ttl reaps it
                 pass
-        score, error = interpret(result, expected)
-        return done(score, error)
+        return done(interpret(result, expected), None)

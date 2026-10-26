@@ -111,3 +111,48 @@ def test_rejection_messages_hide_names(tmp_path: Path) -> None:
     with pytest.raises(OutputRejected) as exc:
         collect_out_files(tmp_path)
     assert "SECRET" not in str(exc.value)
+
+
+def test_entry_cap_counts_directories(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(of, "MAX_OUT_ENTRIES", 5)
+    for i in range(6):
+        (tmp_path / f"d{i}").mkdir()
+    with pytest.raises(OutputRejected, match="too many"):
+        collect_out_files(tmp_path)
+
+
+def test_growth_after_fstat_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(of, "MAX_OUT_FILE_BYTES", 4)
+    (tmp_path / "a").write_bytes(b"123456789")
+    real = os.fstat
+
+    def lying(fd: int) -> os.stat_result:
+        st = list(real(fd))
+        st[6] = 0  # st_size: the file "grew" after this was taken
+        return os.stat_result(st)
+
+    monkeypatch.setattr(of.os, "fstat", lying)
+    with pytest.raises(OutputRejected, match="file too large"):
+        collect_out_files(tmp_path)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="O_NOFOLLOW is POSIX-only")
+def test_symlink_swapped_in_after_lstat_is_not_followed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out, secret = tmp_path / "out", tmp_path / "secret"
+    out.mkdir()
+    secret.write_bytes(b"SECRET")
+    (out / "a").write_bytes(b"x")
+    real = os.stat
+
+    def swapping(path: str, *args: object, **kwargs: object) -> os.stat_result:
+        st = real(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path == "a":
+            (out / "a").unlink()
+            (out / "a").symlink_to(secret)
+        return st
+
+    monkeypatch.setattr(of.os, "stat", swapping)
+    with pytest.raises(OutputRejected, match="changed"):
+        collect_out_files(out)

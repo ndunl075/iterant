@@ -1,7 +1,7 @@
 """The grader: the only source of scores (invariant 2) and the only place checks run."""
 
 from iterant.grader.grader import (
-    OUT_DIR,
+    AGENT_DIR,
     Grader,
     GradeResult,
     interpret,
@@ -9,7 +9,7 @@ from iterant.grader.grader import (
 from iterant.grader.outfiles import OutputRejected, collect_out_files
 
 __all__ = [
-    "OUT_DIR",
+    "AGENT_DIR",
     "GradeResult",
     "Grader",
     "OutputRejected",

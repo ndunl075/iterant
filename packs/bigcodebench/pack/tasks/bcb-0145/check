@@ -1,81 +1,19 @@
 #!/bin/sh
-# Hidden check for BigCodeBench/145. Reads /out/solution.py; see packs/bigcodebench/convert.py.
-command -v python3 >/dev/null 2>&1 || exit 127
-command -v timeout >/dev/null 2>&1 || exit 127
-T=$(mktemp -d) || exit 127
-cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
-import unittest
-from unittest.mock import patch, mock_open
-import os
-import ipaddress
-class TestCases(unittest.TestCase):
-    IP_RANGE = '192.168.0.0/30'
-    CSV_PATH = 'test.csv'
-    def tearDown(self):
-        """Clean up after each test."""
-        if os.path.exists(self.CSV_PATH):
-            os.remove(self.CSV_PATH)
-    def test_return_type(self):
-        """Test that the function returns a string."""
-        result = task_func(self.IP_RANGE, self.CSV_PATH)
-        self.assertIsInstance(result, str)
-    def test_file_creation(self):
-        """Test that the CSV file is created."""
-        result = task_func(self.IP_RANGE, self.CSV_PATH)
-        self.assertTrue(os.path.exists(result))
-    @patch("builtins.open", new_callable=mock_open)
-    def test_csv_content(self, mock_file):
-        """Test the content of the CSV file."""
-        task_func(self.IP_RANGE, self.CSV_PATH)
-        mock_file.assert_called_with(self.CSV_PATH, 'w', newline='')
-    @patch("csv.DictWriter")
-    def test_csv_writer_usage(self, mock_writer):
-        """Test that csv.DictWriter is used correctly."""
-        task_func(self.IP_RANGE, self.CSV_PATH)
-        mock_writer.assert_called()
-    @patch('ipaddress.IPv4Network.__iter__', return_value=iter([
-        ipaddress.IPv4Address('192.168.0.1'),
-        ipaddress.IPv4Address('192.168.0.2')
-    ]))
-    @patch('csv.DictWriter')
-    @patch("builtins.open", new_callable=mock_open)
-    def test_csv_writing(self, mock_file, mock_csv_writer, mock_ipv4network_iter):
-        """Test that the CSV writer writes the expected number of rows."""
-        task_func(self.IP_RANGE, self.CSV_PATH)
-        # The mock csv writer instance is obtained from the mock_csv_writer class.
-        mock_writer_instance = mock_csv_writer.return_value
-        # Assert that writeheader was called once.
-        mock_writer_instance.writeheader.assert_called_once()
-        # Assert that writerow was called twice (once for each mocked IP address).
-        self.assertEqual(mock_writer_instance.writerow.call_count, 2)
-ITERANT_TESTS_EOF
-cat > "$T/run.py" <<'ITERANT_RUN_EOF'
-import io, sys, unittest
-
-nonce = sys.stdin.read().strip()
-real_stdout = sys.__stdout__
-tests_path, solution_path = sys.argv[1], sys.argv[2]
-ns = {"__name__": "solution"}
-ok = False
-try:
-    sys.stdout = io.StringIO()
-    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
-    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
-    suite = unittest.TestSuite()
-    for obj in list(ns.values()):
-        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
-            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
-    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
-    ok = result.wasSuccessful() and result.testsRun > 0
-except BaseException:
-    ok = False
-sys.stdout = real_stdout
-if ok:
-    print("ITERANT_RESULT", nonce, "PASS")
-ITERANT_RUN_EOF
-NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+# Hidden check for BigCodeBench/145: reads /out/solution.py. The grader runs it with
+# `sh -c`, never from a file in the sandbox. Exit 127 = could not run (infra);
+# anything after the harness has printed READY is pass (0) or fail (1).
+# The harness (base64) embeds the upstream tests, see packs/bigcodebench/convert.py.
+for tool in python3 timeout base64; do
+  command -v "$tool" >/dev/null 2>&1 || exit 127
+done
+H=$(printf '%s' 'aW1wb3J0IGFzdCwgYnVpbHRpbnMsIGlvLCBzeXMsIHVuaXR0ZXN0Cgpfbm9uY2UgPSBzeXMuc3RkaW4ucmVhZCgpLnN0cmlwKCkKX3JlYWxfb3V0ID0gc3lzLl9fc3Rkb3V0X18KX3VuaXR0ZXN0ID0gdW5pdHRlc3QKX1RFU1RTID0gJ2ltcG9ydCB1bml0dGVzdFxuZnJvbSB1bml0dGVzdC5tb2NrIGltcG9ydCBwYXRjaCwgbW9ja19vcGVuXG5pbXBvcnQgb3NcbmltcG9ydCBpcGFkZHJlc3NcbmNsYXNzIFRlc3RDYXNlcyh1bml0dGVzdC5UZXN0Q2FzZSk6XG4gICAgSVBfUkFOR0UgPSBcJzE5Mi4xNjguMC4wLzMwXCdcbiAgICBDU1ZfUEFUSCA9IFwndGVzdC5jc3ZcJ1xuICAgIGRlZiB0ZWFyRG93bihzZWxmKTpcbiAgICAgICAgIiIiQ2xlYW4gdXAgYWZ0ZXIgZWFjaCB0ZXN0LiIiIlxuICAgICAgICBpZiBvcy5wYXRoLmV4aXN0cyhzZWxmLkNTVl9QQVRIKTpcbiAgICAgICAgICAgIG9zLnJlbW92ZShzZWxmLkNTVl9QQVRIKVxuICAgIGRlZiB0ZXN0X3JldHVybl90eXBlKHNlbGYpOlxuICAgICAgICAiIiJUZXN0IHRoYXQgdGhlIGZ1bmN0aW9uIHJldHVybnMgYSBzdHJpbmcuIiIiXG4gICAgICAgIHJlc3VsdCA9IHRhc2tfZnVuYyhzZWxmLklQX1JBTkdFLCBzZWxmLkNTVl9QQVRIKVxuICAgICAgICBzZWxmLmFzc2VydElzSW5zdGFuY2UocmVzdWx0LCBzdHIpXG4gICAgZGVmIHRlc3RfZmlsZV9jcmVhdGlvbihzZWxmKTpcbiAgICAgICAgIiIiVGVzdCB0aGF0IHRoZSBDU1YgZmlsZSBpcyBjcmVhdGVkLiIiIlxuICAgICAgICByZXN1bHQgPSB0YXNrX2Z1bmMoc2VsZi5JUF9SQU5HRSwgc2VsZi5DU1ZfUEFUSClcbiAgICAgICAgc2VsZi5hc3NlcnRUcnVlKG9zLnBhdGguZXhpc3RzKHJlc3VsdCkpXG4gICAgQHBhdGNoKCJidWlsdGlucy5vcGVuIiwgbmV3X2NhbGxhYmxlPW1vY2tfb3BlbilcbiAgICBkZWYgdGVzdF9jc3ZfY29udGVudChzZWxmLCBtb2NrX2ZpbGUpOlxuICAgICAgICAiIiJUZXN0IHRoZSBjb250ZW50IG9mIHRoZSBDU1YgZmlsZS4iIiJcbiAgICAgICAgdGFza19mdW5jKHNlbGYuSVBfUkFOR0UsIHNlbGYuQ1NWX1BBVEgpXG4gICAgICAgIG1vY2tfZmlsZS5hc3NlcnRfY2FsbGVkX3dpdGgoc2VsZi5DU1ZfUEFUSCwgXCd3XCcsIG5ld2xpbmU9XCdcJylcbiAgICBAcGF0Y2goImNzdi5EaWN0V3JpdGVyIilcbiAgICBkZWYgdGVzdF9jc3Zfd3JpdGVyX3VzYWdlKHNlbGYsIG1vY2tfd3JpdGVyKTpcbiAgICAgICAgIiIiVGVzdCB0aGF0IGNzdi5EaWN0V3JpdGVyIGlzIHVzZWQgY29ycmVjdGx5LiIiIlxuICAgICAgICB0YXNrX2Z1bmMoc2VsZi5JUF9SQU5HRSwgc2VsZi5DU1ZfUEFUSClcbiAgICAgICAgbW9ja193cml0ZXIuYXNzZXJ0X2NhbGxlZCgpXG4gICAgQHBhdGNoKFwnaXBhZGRyZXNzLklQdjROZXR3b3JrLl9faXRlcl9fXCcsIHJldHVybl92YWx1ZT1pdGVyKFtcbiAgICAgICAgaXBhZGRyZXNzLklQdjRBZGRyZXNzKFwnMTkyLjE2OC4wLjFcJyksXG4gICAgICAgIGlwYWRkcmVzcy5JUHY0QWRkcmVzcyhcJzE5Mi4xNjguMC4yXCcpXG4gICAgXSkpXG4gICAgQHBhdGNoKFwnY3N2LkRpY3RXcml0ZXJcJylcbiAgICBAcGF0Y2goImJ1aWx0aW5zLm9wZW4iLCBuZXdfY2FsbGFibGU9bW9ja19vcGVuKVxuICAgIGRlZiB0ZXN0X2Nzdl93cml0aW5nKHNlbGYsIG1vY2tfZmlsZSwgbW9ja19jc3Zfd3JpdGVyLCBtb2NrX2lwdjRuZXR3b3JrX2l0ZXIpOlxuICAgICAgICAiIiJUZXN0IHRoYXQgdGhlIENTViB3cml0ZXIgd3JpdGVzIHRoZSBleHBlY3RlZCBudW1iZXIgb2Ygcm93cy4iIiJcbiAgICAgICAgdGFza19mdW5jKHNlbGYuSVBfUkFOR0UsIHNlbGYuQ1NWX1BBVEgpXG4gICAgICAgICMgVGhlIG1vY2sgY3N2IHdyaXRlciBpbnN0YW5jZSBpcyBvYnRhaW5lZCBmcm9tIHRoZSBtb2NrX2Nzdl93cml0ZXIgY2xhc3MuXG4gICAgICAgIG1vY2tfd3JpdGVyX2luc3RhbmNlID0gbW9ja19jc3Zfd3JpdGVyLnJldHVybl92YWx1ZVxuICAgICAgICAjIEFzc2VydCB0aGF0IHdyaXRlaGVhZGVyIHdhcyBjYWxsZWQgb25jZS5cbiAgICAgICAgbW9ja193cml0ZXJfaW5zdGFuY2Uud3JpdGVoZWFkZXIuYXNzZXJ0X2NhbGxlZF9vbmNlKClcbiAgICAgICAgIyBBc3NlcnQgdGhhdCB3cml0ZXJvdyB3YXMgY2FsbGVkIHR3aWNlIChvbmNlIGZvciBlYWNoIG1vY2tlZCBJUCBhZGRyZXNzKS5cbiAgICAgICAgc2VsZi5hc3NlcnRFcXVhbChtb2NrX3dyaXRlcl9pbnN0YW5jZS53cml0ZXJvdy5jYWxsX2NvdW50LCAyKScKX0NMQVNTRVMgPSAoCiAgICB1bml0dGVzdC5UZXN0Q2FzZSwgdW5pdHRlc3QuVGVzdFN1aXRlLCB1bml0dGVzdC5CYXNlVGVzdFN1aXRlLCB1bml0dGVzdC5UZXN0UmVzdWx0LAogICAgdW5pdHRlc3QuVGV4dFRlc3RSZXN1bHQsIHVuaXR0ZXN0LlRleHRUZXN0UnVubmVyLCB1bml0dGVzdC5UZXN0TG9hZGVyLAopCl9OQU1FUyA9ICgKICAgICJUZXN0Q2FzZSIsICJUZXN0U3VpdGUiLCAiVGVzdFJlc3VsdCIsICJUZXh0VGVzdFJ1bm5lciIsICJUZXh0VGVzdFJlc3VsdCIsICJUZXN0TG9hZGVyIiwKICAgICJkZWZhdWx0VGVzdExvYWRlciIsCikKX2NsYXNzX3NuYXAgPSB7YzogZGljdCh2YXJzKGMpKSBmb3IgYyBpbiBfQ0xBU1NFU30KX21vZF9zbmFwID0ge246IGdldGF0dHIodW5pdHRlc3QsIG4pIGZvciBuIGluIF9OQU1FU30KX2J1aWx0aW5zX3NuYXAgPSBkaWN0KHZhcnMoYnVpbHRpbnMpKQpfVEMsIF9Mb2FkZXIsIF9SdW5uZXIsIF9TdWl0ZSA9ICgKICAgIHVuaXR0ZXN0LlRlc3RDYXNlLCB1bml0dGVzdC5UZXN0TG9hZGVyLCB1bml0dGVzdC5UZXh0VGVzdFJ1bm5lciwgdW5pdHRlc3QuVGVzdFN1aXRlLAopCl90ZXN0c19jb2RlID0gY29tcGlsZShfVEVTVFMsICJ0ZXN0cy5weSIsICJleGVjIikgICMgdGVzdHMgbmV2ZXIgdG91Y2ggZGlzawpfZXhwZWN0ZWQgPSB7fQpmb3IgX25vZGUgaW4gYXN0LnBhcnNlKF9URVNUUykuYm9keToKICAgIGlmIGlzaW5zdGFuY2UoX25vZGUsIGFzdC5DbGFzc0RlZikgYW5kIGFueSgKICAgICAgICAoaXNpbnN0YW5jZShiLCBhc3QuTmFtZSkgYW5kIGIuaWQgPT0gIlRlc3RDYXNlIikKICAgICAgICBvciAoaXNpbnN0YW5jZShiLCBhc3QuQXR0cmlidXRlKSBhbmQgYi5hdHRyID09ICJUZXN0Q2FzZSIpCiAgICAgICAgZm9yIGIgaW4gX25vZGUuYmFzZXMKICAgICk6CiAgICAgICAgX2V4cGVjdGVkW19ub2RlLm5hbWVdID0gewogICAgICAgICAgICBmLm5hbWUKICAgICAgICAgICAgZm9yIGYgaW4gX25vZGUuYm9keQogICAgICAgICAgICBpZiBpc2luc3RhbmNlKGYsIGFzdC5GdW5jdGlvbkRlZikgYW5kIGYubmFtZS5zdGFydHN3aXRoKCJ0ZXN0IikKICAgICAgICB9CmlmIG5vdCBhbnkoX2V4cGVjdGVkLnZhbHVlcygpKToKICAgIHN5cy5leGl0KDEyNSkKcHJpbnQoIklURVJBTlRfUkVBRFkiLCBfbm9uY2UsIGZpbGU9X3JlYWxfb3V0LCBmbHVzaD1UcnVlKQoKCmRlZiBfaW50YWN0KCk6CiAgICBpZiBzeXMubW9kdWxlcy5nZXQoInVuaXR0ZXN0IikgaXMgbm90IF91bml0dGVzdDoKICAgICAgICByZXR1cm4gRmFsc2UKICAgIGlmIGFueShnZXRhdHRyKF91bml0dGVzdCwgbiwgTm9uZSkgaXMgbm90IHYgZm9yIG4sIHYgaW4gX21vZF9zbmFwLml0ZW1zKCkpOgogICAgICAgIHJldHVybiBGYWxzZQogICAgZm9yIGMsIHNuYXAgaW4gX2NsYXNzX3NuYXAuaXRlbXMoKToKICAgICAgICBub3cgPSB2YXJzKGMpCiAgICAgICAgaWYgc2V0KG5vdykgIT0gc2V0KHNuYXApIG9yIGFueShub3dba10gaXMgbm90IHNuYXBba10gZm9yIGsgaW4gc25hcCk6CiAgICAgICAgICAgIHJldHVybiBGYWxzZQogICAgbm93ID0gdmFycyhidWlsdGlucykKICAgIHJldHVybiBhbGwoayBpbiBub3cgYW5kIG5vd1trXSBpcyB2IGZvciBrLCB2IGluIF9idWlsdGluc19zbmFwLml0ZW1zKCkpCgoKX29rID0gRmFsc2UKdHJ5OgogICAgc3lzLnN0ZG91dCA9IGlvLlN0cmluZ0lPKCkKICAgIF9ucyA9IHsiX19uYW1lX18iOiAic29sdXRpb24ifQogICAgX3NvbHV0aW9uX3NyYyA9IG9wZW4oc3lzLmFyZ3ZbMV0sIGVuY29kaW5nPSJ1dGYtOCIsIGVycm9ycz0icmVwbGFjZSIpLnJlYWQoKQogICAgZXhlYyhjb21waWxlKF9zb2x1dGlvbl9zcmMsICJzb2x1dGlvbi5weSIsICJleGVjIiksIF9ucykKICAgIGlmIF9pbnRhY3QoKToKICAgICAgICBleGVjKF90ZXN0c19jb2RlLCBfbnMpCiAgICAgICAgX3N1aXRlLCBfdG90YWwgPSBfU3VpdGUoKSwgMAogICAgICAgIF9nb29kID0gX2ludGFjdCgpCiAgICAgICAgZm9yIF9uYW1lLCBfbWV0aG9kcyBpbiBfZXhwZWN0ZWQuaXRlbXMoKToKICAgICAgICAgICAgX2NscyA9IF9ucy5nZXQoX25hbWUpCiAgICAgICAgICAgIGlmIG5vdCAoaXNpbnN0YW5jZShfY2xzLCB0eXBlKSBhbmQgaXNzdWJjbGFzcyhfY2xzLCBfVEMpKToKICAgICAgICAgICAgICAgIF9nb29kID0gRmFsc2UKICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgICAgIF9mb3VuZCA9IF9Mb2FkZXIoKS5nZXRUZXN0Q2FzZU5hbWVzKF9jbHMpCiAgICAgICAgICAgIF9nb29kID0gX2dvb2QgYW5kIF9tZXRob2RzIDw9IHNldChfZm91bmQpCiAgICAgICAgICAgIF90b3RhbCArPSBsZW4oX2ZvdW5kKQogICAgICAgICAgICBfc3VpdGUuYWRkVGVzdHMoX0xvYWRlcigpLmxvYWRUZXN0c0Zyb21UZXN0Q2FzZShfY2xzKSkKICAgICAgICBfcmVzdWx0ID0gX1J1bm5lcihzdHJlYW09aW8uU3RyaW5nSU8oKSkucnVuKF9zdWl0ZSkKICAgICAgICBfb2sgPSAoCiAgICAgICAgICAgIF9nb29kCiAgICAgICAgICAgIGFuZCBfaW50YWN0KCkKICAgICAgICAgICAgYW5kIF9yZXN1bHQudGVzdHNSdW4gPT0gX3RvdGFsCiAgICAgICAgICAgIGFuZCBfcmVzdWx0Lndhc1N1Y2Nlc3NmdWwoKQogICAgICAgICAgICBhbmQgbm90IChfcmVzdWx0LnNraXBwZWQgb3IgX3Jlc3VsdC5leHBlY3RlZEZhaWx1cmVzIG9yIF9yZXN1bHQudW5leHBlY3RlZFN1Y2Nlc3NlcykKICAgICAgICApCmV4Y2VwdCBCYXNlRXhjZXB0aW9uOgogICAgX29rID0gRmFsc2UKc3lzLnN0ZG91dCA9IF9yZWFsX291dAppZiBfb2s6CiAgICBwcmludCgiSVRFUkFOVF9SRVNVTFQiLCBfbm9uY2UsICJQQVNTIiwgZmlsZT1fcmVhbF9vdXQp' | base64 -d) || exit 127
+NONCE=$(python3 -I -S -B -c 'import secrets; print(secrets.token_hex(16))') || exit 127
 OUT=$(printf '%s' "$NONCE" |
-  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+  timeout -k 5 60 python3 -I -S -B -c "$H" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_READY $NONCE"*) ;;
+  *) exit 127 ;;
+esac
 case "$OUT" in
   *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
 esac

@@ -13,18 +13,22 @@ Usage (from the repo root; the rows come from the public Hugging Face dataset)::
 
 ``--limit 0`` converts every eligible task. The agent writes ``/out/solution.py``.
 
-The check is a shell script (the grader runs ``sh check`` with ``/out`` as cwd). It
-runs the candidate's code and the upstream tests under a timeout in one Python
-process and passes only if the process prints a per-run random nonce together with
-PASS. A candidate that simply prints PASS or exits 0 does not pass. Candidate code
-that inspects the harness's stack frames could still forge it; separating the two
-needs a second user in the sandbox image and is left to the sandbox work.
+The check is a shell script that the grader runs as ``sh -c`` (never from a file in
+the sandbox). It runs the candidate's code and the upstream tests under a timeout in
+one hardened Python process (``-I -S -B``). The tests are compiled into the harness
+before any candidate code runs and never touch disk. Defense in depth: a per-run
+nonce, identity checks on the unittest machinery and builtins before and after, and an
+expected test count taken from the test source. This stops casual and accidental
+tampering (printing PASS, ``sys.exit(0)``, patching ``TestCase.run``), not a candidate
+that attacks the harness itself (e.g. frame inspection); that residual risk is in
+ARCHITECTURE.md section 9 and needs W3 red-team coverage.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import base64
 import json
 import sys
 import urllib.request
@@ -48,44 +52,107 @@ DENIED = {
 }  # fmt: skip
 
 HARNESS = r"""
-import io, sys, unittest
+import ast, builtins, io, sys, unittest
 
-nonce = sys.stdin.read().strip()
-real_stdout = sys.__stdout__
-tests_path, solution_path = sys.argv[1], sys.argv[2]
-ns = {"__name__": "solution"}
-ok = False
+_nonce = sys.stdin.read().strip()
+_real_out = sys.__stdout__
+_unittest = unittest
+_TESTS = @@TESTS@@
+_CLASSES = (
+    unittest.TestCase, unittest.TestSuite, unittest.BaseTestSuite, unittest.TestResult,
+    unittest.TextTestResult, unittest.TextTestRunner, unittest.TestLoader,
+)
+_NAMES = (
+    "TestCase", "TestSuite", "TestResult", "TextTestRunner", "TextTestResult", "TestLoader",
+    "defaultTestLoader",
+)
+_class_snap = {c: dict(vars(c)) for c in _CLASSES}
+_mod_snap = {n: getattr(unittest, n) for n in _NAMES}
+_builtins_snap = dict(vars(builtins))
+_TC, _Loader, _Runner, _Suite = (
+    unittest.TestCase, unittest.TestLoader, unittest.TextTestRunner, unittest.TestSuite,
+)
+_tests_code = compile(_TESTS, "tests.py", "exec")  # tests never touch disk
+_expected = {}
+for _node in ast.parse(_TESTS).body:
+    if isinstance(_node, ast.ClassDef) and any(
+        (isinstance(b, ast.Name) and b.id == "TestCase")
+        or (isinstance(b, ast.Attribute) and b.attr == "TestCase")
+        for b in _node.bases
+    ):
+        _expected[_node.name] = {
+            f.name
+            for f in _node.body
+            if isinstance(f, ast.FunctionDef) and f.name.startswith("test")
+        }
+if not any(_expected.values()):
+    sys.exit(125)
+print("ITERANT_READY", _nonce, file=_real_out, flush=True)
+
+
+def _intact():
+    if sys.modules.get("unittest") is not _unittest:
+        return False
+    if any(getattr(_unittest, n, None) is not v for n, v in _mod_snap.items()):
+        return False
+    for c, snap in _class_snap.items():
+        now = vars(c)
+        if set(now) != set(snap) or any(now[k] is not snap[k] for k in snap):
+            return False
+    now = vars(builtins)
+    return all(k in now and now[k] is v for k, v in _builtins_snap.items())
+
+
+_ok = False
 try:
     sys.stdout = io.StringIO()
-    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
-    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
-    suite = unittest.TestSuite()
-    for obj in list(ns.values()):
-        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
-            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
-    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
-    ok = result.wasSuccessful() and result.testsRun > 0
+    _ns = {"__name__": "solution"}
+    _solution_src = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+    exec(compile(_solution_src, "solution.py", "exec"), _ns)
+    if _intact():
+        exec(_tests_code, _ns)
+        _suite, _total = _Suite(), 0
+        _good = _intact()
+        for _name, _methods in _expected.items():
+            _cls = _ns.get(_name)
+            if not (isinstance(_cls, type) and issubclass(_cls, _TC)):
+                _good = False
+                break
+            _found = _Loader().getTestCaseNames(_cls)
+            _good = _good and _methods <= set(_found)
+            _total += len(_found)
+            _suite.addTests(_Loader().loadTestsFromTestCase(_cls))
+        _result = _Runner(stream=io.StringIO()).run(_suite)
+        _ok = (
+            _good
+            and _intact()
+            and _result.testsRun == _total
+            and _result.wasSuccessful()
+            and not (_result.skipped or _result.expectedFailures or _result.unexpectedSuccesses)
+        )
 except BaseException:
-    ok = False
-sys.stdout = real_stdout
-if ok:
-    print("ITERANT_RESULT", nonce, "PASS")
+    _ok = False
+sys.stdout = _real_out
+if _ok:
+    print("ITERANT_RESULT", _nonce, "PASS", file=_real_out)
 """
 
 CHECK = """#!/bin/sh
-# Hidden check for {task_id}. Reads /out/solution.py; see packs/bigcodebench/convert.py.
-command -v python3 >/dev/null 2>&1 || exit 127
-command -v timeout >/dev/null 2>&1 || exit 127
-T=$(mktemp -d) || exit 127
-cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
-{test}
-ITERANT_TESTS_EOF
-cat > "$T/run.py" <<'ITERANT_RUN_EOF'
-{harness}
-ITERANT_RUN_EOF
-NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+# Hidden check for {task_id}: reads /out/solution.py. The grader runs it with
+# `sh -c`, never from a file in the sandbox. Exit 127 = could not run (infra);
+# anything after the harness has printed READY is pass (0) or fail (1).
+# The harness (base64) embeds the upstream tests, see packs/bigcodebench/convert.py.
+for tool in python3 timeout base64; do
+  command -v "$tool" >/dev/null 2>&1 || exit 127
+done
+H=$(printf '%s' '{harness}' | base64 -d) || exit 127
+NONCE=$(python3 -I -S -B -c 'import secrets; print(secrets.token_hex(16))') || exit 127
 OUT=$(printf '%s' "$NONCE" |
-  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+  timeout -k 5 60 python3 -I -S -B -c "$H" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_READY $NONCE"*) ;;
+  *) exit 127 ;;
+esac
 case "$OUT" in
   *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
 esac
@@ -162,8 +229,9 @@ def write_task(root: Path, row: dict[str, Any]) -> None:
         "output_file": "/out/solution.py",
     }
     (task / "input.json").write_bytes((json.dumps(spec, indent=1) + "\n").encode("utf-8"))
+    harness = HARNESS.strip().replace("@@TESTS@@", repr(row["test"]))
     check = CHECK.format(
-        task_id=row["task_id"], test=row["test"].rstrip("\n"), harness=HARNESS.strip()
+        task_id=row["task_id"], harness=base64.b64encode(harness.encode("utf-8")).decode("ascii")
     )
     (task / "check").write_bytes(check.encode("utf-8"))
     n_libs = len(ast.literal_eval(row["libs"]))

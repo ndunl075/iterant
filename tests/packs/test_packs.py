@@ -1,5 +1,7 @@
 import json
+import os
 import shutil
+import subprocess
 from collections import Counter
 from pathlib import Path
 
@@ -20,7 +22,7 @@ from iterant.packs import (
 REPO = Path(__file__).resolve().parents[2]
 # Pinned: fails if any byte of the starter pack changes (line endings included).
 # Update on purpose only, when the pack is regenerated.
-PINNED_FIXTURE_HASH = "772fb2c52f76b5302064fcd757deaf8a8a04dae55e0cbd70d9e255110bd1791a"
+PINNED_FIXTURE_HASH = "d514f87bddc7a99b07f53325349f7f3cf269ede24654d6ba051732de27646b84"
 
 
 def make_pack(root: Path, n: int = 12, tags: tuple[str, ...] = ("a", "b")) -> Path:
@@ -109,6 +111,23 @@ def test_symlink_rejected(tmp_path: Path) -> None:
         pytest.skip("symlinks not available")
     with pytest.raises(PackError, match="symlink"):
         compute_content_hash(root)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are Windows-only")
+def test_junction_rejected(tmp_path: Path) -> None:
+    root = make_pack(tmp_path / "p")
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    made = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(root / "jn"), str(target)], capture_output=True
+    )
+    if made.returncode != 0:
+        pytest.skip("cannot create junction")
+    try:
+        with pytest.raises(PackError, match="junction"):
+            compute_content_hash(root)
+    finally:
+        (root / "jn").rmdir()  # remove the link, never the target's contents
 
 
 def test_load_errors(tmp_path: Path) -> None:

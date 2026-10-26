@@ -1,93 +1,19 @@
 #!/bin/sh
-# Hidden check for BigCodeBench/765. Reads /out/solution.py; see packs/bigcodebench/convert.py.
-command -v python3 >/dev/null 2>&1 || exit 127
-command -v timeout >/dev/null 2>&1 || exit 127
-T=$(mktemp -d) || exit 127
-cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
-import os
-import shutil
-import unittest
-class TestCases(unittest.TestCase):
-    def setUp(self):
-        self.test_dir = 'test_dir'
-        self.target_dir = 'target_dir'
-        os.makedirs(self.test_dir, exist_ok=True)
-        os.makedirs(self.target_dir, exist_ok=True)
-    def tearDown(self):
-        shutil.rmtree(self.test_dir)
-        shutil.rmtree(self.target_dir)
-    def test_files_with_content(self):
-        test_files = {'file1.txt': 'Hello', 'file2.txt': 'World'}
-        for file, content in test_files.items():
-            with open(os.path.join(self.test_dir, file), 'w') as f:
-                f.write(content)
-        
-        full_paths = {os.path.join(self.test_dir, k): v for k, v in test_files.items()}
-        copied_files = task_func(full_paths, self.target_dir)
-        
-        self.assertEqual(len(copied_files), 2)
-        for copied in copied_files:
-            self.assertTrue(os.path.isfile(copied))
-            self.assertTrue(copied.startswith(self.target_dir))
-    def test_files_with_no_content(self):
-        test_files = {'file1.txt': 'Hello', 'file2.txt': None}
-        for file, content in test_files.items():
-            with open(os.path.join(self.test_dir, file), 'w') as f:
-                if content:
-                    f.write(content)
-        full_paths = {os.path.join(self.test_dir, k): v for k, v in test_files.items()}
-        copied_files = task_func(full_paths, self.target_dir)
-        self.assertEqual(len(copied_files), 1)
-        self.assertTrue(os.path.isfile(copied_files[0]))
-        self.assertTrue(copied_files[0].startswith(self.target_dir))
-    def test_files_do_not_exist(self):
-        test_files = {'file1.txt': 'Hello', 'file2.txt': 'World'}
-        full_paths = {os.path.join(self.test_dir, k): v for k, v in test_files.items()}
-        copied_files = task_func(full_paths, self.target_dir)
-        self.assertEqual(len(copied_files), 0)
-    def test_mixed_case(self):
-        test_files = {'file1.txt': 'Hello', 'file2.txt': None, 'file3.txt': 'World'}
-        for file, content in test_files.items():
-            with open(os.path.join(self.test_dir, file), 'w') as f:
-                if content:
-                    f.write(content)
-        full_paths = {os.path.join(self.test_dir, k): v for k, v in test_files.items()}
-        copied_files = task_func(full_paths, self.target_dir)
-        self.assertEqual(len(copied_files), 2)
-        for copied in copied_files:
-            self.assertTrue(os.path.isfile(copied))
-            self.assertTrue(copied.startswith(self.target_dir))
-    def test_empty_dict(self):
-        copied_files = task_func({}, self.target_dir)
-        self.assertEqual(len(copied_files), 0)
-ITERANT_TESTS_EOF
-cat > "$T/run.py" <<'ITERANT_RUN_EOF'
-import io, sys, unittest
-
-nonce = sys.stdin.read().strip()
-real_stdout = sys.__stdout__
-tests_path, solution_path = sys.argv[1], sys.argv[2]
-ns = {"__name__": "solution"}
-ok = False
-try:
-    sys.stdout = io.StringIO()
-    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
-    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
-    suite = unittest.TestSuite()
-    for obj in list(ns.values()):
-        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
-            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
-    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
-    ok = result.wasSuccessful() and result.testsRun > 0
-except BaseException:
-    ok = False
-sys.stdout = real_stdout
-if ok:
-    print("ITERANT_RESULT", nonce, "PASS")
-ITERANT_RUN_EOF
-NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+# Hidden check for BigCodeBench/765: reads /out/solution.py. The grader runs it with
+# `sh -c`, never from a file in the sandbox. Exit 127 = could not run (infra);
+# anything after the harness has printed READY is pass (0) or fail (1).
+# The harness (base64) embeds the upstream tests, see packs/bigcodebench/convert.py.
+for tool in python3 timeout base64; do
+  command -v "$tool" >/dev/null 2>&1 || exit 127
+done
+H=$(printf '%s' 'aW1wb3J0IGFzdCwgYnVpbHRpbnMsIGlvLCBzeXMsIHVuaXR0ZXN0Cgpfbm9uY2UgPSBzeXMuc3RkaW4ucmVhZCgpLnN0cmlwKCkKX3JlYWxfb3V0ID0gc3lzLl9fc3Rkb3V0X18KX3VuaXR0ZXN0ID0gdW5pdHRlc3QKX1RFU1RTID0gImltcG9ydCBvc1xuaW1wb3J0IHNodXRpbFxuaW1wb3J0IHVuaXR0ZXN0XG5jbGFzcyBUZXN0Q2FzZXModW5pdHRlc3QuVGVzdENhc2UpOlxuICAgIGRlZiBzZXRVcChzZWxmKTpcbiAgICAgICAgc2VsZi50ZXN0X2RpciA9ICd0ZXN0X2RpcidcbiAgICAgICAgc2VsZi50YXJnZXRfZGlyID0gJ3RhcmdldF9kaXInXG4gICAgICAgIG9zLm1ha2VkaXJzKHNlbGYudGVzdF9kaXIsIGV4aXN0X29rPVRydWUpXG4gICAgICAgIG9zLm1ha2VkaXJzKHNlbGYudGFyZ2V0X2RpciwgZXhpc3Rfb2s9VHJ1ZSlcbiAgICBkZWYgdGVhckRvd24oc2VsZik6XG4gICAgICAgIHNodXRpbC5ybXRyZWUoc2VsZi50ZXN0X2RpcilcbiAgICAgICAgc2h1dGlsLnJtdHJlZShzZWxmLnRhcmdldF9kaXIpXG4gICAgZGVmIHRlc3RfZmlsZXNfd2l0aF9jb250ZW50KHNlbGYpOlxuICAgICAgICB0ZXN0X2ZpbGVzID0geydmaWxlMS50eHQnOiAnSGVsbG8nLCAnZmlsZTIudHh0JzogJ1dvcmxkJ31cbiAgICAgICAgZm9yIGZpbGUsIGNvbnRlbnQgaW4gdGVzdF9maWxlcy5pdGVtcygpOlxuICAgICAgICAgICAgd2l0aCBvcGVuKG9zLnBhdGguam9pbihzZWxmLnRlc3RfZGlyLCBmaWxlKSwgJ3cnKSBhcyBmOlxuICAgICAgICAgICAgICAgIGYud3JpdGUoY29udGVudClcbiAgICAgICAgXG4gICAgICAgIGZ1bGxfcGF0aHMgPSB7b3MucGF0aC5qb2luKHNlbGYudGVzdF9kaXIsIGspOiB2IGZvciBrLCB2IGluIHRlc3RfZmlsZXMuaXRlbXMoKX1cbiAgICAgICAgY29waWVkX2ZpbGVzID0gdGFza19mdW5jKGZ1bGxfcGF0aHMsIHNlbGYudGFyZ2V0X2RpcilcbiAgICAgICAgXG4gICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwobGVuKGNvcGllZF9maWxlcyksIDIpXG4gICAgICAgIGZvciBjb3BpZWQgaW4gY29waWVkX2ZpbGVzOlxuICAgICAgICAgICAgc2VsZi5hc3NlcnRUcnVlKG9zLnBhdGguaXNmaWxlKGNvcGllZCkpXG4gICAgICAgICAgICBzZWxmLmFzc2VydFRydWUoY29waWVkLnN0YXJ0c3dpdGgoc2VsZi50YXJnZXRfZGlyKSlcbiAgICBkZWYgdGVzdF9maWxlc193aXRoX25vX2NvbnRlbnQoc2VsZik6XG4gICAgICAgIHRlc3RfZmlsZXMgPSB7J2ZpbGUxLnR4dCc6ICdIZWxsbycsICdmaWxlMi50eHQnOiBOb25lfVxuICAgICAgICBmb3IgZmlsZSwgY29udGVudCBpbiB0ZXN0X2ZpbGVzLml0ZW1zKCk6XG4gICAgICAgICAgICB3aXRoIG9wZW4ob3MucGF0aC5qb2luKHNlbGYudGVzdF9kaXIsIGZpbGUpLCAndycpIGFzIGY6XG4gICAgICAgICAgICAgICAgaWYgY29udGVudDpcbiAgICAgICAgICAgICAgICAgICAgZi53cml0ZShjb250ZW50KVxuICAgICAgICBmdWxsX3BhdGhzID0ge29zLnBhdGguam9pbihzZWxmLnRlc3RfZGlyLCBrKTogdiBmb3IgaywgdiBpbiB0ZXN0X2ZpbGVzLml0ZW1zKCl9XG4gICAgICAgIGNvcGllZF9maWxlcyA9IHRhc2tfZnVuYyhmdWxsX3BhdGhzLCBzZWxmLnRhcmdldF9kaXIpXG4gICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwobGVuKGNvcGllZF9maWxlcyksIDEpXG4gICAgICAgIHNlbGYuYXNzZXJ0VHJ1ZShvcy5wYXRoLmlzZmlsZShjb3BpZWRfZmlsZXNbMF0pKVxuICAgICAgICBzZWxmLmFzc2VydFRydWUoY29waWVkX2ZpbGVzWzBdLnN0YXJ0c3dpdGgoc2VsZi50YXJnZXRfZGlyKSlcbiAgICBkZWYgdGVzdF9maWxlc19kb19ub3RfZXhpc3Qoc2VsZik6XG4gICAgICAgIHRlc3RfZmlsZXMgPSB7J2ZpbGUxLnR4dCc6ICdIZWxsbycsICdmaWxlMi50eHQnOiAnV29ybGQnfVxuICAgICAgICBmdWxsX3BhdGhzID0ge29zLnBhdGguam9pbihzZWxmLnRlc3RfZGlyLCBrKTogdiBmb3IgaywgdiBpbiB0ZXN0X2ZpbGVzLml0ZW1zKCl9XG4gICAgICAgIGNvcGllZF9maWxlcyA9IHRhc2tfZnVuYyhmdWxsX3BhdGhzLCBzZWxmLnRhcmdldF9kaXIpXG4gICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwobGVuKGNvcGllZF9maWxlcyksIDApXG4gICAgZGVmIHRlc3RfbWl4ZWRfY2FzZShzZWxmKTpcbiAgICAgICAgdGVzdF9maWxlcyA9IHsnZmlsZTEudHh0JzogJ0hlbGxvJywgJ2ZpbGUyLnR4dCc6IE5vbmUsICdmaWxlMy50eHQnOiAnV29ybGQnfVxuICAgICAgICBmb3IgZmlsZSwgY29udGVudCBpbiB0ZXN0X2ZpbGVzLml0ZW1zKCk6XG4gICAgICAgICAgICB3aXRoIG9wZW4ob3MucGF0aC5qb2luKHNlbGYudGVzdF9kaXIsIGZpbGUpLCAndycpIGFzIGY6XG4gICAgICAgICAgICAgICAgaWYgY29udGVudDpcbiAgICAgICAgICAgICAgICAgICAgZi53cml0ZShjb250ZW50KVxuICAgICAgICBmdWxsX3BhdGhzID0ge29zLnBhdGguam9pbihzZWxmLnRlc3RfZGlyLCBrKTogdiBmb3IgaywgdiBpbiB0ZXN0X2ZpbGVzLml0ZW1zKCl9XG4gICAgICAgIGNvcGllZF9maWxlcyA9IHRhc2tfZnVuYyhmdWxsX3BhdGhzLCBzZWxmLnRhcmdldF9kaXIpXG4gICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwobGVuKGNvcGllZF9maWxlcyksIDIpXG4gICAgICAgIGZvciBjb3BpZWQgaW4gY29waWVkX2ZpbGVzOlxuICAgICAgICAgICAgc2VsZi5hc3NlcnRUcnVlKG9zLnBhdGguaXNmaWxlKGNvcGllZCkpXG4gICAgICAgICAgICBzZWxmLmFzc2VydFRydWUoY29waWVkLnN0YXJ0c3dpdGgoc2VsZi50YXJnZXRfZGlyKSlcbiAgICBkZWYgdGVzdF9lbXB0eV9kaWN0KHNlbGYpOlxuICAgICAgICBjb3BpZWRfZmlsZXMgPSB0YXNrX2Z1bmMoe30sIHNlbGYudGFyZ2V0X2RpcilcbiAgICAgICAgc2VsZi5hc3NlcnRFcXVhbChsZW4oY29waWVkX2ZpbGVzKSwgMCkiCl9DTEFTU0VTID0gKAogICAgdW5pdHRlc3QuVGVzdENhc2UsIHVuaXR0ZXN0LlRlc3RTdWl0ZSwgdW5pdHRlc3QuQmFzZVRlc3RTdWl0ZSwgdW5pdHRlc3QuVGVzdFJlc3VsdCwKICAgIHVuaXR0ZXN0LlRleHRUZXN0UmVzdWx0LCB1bml0dGVzdC5UZXh0VGVzdFJ1bm5lciwgdW5pdHRlc3QuVGVzdExvYWRlciwKKQpfTkFNRVMgPSAoCiAgICAiVGVzdENhc2UiLCAiVGVzdFN1aXRlIiwgIlRlc3RSZXN1bHQiLCAiVGV4dFRlc3RSdW5uZXIiLCAiVGV4dFRlc3RSZXN1bHQiLCAiVGVzdExvYWRlciIsCiAgICAiZGVmYXVsdFRlc3RMb2FkZXIiLAopCl9jbGFzc19zbmFwID0ge2M6IGRpY3QodmFycyhjKSkgZm9yIGMgaW4gX0NMQVNTRVN9Cl9tb2Rfc25hcCA9IHtuOiBnZXRhdHRyKHVuaXR0ZXN0LCBuKSBmb3IgbiBpbiBfTkFNRVN9Cl9idWlsdGluc19zbmFwID0gZGljdCh2YXJzKGJ1aWx0aW5zKSkKX1RDLCBfTG9hZGVyLCBfUnVubmVyLCBfU3VpdGUgPSAoCiAgICB1bml0dGVzdC5UZXN0Q2FzZSwgdW5pdHRlc3QuVGVzdExvYWRlciwgdW5pdHRlc3QuVGV4dFRlc3RSdW5uZXIsIHVuaXR0ZXN0LlRlc3RTdWl0ZSwKKQpfdGVzdHNfY29kZSA9IGNvbXBpbGUoX1RFU1RTLCAidGVzdHMucHkiLCAiZXhlYyIpICAjIHRlc3RzIG5ldmVyIHRvdWNoIGRpc2sKX2V4cGVjdGVkID0ge30KZm9yIF9ub2RlIGluIGFzdC5wYXJzZShfVEVTVFMpLmJvZHk6CiAgICBpZiBpc2luc3RhbmNlKF9ub2RlLCBhc3QuQ2xhc3NEZWYpIGFuZCBhbnkoCiAgICAgICAgKGlzaW5zdGFuY2UoYiwgYXN0Lk5hbWUpIGFuZCBiLmlkID09ICJUZXN0Q2FzZSIpCiAgICAgICAgb3IgKGlzaW5zdGFuY2UoYiwgYXN0LkF0dHJpYnV0ZSkgYW5kIGIuYXR0ciA9PSAiVGVzdENhc2UiKQogICAgICAgIGZvciBiIGluIF9ub2RlLmJhc2VzCiAgICApOgogICAgICAgIF9leHBlY3RlZFtfbm9kZS5uYW1lXSA9IHsKICAgICAgICAgICAgZi5uYW1lCiAgICAgICAgICAgIGZvciBmIGluIF9ub2RlLmJvZHkKICAgICAgICAgICAgaWYgaXNpbnN0YW5jZShmLCBhc3QuRnVuY3Rpb25EZWYpIGFuZCBmLm5hbWUuc3RhcnRzd2l0aCgidGVzdCIpCiAgICAgICAgfQppZiBub3QgYW55KF9leHBlY3RlZC52YWx1ZXMoKSk6CiAgICBzeXMuZXhpdCgxMjUpCnByaW50KCJJVEVSQU5UX1JFQURZIiwgX25vbmNlLCBmaWxlPV9yZWFsX291dCwgZmx1c2g9VHJ1ZSkKCgpkZWYgX2ludGFjdCgpOgogICAgaWYgc3lzLm1vZHVsZXMuZ2V0KCJ1bml0dGVzdCIpIGlzIG5vdCBfdW5pdHRlc3Q6CiAgICAgICAgcmV0dXJuIEZhbHNlCiAgICBpZiBhbnkoZ2V0YXR0cihfdW5pdHRlc3QsIG4sIE5vbmUpIGlzIG5vdCB2IGZvciBuLCB2IGluIF9tb2Rfc25hcC5pdGVtcygpKToKICAgICAgICByZXR1cm4gRmFsc2UKICAgIGZvciBjLCBzbmFwIGluIF9jbGFzc19zbmFwLml0ZW1zKCk6CiAgICAgICAgbm93ID0gdmFycyhjKQogICAgICAgIGlmIHNldChub3cpICE9IHNldChzbmFwKSBvciBhbnkobm93W2tdIGlzIG5vdCBzbmFwW2tdIGZvciBrIGluIHNuYXApOgogICAgICAgICAgICByZXR1cm4gRmFsc2UKICAgIG5vdyA9IHZhcnMoYnVpbHRpbnMpCiAgICByZXR1cm4gYWxsKGsgaW4gbm93IGFuZCBub3dba10gaXMgdiBmb3IgaywgdiBpbiBfYnVpbHRpbnNfc25hcC5pdGVtcygpKQoKCl9vayA9IEZhbHNlCnRyeToKICAgIHN5cy5zdGRvdXQgPSBpby5TdHJpbmdJTygpCiAgICBfbnMgPSB7Il9fbmFtZV9fIjogInNvbHV0aW9uIn0KICAgIF9zb2x1dGlvbl9zcmMgPSBvcGVuKHN5cy5hcmd2WzFdLCBlbmNvZGluZz0idXRmLTgiLCBlcnJvcnM9InJlcGxhY2UiKS5yZWFkKCkKICAgIGV4ZWMoY29tcGlsZShfc29sdXRpb25fc3JjLCAic29sdXRpb24ucHkiLCAiZXhlYyIpLCBfbnMpCiAgICBpZiBfaW50YWN0KCk6CiAgICAgICAgZXhlYyhfdGVzdHNfY29kZSwgX25zKQogICAgICAgIF9zdWl0ZSwgX3RvdGFsID0gX1N1aXRlKCksIDAKICAgICAgICBfZ29vZCA9IF9pbnRhY3QoKQogICAgICAgIGZvciBfbmFtZSwgX21ldGhvZHMgaW4gX2V4cGVjdGVkLml0ZW1zKCk6CiAgICAgICAgICAgIF9jbHMgPSBfbnMuZ2V0KF9uYW1lKQogICAgICAgICAgICBpZiBub3QgKGlzaW5zdGFuY2UoX2NscywgdHlwZSkgYW5kIGlzc3ViY2xhc3MoX2NscywgX1RDKSk6CiAgICAgICAgICAgICAgICBfZ29vZCA9IEZhbHNlCiAgICAgICAgICAgICAgICBicmVhawogICAgICAgICAgICBfZm91bmQgPSBfTG9hZGVyKCkuZ2V0VGVzdENhc2VOYW1lcyhfY2xzKQogICAgICAgICAgICBfZ29vZCA9IF9nb29kIGFuZCBfbWV0aG9kcyA8PSBzZXQoX2ZvdW5kKQogICAgICAgICAgICBfdG90YWwgKz0gbGVuKF9mb3VuZCkKICAgICAgICAgICAgX3N1aXRlLmFkZFRlc3RzKF9Mb2FkZXIoKS5sb2FkVGVzdHNGcm9tVGVzdENhc2UoX2NscykpCiAgICAgICAgX3Jlc3VsdCA9IF9SdW5uZXIoc3RyZWFtPWlvLlN0cmluZ0lPKCkpLnJ1bihfc3VpdGUpCiAgICAgICAgX29rID0gKAogICAgICAgICAgICBfZ29vZAogICAgICAgICAgICBhbmQgX2ludGFjdCgpCiAgICAgICAgICAgIGFuZCBfcmVzdWx0LnRlc3RzUnVuID09IF90b3RhbAogICAgICAgICAgICBhbmQgX3Jlc3VsdC53YXNTdWNjZXNzZnVsKCkKICAgICAgICAgICAgYW5kIG5vdCAoX3Jlc3VsdC5za2lwcGVkIG9yIF9yZXN1bHQuZXhwZWN0ZWRGYWlsdXJlcyBvciBfcmVzdWx0LnVuZXhwZWN0ZWRTdWNjZXNzZXMpCiAgICAgICAgKQpleGNlcHQgQmFzZUV4Y2VwdGlvbjoKICAgIF9vayA9IEZhbHNlCnN5cy5zdGRvdXQgPSBfcmVhbF9vdXQKaWYgX29rOgogICAgcHJpbnQoIklURVJBTlRfUkVTVUxUIiwgX25vbmNlLCAiUEFTUyIsIGZpbGU9X3JlYWxfb3V0KQ==' | base64 -d) || exit 127
+NONCE=$(python3 -I -S -B -c 'import secrets; print(secrets.token_hex(16))') || exit 127
 OUT=$(printf '%s' "$NONCE" |
-  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+  timeout -k 5 60 python3 -I -S -B -c "$H" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_READY $NONCE"*) ;;
+  *) exit 127 ;;
+esac
 case "$OUT" in
   *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
 esac

@@ -193,6 +193,7 @@ This is the self-improvement story for researchers, and it dogfoods the platform
 | Hard-code train/select answers | Proposer is blind to select; task-ID grep; diff auditor; holdout rotation |
 | Forge logs or claim success | Scores come only from the grader and proxy |
 | Exfiltrate the key, phone home | Key lives in the proxy; default-deny egress |
+| Tamper with an in-process test harness | Harness integrity checks (tests loaded first, unittest identity check, expected test count); residual risk accepted; W3 red-team case + diff auditor |
 | Escape the sandbox | microVM (release); non-root, no mounts, caps |
 | Ship a bad change to production | Iterant never merges; the user merges `iterant/champion` after reading the evidence report |
 

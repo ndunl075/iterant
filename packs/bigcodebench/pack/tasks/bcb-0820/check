@@ -1,90 +1,19 @@
 #!/bin/sh
-# Hidden check for BigCodeBench/820. Reads /out/solution.py; see packs/bigcodebench/convert.py.
-command -v python3 >/dev/null 2>&1 || exit 127
-command -v timeout >/dev/null 2>&1 || exit 127
-T=$(mktemp -d) || exit 127
-cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
-import unittest
-class TestCases(unittest.TestCase):
-    def test_positive_scenario(self):
-        """
-        Test with positive num_words and word_length.
-        This test case checks if the function correctly generates a list of words where each word has the specified length.
-        It ensures that the length of the returned list and the length of each word in the list are correct.
-        """
-        result = task_func(5, 3)
-        self.assertEqual(len(result), 5, "The length of the returned list is incorrect.")
-        for word in result:
-            self.assertEqual(len(word), 3, "The length of a word in the list is incorrect.")
-    
-    def test_zero_words(self):
-        """
-        Test when num_words is 0.
-        This test case checks the function's behavior when no words are requested.
-        The function should return an empty list in this scenario.
-        """
-        result = task_func(0, 3)
-        self.assertEqual(result, [], "The function should return an empty list when num_words is 0.")
-    
-    def test_zero_length(self):
-        """
-        Test when word_length is 0.
-        This test case checks the function's behavior when the requested word length is 0.
-        The function should return a list of empty strings in this scenario.
-        """
-        result = task_func(5, 0)
-        self.assertEqual(result, [''] * 5, "The function should return a list of empty strings when word_length is 0.")
-    
-    def test_negative_values(self):
-        """
-        Test with negative num_words and word_length.
-        This test case checks the function's behavior when negative values are passed as input parameters.
-        The function should raise a ValueError in this scenario.
-        """
-        with self.assertRaises(ValueError):
-            task_func(5, -3)
-        with self.assertRaises(ValueError):
-            task_func(-5, -3)
-    
-    def test_non_integer_inputs(self):
-        """
-        Test with non-integer num_words and word_length.
-        This test case checks the function's behavior when non-integer values are passed as input parameters.
-        The function should raise a TypeError in this scenario.
-        """
-        with self.assertRaises(TypeError, msg="The function should raise a TypeError for non-integer values"):
-            task_func(5.5, 3)
-        
-        with self.assertRaises(TypeError, msg="The function should raise a TypeError for non-integer values"):
-            task_func(5, "3")
-ITERANT_TESTS_EOF
-cat > "$T/run.py" <<'ITERANT_RUN_EOF'
-import io, sys, unittest
-
-nonce = sys.stdin.read().strip()
-real_stdout = sys.__stdout__
-tests_path, solution_path = sys.argv[1], sys.argv[2]
-ns = {"__name__": "solution"}
-ok = False
-try:
-    sys.stdout = io.StringIO()
-    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
-    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
-    suite = unittest.TestSuite()
-    for obj in list(ns.values()):
-        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
-            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
-    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
-    ok = result.wasSuccessful() and result.testsRun > 0
-except BaseException:
-    ok = False
-sys.stdout = real_stdout
-if ok:
-    print("ITERANT_RESULT", nonce, "PASS")
-ITERANT_RUN_EOF
-NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+# Hidden check for BigCodeBench/820: reads /out/solution.py. The grader runs it with
+# `sh -c`, never from a file in the sandbox. Exit 127 = could not run (infra);
+# anything after the harness has printed READY is pass (0) or fail (1).
+# The harness (base64) embeds the upstream tests, see packs/bigcodebench/convert.py.
+for tool in python3 timeout base64; do
+  command -v "$tool" >/dev/null 2>&1 || exit 127
+done
+H=$(printf '%s' 'aW1wb3J0IGFzdCwgYnVpbHRpbnMsIGlvLCBzeXMsIHVuaXR0ZXN0Cgpfbm9uY2UgPSBzeXMuc3RkaW4ucmVhZCgpLnN0cmlwKCkKX3JlYWxfb3V0ID0gc3lzLl9fc3Rkb3V0X18KX3VuaXR0ZXN0ID0gdW5pdHRlc3QKX1RFU1RTID0gJ2ltcG9ydCB1bml0dGVzdFxuY2xhc3MgVGVzdENhc2VzKHVuaXR0ZXN0LlRlc3RDYXNlKTpcbiAgICBkZWYgdGVzdF9wb3NpdGl2ZV9zY2VuYXJpbyhzZWxmKTpcbiAgICAgICAgIiIiXG4gICAgICAgIFRlc3Qgd2l0aCBwb3NpdGl2ZSBudW1fd29yZHMgYW5kIHdvcmRfbGVuZ3RoLlxuICAgICAgICBUaGlzIHRlc3QgY2FzZSBjaGVja3MgaWYgdGhlIGZ1bmN0aW9uIGNvcnJlY3RseSBnZW5lcmF0ZXMgYSBsaXN0IG9mIHdvcmRzIHdoZXJlIGVhY2ggd29yZCBoYXMgdGhlIHNwZWNpZmllZCBsZW5ndGguXG4gICAgICAgIEl0IGVuc3VyZXMgdGhhdCB0aGUgbGVuZ3RoIG9mIHRoZSByZXR1cm5lZCBsaXN0IGFuZCB0aGUgbGVuZ3RoIG9mIGVhY2ggd29yZCBpbiB0aGUgbGlzdCBhcmUgY29ycmVjdC5cbiAgICAgICAgIiIiXG4gICAgICAgIHJlc3VsdCA9IHRhc2tfZnVuYyg1LCAzKVxuICAgICAgICBzZWxmLmFzc2VydEVxdWFsKGxlbihyZXN1bHQpLCA1LCAiVGhlIGxlbmd0aCBvZiB0aGUgcmV0dXJuZWQgbGlzdCBpcyBpbmNvcnJlY3QuIilcbiAgICAgICAgZm9yIHdvcmQgaW4gcmVzdWx0OlxuICAgICAgICAgICAgc2VsZi5hc3NlcnRFcXVhbChsZW4od29yZCksIDMsICJUaGUgbGVuZ3RoIG9mIGEgd29yZCBpbiB0aGUgbGlzdCBpcyBpbmNvcnJlY3QuIilcbiAgICBcbiAgICBkZWYgdGVzdF96ZXJvX3dvcmRzKHNlbGYpOlxuICAgICAgICAiIiJcbiAgICAgICAgVGVzdCB3aGVuIG51bV93b3JkcyBpcyAwLlxuICAgICAgICBUaGlzIHRlc3QgY2FzZSBjaGVja3MgdGhlIGZ1bmN0aW9uXCdzIGJlaGF2aW9yIHdoZW4gbm8gd29yZHMgYXJlIHJlcXVlc3RlZC5cbiAgICAgICAgVGhlIGZ1bmN0aW9uIHNob3VsZCByZXR1cm4gYW4gZW1wdHkgbGlzdCBpbiB0aGlzIHNjZW5hcmlvLlxuICAgICAgICAiIiJcbiAgICAgICAgcmVzdWx0ID0gdGFza19mdW5jKDAsIDMpXG4gICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwocmVzdWx0LCBbXSwgIlRoZSBmdW5jdGlvbiBzaG91bGQgcmV0dXJuIGFuIGVtcHR5IGxpc3Qgd2hlbiBudW1fd29yZHMgaXMgMC4iKVxuICAgIFxuICAgIGRlZiB0ZXN0X3plcm9fbGVuZ3RoKHNlbGYpOlxuICAgICAgICAiIiJcbiAgICAgICAgVGVzdCB3aGVuIHdvcmRfbGVuZ3RoIGlzIDAuXG4gICAgICAgIFRoaXMgdGVzdCBjYXNlIGNoZWNrcyB0aGUgZnVuY3Rpb25cJ3MgYmVoYXZpb3Igd2hlbiB0aGUgcmVxdWVzdGVkIHdvcmQgbGVuZ3RoIGlzIDAuXG4gICAgICAgIFRoZSBmdW5jdGlvbiBzaG91bGQgcmV0dXJuIGEgbGlzdCBvZiBlbXB0eSBzdHJpbmdzIGluIHRoaXMgc2NlbmFyaW8uXG4gICAgICAgICIiIlxuICAgICAgICByZXN1bHQgPSB0YXNrX2Z1bmMoNSwgMClcbiAgICAgICAgc2VsZi5hc3NlcnRFcXVhbChyZXN1bHQsIFtcJ1wnXSAqIDUsICJUaGUgZnVuY3Rpb24gc2hvdWxkIHJldHVybiBhIGxpc3Qgb2YgZW1wdHkgc3RyaW5ncyB3aGVuIHdvcmRfbGVuZ3RoIGlzIDAuIilcbiAgICBcbiAgICBkZWYgdGVzdF9uZWdhdGl2ZV92YWx1ZXMoc2VsZik6XG4gICAgICAgICIiIlxuICAgICAgICBUZXN0IHdpdGggbmVnYXRpdmUgbnVtX3dvcmRzIGFuZCB3b3JkX2xlbmd0aC5cbiAgICAgICAgVGhpcyB0ZXN0IGNhc2UgY2hlY2tzIHRoZSBmdW5jdGlvblwncyBiZWhhdmlvciB3aGVuIG5lZ2F0aXZlIHZhbHVlcyBhcmUgcGFzc2VkIGFzIGlucHV0IHBhcmFtZXRlcnMuXG4gICAgICAgIFRoZSBmdW5jdGlvbiBzaG91bGQgcmFpc2UgYSBWYWx1ZUVycm9yIGluIHRoaXMgc2NlbmFyaW8uXG4gICAgICAgICIiIlxuICAgICAgICB3aXRoIHNlbGYuYXNzZXJ0UmFpc2VzKFZhbHVlRXJyb3IpOlxuICAgICAgICAgICAgdGFza19mdW5jKDUsIC0zKVxuICAgICAgICB3aXRoIHNlbGYuYXNzZXJ0UmFpc2VzKFZhbHVlRXJyb3IpOlxuICAgICAgICAgICAgdGFza19mdW5jKC01LCAtMylcbiAgICBcbiAgICBkZWYgdGVzdF9ub25faW50ZWdlcl9pbnB1dHMoc2VsZik6XG4gICAgICAgICIiIlxuICAgICAgICBUZXN0IHdpdGggbm9uLWludGVnZXIgbnVtX3dvcmRzIGFuZCB3b3JkX2xlbmd0aC5cbiAgICAgICAgVGhpcyB0ZXN0IGNhc2UgY2hlY2tzIHRoZSBmdW5jdGlvblwncyBiZWhhdmlvciB3aGVuIG5vbi1pbnRlZ2VyIHZhbHVlcyBhcmUgcGFzc2VkIGFzIGlucHV0IHBhcmFtZXRlcnMuXG4gICAgICAgIFRoZSBmdW5jdGlvbiBzaG91bGQgcmFpc2UgYSBUeXBlRXJyb3IgaW4gdGhpcyBzY2VuYXJpby5cbiAgICAgICAgIiIiXG4gICAgICAgIHdpdGggc2VsZi5hc3NlcnRSYWlzZXMoVHlwZUVycm9yLCBtc2c9IlRoZSBmdW5jdGlvbiBzaG91bGQgcmFpc2UgYSBUeXBlRXJyb3IgZm9yIG5vbi1pbnRlZ2VyIHZhbHVlcyIpOlxuICAgICAgICAgICAgdGFza19mdW5jKDUuNSwgMylcbiAgICAgICAgXG4gICAgICAgIHdpdGggc2VsZi5hc3NlcnRSYWlzZXMoVHlwZUVycm9yLCBtc2c9IlRoZSBmdW5jdGlvbiBzaG91bGQgcmFpc2UgYSBUeXBlRXJyb3IgZm9yIG5vbi1pbnRlZ2VyIHZhbHVlcyIpOlxuICAgICAgICAgICAgdGFza19mdW5jKDUsICIzIiknCl9DTEFTU0VTID0gKAogICAgdW5pdHRlc3QuVGVzdENhc2UsIHVuaXR0ZXN0LlRlc3RTdWl0ZSwgdW5pdHRlc3QuQmFzZVRlc3RTdWl0ZSwgdW5pdHRlc3QuVGVzdFJlc3VsdCwKICAgIHVuaXR0ZXN0LlRleHRUZXN0UmVzdWx0LCB1bml0dGVzdC5UZXh0VGVzdFJ1bm5lciwgdW5pdHRlc3QuVGVzdExvYWRlciwKKQpfTkFNRVMgPSAoCiAgICAiVGVzdENhc2UiLCAiVGVzdFN1aXRlIiwgIlRlc3RSZXN1bHQiLCAiVGV4dFRlc3RSdW5uZXIiLCAiVGV4dFRlc3RSZXN1bHQiLCAiVGVzdExvYWRlciIsCiAgICAiZGVmYXVsdFRlc3RMb2FkZXIiLAopCl9jbGFzc19zbmFwID0ge2M6IGRpY3QodmFycyhjKSkgZm9yIGMgaW4gX0NMQVNTRVN9Cl9tb2Rfc25hcCA9IHtuOiBnZXRhdHRyKHVuaXR0ZXN0LCBuKSBmb3IgbiBpbiBfTkFNRVN9Cl9idWlsdGluc19zbmFwID0gZGljdCh2YXJzKGJ1aWx0aW5zKSkKX1RDLCBfTG9hZGVyLCBfUnVubmVyLCBfU3VpdGUgPSAoCiAgICB1bml0dGVzdC5UZXN0Q2FzZSwgdW5pdHRlc3QuVGVzdExvYWRlciwgdW5pdHRlc3QuVGV4dFRlc3RSdW5uZXIsIHVuaXR0ZXN0LlRlc3RTdWl0ZSwKKQpfdGVzdHNfY29kZSA9IGNvbXBpbGUoX1RFU1RTLCAidGVzdHMucHkiLCAiZXhlYyIpICAjIHRlc3RzIG5ldmVyIHRvdWNoIGRpc2sKX2V4cGVjdGVkID0ge30KZm9yIF9ub2RlIGluIGFzdC5wYXJzZShfVEVTVFMpLmJvZHk6CiAgICBpZiBpc2luc3RhbmNlKF9ub2RlLCBhc3QuQ2xhc3NEZWYpIGFuZCBhbnkoCiAgICAgICAgKGlzaW5zdGFuY2UoYiwgYXN0Lk5hbWUpIGFuZCBiLmlkID09ICJUZXN0Q2FzZSIpCiAgICAgICAgb3IgKGlzaW5zdGFuY2UoYiwgYXN0LkF0dHJpYnV0ZSkgYW5kIGIuYXR0ciA9PSAiVGVzdENhc2UiKQogICAgICAgIGZvciBiIGluIF9ub2RlLmJhc2VzCiAgICApOgogICAgICAgIF9leHBlY3RlZFtfbm9kZS5uYW1lXSA9IHsKICAgICAgICAgICAgZi5uYW1lCiAgICAgICAgICAgIGZvciBmIGluIF9ub2RlLmJvZHkKICAgICAgICAgICAgaWYgaXNpbnN0YW5jZShmLCBhc3QuRnVuY3Rpb25EZWYpIGFuZCBmLm5hbWUuc3RhcnRzd2l0aCgidGVzdCIpCiAgICAgICAgfQppZiBub3QgYW55KF9leHBlY3RlZC52YWx1ZXMoKSk6CiAgICBzeXMuZXhpdCgxMjUpCnByaW50KCJJVEVSQU5UX1JFQURZIiwgX25vbmNlLCBmaWxlPV9yZWFsX291dCwgZmx1c2g9VHJ1ZSkKCgpkZWYgX2ludGFjdCgpOgogICAgaWYgc3lzLm1vZHVsZXMuZ2V0KCJ1bml0dGVzdCIpIGlzIG5vdCBfdW5pdHRlc3Q6CiAgICAgICAgcmV0dXJuIEZhbHNlCiAgICBpZiBhbnkoZ2V0YXR0cihfdW5pdHRlc3QsIG4sIE5vbmUpIGlzIG5vdCB2IGZvciBuLCB2IGluIF9tb2Rfc25hcC5pdGVtcygpKToKICAgICAgICByZXR1cm4gRmFsc2UKICAgIGZvciBjLCBzbmFwIGluIF9jbGFzc19zbmFwLml0ZW1zKCk6CiAgICAgICAgbm93ID0gdmFycyhjKQogICAgICAgIGlmIHNldChub3cpICE9IHNldChzbmFwKSBvciBhbnkobm93W2tdIGlzIG5vdCBzbmFwW2tdIGZvciBrIGluIHNuYXApOgogICAgICAgICAgICByZXR1cm4gRmFsc2UKICAgIG5vdyA9IHZhcnMoYnVpbHRpbnMpCiAgICByZXR1cm4gYWxsKGsgaW4gbm93IGFuZCBub3dba10gaXMgdiBmb3IgaywgdiBpbiBfYnVpbHRpbnNfc25hcC5pdGVtcygpKQoKCl9vayA9IEZhbHNlCnRyeToKICAgIHN5cy5zdGRvdXQgPSBpby5TdHJpbmdJTygpCiAgICBfbnMgPSB7Il9fbmFtZV9fIjogInNvbHV0aW9uIn0KICAgIF9zb2x1dGlvbl9zcmMgPSBvcGVuKHN5cy5hcmd2WzFdLCBlbmNvZGluZz0idXRmLTgiLCBlcnJvcnM9InJlcGxhY2UiKS5yZWFkKCkKICAgIGV4ZWMoY29tcGlsZShfc29sdXRpb25fc3JjLCAic29sdXRpb24ucHkiLCAiZXhlYyIpLCBfbnMpCiAgICBpZiBfaW50YWN0KCk6CiAgICAgICAgZXhlYyhfdGVzdHNfY29kZSwgX25zKQogICAgICAgIF9zdWl0ZSwgX3RvdGFsID0gX1N1aXRlKCksIDAKICAgICAgICBfZ29vZCA9IF9pbnRhY3QoKQogICAgICAgIGZvciBfbmFtZSwgX21ldGhvZHMgaW4gX2V4cGVjdGVkLml0ZW1zKCk6CiAgICAgICAgICAgIF9jbHMgPSBfbnMuZ2V0KF9uYW1lKQogICAgICAgICAgICBpZiBub3QgKGlzaW5zdGFuY2UoX2NscywgdHlwZSkgYW5kIGlzc3ViY2xhc3MoX2NscywgX1RDKSk6CiAgICAgICAgICAgICAgICBfZ29vZCA9IEZhbHNlCiAgICAgICAgICAgICAgICBicmVhawogICAgICAgICAgICBfZm91bmQgPSBfTG9hZGVyKCkuZ2V0VGVzdENhc2VOYW1lcyhfY2xzKQogICAgICAgICAgICBfZ29vZCA9IF9nb29kIGFuZCBfbWV0aG9kcyA8PSBzZXQoX2ZvdW5kKQogICAgICAgICAgICBfdG90YWwgKz0gbGVuKF9mb3VuZCkKICAgICAgICAgICAgX3N1aXRlLmFkZFRlc3RzKF9Mb2FkZXIoKS5sb2FkVGVzdHNGcm9tVGVzdENhc2UoX2NscykpCiAgICAgICAgX3Jlc3VsdCA9IF9SdW5uZXIoc3RyZWFtPWlvLlN0cmluZ0lPKCkpLnJ1bihfc3VpdGUpCiAgICAgICAgX29rID0gKAogICAgICAgICAgICBfZ29vZAogICAgICAgICAgICBhbmQgX2ludGFjdCgpCiAgICAgICAgICAgIGFuZCBfcmVzdWx0LnRlc3RzUnVuID09IF90b3RhbAogICAgICAgICAgICBhbmQgX3Jlc3VsdC53YXNTdWNjZXNzZnVsKCkKICAgICAgICAgICAgYW5kIG5vdCAoX3Jlc3VsdC5za2lwcGVkIG9yIF9yZXN1bHQuZXhwZWN0ZWRGYWlsdXJlcyBvciBfcmVzdWx0LnVuZXhwZWN0ZWRTdWNjZXNzZXMpCiAgICAgICAgKQpleGNlcHQgQmFzZUV4Y2VwdGlvbjoKICAgIF9vayA9IEZhbHNlCnN5cy5zdGRvdXQgPSBfcmVhbF9vdXQKaWYgX29rOgogICAgcHJpbnQoIklURVJBTlRfUkVTVUxUIiwgX25vbmNlLCAiUEFTUyIsIGZpbGU9X3JlYWxfb3V0KQ==' | base64 -d) || exit 127
+NONCE=$(python3 -I -S -B -c 'import secrets; print(secrets.token_hex(16))') || exit 127
 OUT=$(printf '%s' "$NONCE" |
-  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+  timeout -k 5 60 python3 -I -S -B -c "$H" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_READY $NONCE"*) ;;
+  *) exit 127 ;;
+esac
 case "$OUT" in
   *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
 esac

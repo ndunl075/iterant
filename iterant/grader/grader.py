@@ -2,22 +2,35 @@
 
 Invariants this module upholds:
 
-* 1/2: the check is read from the trusted pack and put only into the grader's own
+* 1/2: the check is read from the trusted pack and handed only to the grader's own
   sandbox, which is created fresh for every grade, has no egress and is destroyed
   afterwards. The agent's sandbox never sees it. Only this module's result counts.
+* The check is never written to a file in the sandbox: candidate code that the
+  check runs shares its uid and could rewrite a file (``sh`` reads scripts
+  incrementally). It is passed base64-encoded inside the command and decoded into a
+  shell variable that ``sh -c`` runs.
+  # TODO(contract): ``Sandbox.exec`` has no stdin; with stdin this would be ``sh -s``.
+  The command is bounded by the OS argument limit (~128 KiB per argument on Linux).
 * A broken check or sandbox is an infra error (``score is None``), never a score.
 
-Check protocol: ``sh /grader/check`` runs with ``/out`` as its working directory.
+Check protocol: the check runs as ``sh -c`` with ``/out`` as its working directory.
 
-* timeout, exit 126/127 (not runnable) or exit > 128 (killed): infra error
-* empty stdout: exit 0 scores 1.0, any other exit scores 0.0
-* otherwise the last non-blank stdout line must be a float in [0, 1] and is the
-  score, whatever the exit code. If it is not: infra error when the exit code is 0
-  (we cannot tell pass from garbage), score 0.0 when the check failed anyway.
+* exit 126/127 means "could not run" and the check must use it only before it
+  touches candidate code: infra error.
+* any other non-zero exit, a timeout, or a kill (exit > 128, OOM) is 0.0: once the
+  check can run candidate code, the candidate may be the cause of any failure.
+* exit 0 scores 1.0, unless the last non-blank stdout line is a float in [0, 1],
+  which is then the score. Exit 0 with any other last line is an infra error.
+  A non-zero exit never scores above 0.0, whatever it printed.
+
+``GradeResult.error`` holds fixed messages only, never sandbox output: stderr is
+candidate-controlled and may carry hidden-check text. Never show it to the proposer
+or analyst.
 """
 
 from __future__ import annotations
 
+import base64
 import math
 import time
 from collections.abc import Mapping
@@ -27,7 +40,6 @@ from pathlib import Path, PurePosixPath
 from iterant.contracts import ExecResult, SandboxBackend, Task
 
 OUT_DIR = "/out"
-CHECK_PATH = "/grader/check"
 _NOT_RUNNABLE = {126, 127}
 
 
@@ -52,23 +64,30 @@ class GradeResult:
 
 def interpret(result: ExecResult) -> tuple[float | None, str | None]:
     """Map a check's ``ExecResult`` to ``(score, None)`` or ``(None, infra error)``."""
-    if result.timed_out:
-        return None, f"check timed out after {result.wall_s:.1f}s"
     code = result.exit_code
-    if code in _NOT_RUNNABLE or code > 128 or code < 0:
-        return None, f"check could not run (exit {code}): {result.stderr[-300:].strip()}"
+    if code in _NOT_RUNNABLE:
+        return None, f"check could not run (exit {code})"
+    if result.timed_out or code != 0:
+        return 0.0, None
     lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
     if not lines:
-        return (1.0 if code == 0 else 0.0), None
+        return 1.0, None
     try:
         score = float(lines[-1])
     except ValueError:
         score = math.nan
     if math.isfinite(score) and 0.0 <= score <= 1.0:
         return score, None
-    if code != 0:
-        return 0.0, None
-    return None, f"malformed check output: {lines[-1][:100]!r}"
+    return None, "malformed check output"
+
+
+def _command(check: bytes) -> str:
+    payload = base64.b64encode(check).decode("ascii")
+    return (
+        f"S=$(printf %s '{payload}' | base64 -d) || exit 127; "
+        f"mkdir -p {OUT_DIR} && cd {OUT_DIR} || exit 127; "
+        'sh -c "$S"'
+    )
 
 
 def _out_path(rel: str) -> str:
@@ -125,12 +144,9 @@ class Grader:
         try:
             for path, data in targets.items():
                 sandbox.put(path, data)
-            sandbox.put(CHECK_PATH, check)
-            result = sandbox.exec(
-                f"mkdir -p {OUT_DIR} && cd {OUT_DIR} && sh {CHECK_PATH}", self._timeout
-            )
+            result = sandbox.exec(_command(check), self._timeout)
         except Exception as exc:
-            return done(None, f"sandbox error: {exc}")
+            return done(None, f"sandbox error: {type(exc).__name__}")
         finally:
             try:
                 sandbox.destroy()

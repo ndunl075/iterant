@@ -1,77 +1,19 @@
 #!/bin/sh
-# Hidden check for BigCodeBench/25. Reads /out/solution.py; see packs/bigcodebench/convert.py.
-command -v python3 >/dev/null 2>&1 || exit 127
-command -v timeout >/dev/null 2>&1 || exit 127
-T=$(mktemp -d) || exit 127
-cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
-import unittest
-import json
-import zlib
-import base64
-class TestCases(unittest.TestCase):
-    def test_case_1(self):
-        # Test with a simple dictionary containing string values.
-        data = {'key1': 'value1', 'key2': 'value2'}
-        result = task_func(data)
-        self.assertIsInstance(result, str)
-        decompressed_data = json.loads(zlib.decompress(base64.b64decode(result)).decode())
-        self.assertEqual(decompressed_data, data)
-    def test_case_2(self):
-        # Test with an empty dictionary.
-        data = {}
-        result = task_func(data)
-        self.assertIsInstance(result, str)
-        decompressed_data = json.loads(zlib.decompress(base64.b64decode(result)).decode())
-        self.assertEqual(decompressed_data, data)
-    def test_case_3(self):
-        # Test with a dictionary containing mixed types (string and integers).
-        data = {'name': 'John', 'age': 30, 'city': 'New York'}
-        result = task_func(data)
-        self.assertIsInstance(result, str)
-        decompressed_data = json.loads(zlib.decompress(base64.b64decode(result)).decode())
-        self.assertEqual(decompressed_data, data)
-    def test_case_4(self):
-        # Test with a nested dictionary containing lists of dictionaries.
-        data = {'users': [{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}]}
-        result = task_func(data)
-        self.assertIsInstance(result, str)
-        decompressed_data = json.loads(zlib.decompress(base64.b64decode(result)).decode())
-        self.assertEqual(decompressed_data, data)
-    def test_case_5(self):
-        # Test with a dictionary containing multiple integer values.
-        data = {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5}
-        result = task_func(data)
-        self.assertIsInstance(result, str)
-        decompressed_data = json.loads(zlib.decompress(base64.b64decode(result)).decode())
-        self.assertEqual(decompressed_data, data)
-ITERANT_TESTS_EOF
-cat > "$T/run.py" <<'ITERANT_RUN_EOF'
-import io, sys, unittest
-
-nonce = sys.stdin.read().strip()
-real_stdout = sys.__stdout__
-tests_path, solution_path = sys.argv[1], sys.argv[2]
-ns = {"__name__": "solution"}
-ok = False
-try:
-    sys.stdout = io.StringIO()
-    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
-    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
-    suite = unittest.TestSuite()
-    for obj in list(ns.values()):
-        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
-            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
-    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
-    ok = result.wasSuccessful() and result.testsRun > 0
-except BaseException:
-    ok = False
-sys.stdout = real_stdout
-if ok:
-    print("ITERANT_RESULT", nonce, "PASS")
-ITERANT_RUN_EOF
-NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+# Hidden check for BigCodeBench/25: reads /out/solution.py. The grader runs it with
+# `sh -c`, never from a file in the sandbox. Exit 127 = could not run (infra);
+# anything after the harness has printed READY is pass (0) or fail (1).
+# The harness (base64) embeds the upstream tests, see packs/bigcodebench/convert.py.
+for tool in python3 timeout base64; do
+  command -v "$tool" >/dev/null 2>&1 || exit 127
+done
+H=$(printf '%s' 'aW1wb3J0IGFzdCwgYnVpbHRpbnMsIGlvLCBzeXMsIHVuaXR0ZXN0Cgpfbm9uY2UgPSBzeXMuc3RkaW4ucmVhZCgpLnN0cmlwKCkKX3JlYWxfb3V0ID0gc3lzLl9fc3Rkb3V0X18KX3VuaXR0ZXN0ID0gdW5pdHRlc3QKX1RFU1RTID0gImltcG9ydCB1bml0dGVzdFxuaW1wb3J0IGpzb25cbmltcG9ydCB6bGliXG5pbXBvcnQgYmFzZTY0XG5jbGFzcyBUZXN0Q2FzZXModW5pdHRlc3QuVGVzdENhc2UpOlxuICAgIGRlZiB0ZXN0X2Nhc2VfMShzZWxmKTpcbiAgICAgICAgIyBUZXN0IHdpdGggYSBzaW1wbGUgZGljdGlvbmFyeSBjb250YWluaW5nIHN0cmluZyB2YWx1ZXMuXG4gICAgICAgIGRhdGEgPSB7J2tleTEnOiAndmFsdWUxJywgJ2tleTInOiAndmFsdWUyJ31cbiAgICAgICAgcmVzdWx0ID0gdGFza19mdW5jKGRhdGEpXG4gICAgICAgIHNlbGYuYXNzZXJ0SXNJbnN0YW5jZShyZXN1bHQsIHN0cilcbiAgICAgICAgZGVjb21wcmVzc2VkX2RhdGEgPSBqc29uLmxvYWRzKHpsaWIuZGVjb21wcmVzcyhiYXNlNjQuYjY0ZGVjb2RlKHJlc3VsdCkpLmRlY29kZSgpKVxuICAgICAgICBzZWxmLmFzc2VydEVxdWFsKGRlY29tcHJlc3NlZF9kYXRhLCBkYXRhKVxuICAgIGRlZiB0ZXN0X2Nhc2VfMihzZWxmKTpcbiAgICAgICAgIyBUZXN0IHdpdGggYW4gZW1wdHkgZGljdGlvbmFyeS5cbiAgICAgICAgZGF0YSA9IHt9XG4gICAgICAgIHJlc3VsdCA9IHRhc2tfZnVuYyhkYXRhKVxuICAgICAgICBzZWxmLmFzc2VydElzSW5zdGFuY2UocmVzdWx0LCBzdHIpXG4gICAgICAgIGRlY29tcHJlc3NlZF9kYXRhID0ganNvbi5sb2Fkcyh6bGliLmRlY29tcHJlc3MoYmFzZTY0LmI2NGRlY29kZShyZXN1bHQpKS5kZWNvZGUoKSlcbiAgICAgICAgc2VsZi5hc3NlcnRFcXVhbChkZWNvbXByZXNzZWRfZGF0YSwgZGF0YSlcbiAgICBkZWYgdGVzdF9jYXNlXzMoc2VsZik6XG4gICAgICAgICMgVGVzdCB3aXRoIGEgZGljdGlvbmFyeSBjb250YWluaW5nIG1peGVkIHR5cGVzIChzdHJpbmcgYW5kIGludGVnZXJzKS5cbiAgICAgICAgZGF0YSA9IHsnbmFtZSc6ICdKb2huJywgJ2FnZSc6IDMwLCAnY2l0eSc6ICdOZXcgWW9yayd9XG4gICAgICAgIHJlc3VsdCA9IHRhc2tfZnVuYyhkYXRhKVxuICAgICAgICBzZWxmLmFzc2VydElzSW5zdGFuY2UocmVzdWx0LCBzdHIpXG4gICAgICAgIGRlY29tcHJlc3NlZF9kYXRhID0ganNvbi5sb2Fkcyh6bGliLmRlY29tcHJlc3MoYmFzZTY0LmI2NGRlY29kZShyZXN1bHQpKS5kZWNvZGUoKSlcbiAgICAgICAgc2VsZi5hc3NlcnRFcXVhbChkZWNvbXByZXNzZWRfZGF0YSwgZGF0YSlcbiAgICBkZWYgdGVzdF9jYXNlXzQoc2VsZik6XG4gICAgICAgICMgVGVzdCB3aXRoIGEgbmVzdGVkIGRpY3Rpb25hcnkgY29udGFpbmluZyBsaXN0cyBvZiBkaWN0aW9uYXJpZXMuXG4gICAgICAgIGRhdGEgPSB7J3VzZXJzJzogW3snaWQnOiAxLCAnbmFtZSc6ICdBbGljZSd9LCB7J2lkJzogMiwgJ25hbWUnOiAnQm9iJ31dfVxuICAgICAgICByZXN1bHQgPSB0YXNrX2Z1bmMoZGF0YSlcbiAgICAgICAgc2VsZi5hc3NlcnRJc0luc3RhbmNlKHJlc3VsdCwgc3RyKVxuICAgICAgICBkZWNvbXByZXNzZWRfZGF0YSA9IGpzb24ubG9hZHMoemxpYi5kZWNvbXByZXNzKGJhc2U2NC5iNjRkZWNvZGUocmVzdWx0KSkuZGVjb2RlKCkpXG4gICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwoZGVjb21wcmVzc2VkX2RhdGEsIGRhdGEpXG4gICAgZGVmIHRlc3RfY2FzZV81KHNlbGYpOlxuICAgICAgICAjIFRlc3Qgd2l0aCBhIGRpY3Rpb25hcnkgY29udGFpbmluZyBtdWx0aXBsZSBpbnRlZ2VyIHZhbHVlcy5cbiAgICAgICAgZGF0YSA9IHsnYSc6IDEsICdiJzogMiwgJ2MnOiAzLCAnZCc6IDQsICdlJzogNX1cbiAgICAgICAgcmVzdWx0ID0gdGFza19mdW5jKGRhdGEpXG4gICAgICAgIHNlbGYuYXNzZXJ0SXNJbnN0YW5jZShyZXN1bHQsIHN0cilcbiAgICAgICAgZGVjb21wcmVzc2VkX2RhdGEgPSBqc29uLmxvYWRzKHpsaWIuZGVjb21wcmVzcyhiYXNlNjQuYjY0ZGVjb2RlKHJlc3VsdCkpLmRlY29kZSgpKVxuICAgICAgICBzZWxmLmFzc2VydEVxdWFsKGRlY29tcHJlc3NlZF9kYXRhLCBkYXRhKSIKX0NMQVNTRVMgPSAoCiAgICB1bml0dGVzdC5UZXN0Q2FzZSwgdW5pdHRlc3QuVGVzdFN1aXRlLCB1bml0dGVzdC5CYXNlVGVzdFN1aXRlLCB1bml0dGVzdC5UZXN0UmVzdWx0LAogICAgdW5pdHRlc3QuVGV4dFRlc3RSZXN1bHQsIHVuaXR0ZXN0LlRleHRUZXN0UnVubmVyLCB1bml0dGVzdC5UZXN0TG9hZGVyLAopCl9OQU1FUyA9ICgKICAgICJUZXN0Q2FzZSIsICJUZXN0U3VpdGUiLCAiVGVzdFJlc3VsdCIsICJUZXh0VGVzdFJ1bm5lciIsICJUZXh0VGVzdFJlc3VsdCIsICJUZXN0TG9hZGVyIiwKICAgICJkZWZhdWx0VGVzdExvYWRlciIsCikKX2NsYXNzX3NuYXAgPSB7YzogZGljdCh2YXJzKGMpKSBmb3IgYyBpbiBfQ0xBU1NFU30KX21vZF9zbmFwID0ge246IGdldGF0dHIodW5pdHRlc3QsIG4pIGZvciBuIGluIF9OQU1FU30KX2J1aWx0aW5zX3NuYXAgPSBkaWN0KHZhcnMoYnVpbHRpbnMpKQpfVEMsIF9Mb2FkZXIsIF9SdW5uZXIsIF9TdWl0ZSA9ICgKICAgIHVuaXR0ZXN0LlRlc3RDYXNlLCB1bml0dGVzdC5UZXN0TG9hZGVyLCB1bml0dGVzdC5UZXh0VGVzdFJ1bm5lciwgdW5pdHRlc3QuVGVzdFN1aXRlLAopCl90ZXN0c19jb2RlID0gY29tcGlsZShfVEVTVFMsICJ0ZXN0cy5weSIsICJleGVjIikgICMgdGVzdHMgbmV2ZXIgdG91Y2ggZGlzawpfZXhwZWN0ZWQgPSB7fQpmb3IgX25vZGUgaW4gYXN0LnBhcnNlKF9URVNUUykuYm9keToKICAgIGlmIGlzaW5zdGFuY2UoX25vZGUsIGFzdC5DbGFzc0RlZikgYW5kIGFueSgKICAgICAgICAoaXNpbnN0YW5jZShiLCBhc3QuTmFtZSkgYW5kIGIuaWQgPT0gIlRlc3RDYXNlIikKICAgICAgICBvciAoaXNpbnN0YW5jZShiLCBhc3QuQXR0cmlidXRlKSBhbmQgYi5hdHRyID09ICJUZXN0Q2FzZSIpCiAgICAgICAgZm9yIGIgaW4gX25vZGUuYmFzZXMKICAgICk6CiAgICAgICAgX2V4cGVjdGVkW19ub2RlLm5hbWVdID0gewogICAgICAgICAgICBmLm5hbWUKICAgICAgICAgICAgZm9yIGYgaW4gX25vZGUuYm9keQogICAgICAgICAgICBpZiBpc2luc3RhbmNlKGYsIGFzdC5GdW5jdGlvbkRlZikgYW5kIGYubmFtZS5zdGFydHN3aXRoKCJ0ZXN0IikKICAgICAgICB9CmlmIG5vdCBhbnkoX2V4cGVjdGVkLnZhbHVlcygpKToKICAgIHN5cy5leGl0KDEyNSkKcHJpbnQoIklURVJBTlRfUkVBRFkiLCBfbm9uY2UsIGZpbGU9X3JlYWxfb3V0LCBmbHVzaD1UcnVlKQoKCmRlZiBfaW50YWN0KCk6CiAgICBpZiBzeXMubW9kdWxlcy5nZXQoInVuaXR0ZXN0IikgaXMgbm90IF91bml0dGVzdDoKICAgICAgICByZXR1cm4gRmFsc2UKICAgIGlmIGFueShnZXRhdHRyKF91bml0dGVzdCwgbiwgTm9uZSkgaXMgbm90IHYgZm9yIG4sIHYgaW4gX21vZF9zbmFwLml0ZW1zKCkpOgogICAgICAgIHJldHVybiBGYWxzZQogICAgZm9yIGMsIHNuYXAgaW4gX2NsYXNzX3NuYXAuaXRlbXMoKToKICAgICAgICBub3cgPSB2YXJzKGMpCiAgICAgICAgaWYgc2V0KG5vdykgIT0gc2V0KHNuYXApIG9yIGFueShub3dba10gaXMgbm90IHNuYXBba10gZm9yIGsgaW4gc25hcCk6CiAgICAgICAgICAgIHJldHVybiBGYWxzZQogICAgbm93ID0gdmFycyhidWlsdGlucykKICAgIHJldHVybiBhbGwoayBpbiBub3cgYW5kIG5vd1trXSBpcyB2IGZvciBrLCB2IGluIF9idWlsdGluc19zbmFwLml0ZW1zKCkpCgoKX29rID0gRmFsc2UKdHJ5OgogICAgc3lzLnN0ZG91dCA9IGlvLlN0cmluZ0lPKCkKICAgIF9ucyA9IHsiX19uYW1lX18iOiAic29sdXRpb24ifQogICAgX3NvbHV0aW9uX3NyYyA9IG9wZW4oc3lzLmFyZ3ZbMV0sIGVuY29kaW5nPSJ1dGYtOCIsIGVycm9ycz0icmVwbGFjZSIpLnJlYWQoKQogICAgZXhlYyhjb21waWxlKF9zb2x1dGlvbl9zcmMsICJzb2x1dGlvbi5weSIsICJleGVjIiksIF9ucykKICAgIGlmIF9pbnRhY3QoKToKICAgICAgICBleGVjKF90ZXN0c19jb2RlLCBfbnMpCiAgICAgICAgX3N1aXRlLCBfdG90YWwgPSBfU3VpdGUoKSwgMAogICAgICAgIF9nb29kID0gX2ludGFjdCgpCiAgICAgICAgZm9yIF9uYW1lLCBfbWV0aG9kcyBpbiBfZXhwZWN0ZWQuaXRlbXMoKToKICAgICAgICAgICAgX2NscyA9IF9ucy5nZXQoX25hbWUpCiAgICAgICAgICAgIGlmIG5vdCAoaXNpbnN0YW5jZShfY2xzLCB0eXBlKSBhbmQgaXNzdWJjbGFzcyhfY2xzLCBfVEMpKToKICAgICAgICAgICAgICAgIF9nb29kID0gRmFsc2UKICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgICAgIF9mb3VuZCA9IF9Mb2FkZXIoKS5nZXRUZXN0Q2FzZU5hbWVzKF9jbHMpCiAgICAgICAgICAgIF9nb29kID0gX2dvb2QgYW5kIF9tZXRob2RzIDw9IHNldChfZm91bmQpCiAgICAgICAgICAgIF90b3RhbCArPSBsZW4oX2ZvdW5kKQogICAgICAgICAgICBfc3VpdGUuYWRkVGVzdHMoX0xvYWRlcigpLmxvYWRUZXN0c0Zyb21UZXN0Q2FzZShfY2xzKSkKICAgICAgICBfcmVzdWx0ID0gX1J1bm5lcihzdHJlYW09aW8uU3RyaW5nSU8oKSkucnVuKF9zdWl0ZSkKICAgICAgICBfb2sgPSAoCiAgICAgICAgICAgIF9nb29kCiAgICAgICAgICAgIGFuZCBfaW50YWN0KCkKICAgICAgICAgICAgYW5kIF9yZXN1bHQudGVzdHNSdW4gPT0gX3RvdGFsCiAgICAgICAgICAgIGFuZCBfcmVzdWx0Lndhc1N1Y2Nlc3NmdWwoKQogICAgICAgICAgICBhbmQgbm90IChfcmVzdWx0LnNraXBwZWQgb3IgX3Jlc3VsdC5leHBlY3RlZEZhaWx1cmVzIG9yIF9yZXN1bHQudW5leHBlY3RlZFN1Y2Nlc3NlcykKICAgICAgICApCmV4Y2VwdCBCYXNlRXhjZXB0aW9uOgogICAgX29rID0gRmFsc2UKc3lzLnN0ZG91dCA9IF9yZWFsX291dAppZiBfb2s6CiAgICBwcmludCgiSVRFUkFOVF9SRVNVTFQiLCBfbm9uY2UsICJQQVNTIiwgZmlsZT1fcmVhbF9vdXQp' | base64 -d) || exit 127
+NONCE=$(python3 -I -S -B -c 'import secrets; print(secrets.token_hex(16))') || exit 127
 OUT=$(printf '%s' "$NONCE" |
-  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+  timeout -k 5 60 python3 -I -S -B -c "$H" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_READY $NONCE"*) ;;
+  *) exit 127 ;;
+esac
 case "$OUT" in
   *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
 esac

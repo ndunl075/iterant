@@ -11,8 +11,8 @@ Canonical form of the hash, ``H = sha256``::
 Every file counts (``pack.toml``, ``splits.json``, each task's ``input.json``,
 ``check`` and ``task.toml``, notices), so any change to a task, a check, the tags
 or the split assignment changes the hash. Lengths are prefixed, so no two
-different listings share a byte stream. Symlinks are refused: a link could point
-outside the pack and make the hash depend on files it does not cover.
+different listings share a byte stream. Symlinks and Windows junctions are refused: a link
+could point outside the pack and make the hash depend on files it does not cover.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ def _files(root: Path) -> list[tuple[bytes, Path]]:
     while stack:
         directory = stack.pop()
         for entry in directory.iterdir():
-            if entry.is_symlink():
-                raise PackError(f"symlink in pack: {entry}")
+            if entry.is_symlink() or entry.is_junction():
+                raise PackError(f"symlink or junction in pack: {entry}")
             if entry.is_dir():
                 stack.append(entry)
             elif entry.is_file():

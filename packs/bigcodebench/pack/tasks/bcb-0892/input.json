@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/892",
+ "instruction": "Analyzes a given list of strings for the occurrence of a specific pattern and counts the occurrences.\nThe function should output with:\n    dict: A dictionary with results of string analysis showing counts of the pattern.\nYou should write self-contained code starting with:\n```\nimport random\nfrom collections import Counter\ndef task_func(strings: list) -> dict:\n```",
+ "output_file": "/out/solution.py"
+}

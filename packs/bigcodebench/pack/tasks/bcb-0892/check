@@ -1,0 +1,68 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/892. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+class TestCases(unittest.TestCase):
+    
+    def test_case_1(self):
+        result = task_func(['abcd}def}', 'pqrs}tuv}', 'wxyz}123}', '456}789}', '0ab}cde}'])
+        total_counts = sum(result.values())
+        self.assertEqual(total_counts, 10)
+        for key in result:
+            self.assertTrue(1 <= key <= 2)
+    def test_case_2(self):
+        result = task_func(['abcd', 'pqrs', 'wxyz', '456', '0ab'])
+        total_counts = sum(result.values())
+        self.assertEqual(total_counts, 10)
+        self.assertTrue(0 in result)
+        self.assertEqual(result[0], 10)
+    def test_case_3(self):
+        result = task_func(['a}b}c}d', 'p}q}r}s', 'w}x}y}z', '4}5}6', '0}a}b'])
+        total_counts = sum(result.values())
+        self.assertEqual(total_counts, 10)
+        for key in result:
+            self.assertTrue(2 <= key <= 4)
+    def test_case_4(self):
+        result = task_func([])
+        self.assertEqual(result, Counter())
+    def test_case_5(self):
+        result = task_func(['a}b}c}d}e}f}g}h}i}j}k}l}'])
+        total_counts = sum(result.values())
+        self.assertEqual(total_counts, 10)
+        self.assertTrue(12 in result)
+        self.assertEqual(result[12], 10)
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

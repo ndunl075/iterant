@@ -1,0 +1,75 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/466. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+class TestCases(unittest.TestCase):
+    def test_enum_serialization(self):
+        # Test serialization of a dictionary containing an Enum to check if the Enum is properly converted to its name.
+        obj = {'color': Color.RED}
+        result = task_func(obj)
+        self.assertIn('"color": "RED"', result)
+    def test_multiple_enum_serialization(self):
+        # Test serialization of a dictionary with a list of Enums to verify if all Enums are correctly serialized by their names.
+        obj = {'colors': [Color.RED, Color.GREEN, Color.BLUE]}
+        result = task_func(obj)
+        self.assertIn('"colors": ["RED", "GREEN", "BLUE"]', result)
+    def test_no_enum_serialization(self):
+        # Test serialization of a simple dictionary without Enums to ensure basic JSON serialization functionality is unaffected.
+        obj = {'name': 'Bob', 'age': 25}
+        result = task_func(obj)
+        self.assertEqual(result, '{"name": "Bob", "age": 25}')
+    def test_nested_enum_serialization(self):
+        # Test serialization of a nested dictionary containing an Enum to ensure deep serialization handles Enums correctly.
+        obj = {'person': {'name': 'Alice', 'favorite_color': Color.BLUE}}
+        result = task_func(obj)
+        self.assertIn('"favorite_color": "BLUE"', result)
+    def test_empty_object_serialization(self):
+        # Test serialization of an empty dictionary to verify the encoder handles empty objects correctly.
+        obj = {}
+        result = task_func(obj)
+        self.assertEqual(result, '{}')
+    def test_direct_enum_serialization(self):
+        # Test direct serialization of an Enum instance
+        result = task_func(Color.GREEN)
+        self.assertEqual(result, '"GREEN"')
+    def test_complex_nested_structures(self):
+        # Test serialization of complex nested structures including Enum
+        obj = {'people': [{'name': 'Alice', 'favorite_color': Color.BLUE}, {'name': 'Bob', 'favorite_color': Color.RED}]}
+        result = task_func(obj)
+        self.assertIn('"favorite_color": "BLUE"', result)
+        self.assertIn('"favorite_color": "RED"', result)
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

@@ -1,0 +1,105 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/1050. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+import os
+import hashlib
+import shutil
+class TestCases(unittest.TestCase):
+    """Tests for the function task_func."""
+    def setUp(self):
+        """Set up a temporary directory for test files."""
+        self.temp_directory = "./temp_test_files"
+        os.makedirs(self.temp_directory, exist_ok=True)
+    def tearDown(self):
+        """Clean up by removing the temporary directory after tests."""
+        shutil.rmtree(self.temp_directory)
+        dirs_to_remove = ["hashed_files"]
+        for dir_path in dirs_to_remove:
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
+    def test_single_line(self):
+        """Test with a single line input."""
+        input_string = "Hello world"
+        expected = [os.path.join("./hashed_files", "64ec88ca00.txt")]
+        result = task_func(input_string)
+        self.assertEqual(result, expected)
+    def test_multi_line(self):
+        """Test with a multi-line input."""
+        input_string = "First line\nSecond line\nThird line"
+        expected = [
+            os.path.join("./hashed_files", "2361df1018.txt"),
+            os.path.join("./hashed_files", "c8b588f708.txt"),
+            os.path.join("./hashed_files", "3195807ae4.txt"),
+        ]
+        result = task_func(input_string)
+        self.assertEqual(result, expected)
+    def test_empty_input(self):
+        """Test with an empty string."""
+        input_string = ""
+        expected = []
+        result = task_func(input_string)
+        self.assertEqual(result, expected)
+    def test_input_with_empty_lines(self):
+        """Test input string containing empty lines."""
+        input_string = "Line one\n\nLine two\n"
+        expected = [
+            os.path.join("./hashed_files", "209f4c0be3.txt"),
+            os.path.join("./hashed_files", "1ae5466eb8.txt"),
+        ]
+        result = task_func(input_string)
+        self.assertEqual(result, expected)
+    def test_no_newline_at_end(self):
+        """Test input string without a newline at the end."""
+        input_string = "Line with no newline at end"
+        expected = [os.path.join("./hashed_files", "901dd863e9.txt")]
+        result = task_func(input_string)
+        self.assertEqual(result, expected)
+    def test_directory_creation(self):
+        """
+        Test if the function creates the directory if it does not exist.
+        """
+        # Assert that the DIRECTORY does not exist before calling the function
+        self.assertFalse(os.path.exists(DIRECTORY))
+        # Call the function with any string
+        task_func("Test for directory creation")
+        # Check if the DIRECTORY has been created
+        self.assertTrue(os.path.exists(DIRECTORY))
+        # Optionally, clean up by removing the created directory after the test
+        if os.path.exists(DIRECTORY):
+            shutil.rmtree(DIRECTORY)
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

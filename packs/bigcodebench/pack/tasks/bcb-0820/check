@@ -1,0 +1,91 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/820. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+class TestCases(unittest.TestCase):
+    def test_positive_scenario(self):
+        """
+        Test with positive num_words and word_length.
+        This test case checks if the function correctly generates a list of words where each word has the specified length.
+        It ensures that the length of the returned list and the length of each word in the list are correct.
+        """
+        result = task_func(5, 3)
+        self.assertEqual(len(result), 5, "The length of the returned list is incorrect.")
+        for word in result:
+            self.assertEqual(len(word), 3, "The length of a word in the list is incorrect.")
+    
+    def test_zero_words(self):
+        """
+        Test when num_words is 0.
+        This test case checks the function's behavior when no words are requested.
+        The function should return an empty list in this scenario.
+        """
+        result = task_func(0, 3)
+        self.assertEqual(result, [], "The function should return an empty list when num_words is 0.")
+    
+    def test_zero_length(self):
+        """
+        Test when word_length is 0.
+        This test case checks the function's behavior when the requested word length is 0.
+        The function should return a list of empty strings in this scenario.
+        """
+        result = task_func(5, 0)
+        self.assertEqual(result, [''] * 5, "The function should return a list of empty strings when word_length is 0.")
+    
+    def test_negative_values(self):
+        """
+        Test with negative num_words and word_length.
+        This test case checks the function's behavior when negative values are passed as input parameters.
+        The function should raise a ValueError in this scenario.
+        """
+        with self.assertRaises(ValueError):
+            task_func(5, -3)
+        with self.assertRaises(ValueError):
+            task_func(-5, -3)
+    
+    def test_non_integer_inputs(self):
+        """
+        Test with non-integer num_words and word_length.
+        This test case checks the function's behavior when non-integer values are passed as input parameters.
+        The function should raise a TypeError in this scenario.
+        """
+        with self.assertRaises(TypeError, msg="The function should raise a TypeError for non-integer values"):
+            task_func(5.5, 3)
+        
+        with self.assertRaises(TypeError, msg="The function should raise a TypeError for non-integer values"):
+            task_func(5, "3")
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

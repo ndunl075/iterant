@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/1113",
+ "instruction": "Count the number of records for each employee in a CSV file.\nThe function should output with:\n    dict: A dictionary with the count of records for each employee.\nYou should write self-contained code starting with:\n```\nimport csv\nimport collections\ndef task_func(csv_file, emp_prefix='EMP$$'):\n```",
+ "output_file": "/out/solution.py"
+}

@@ -1,0 +1,76 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/852. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+"""
+This script contains tests for the function task_func.
+Each test checks a specific aspect of the function's behavior.
+"""
+import unittest
+import random
+class TestCases(unittest.TestCase):
+    def test_length_and_content(self):
+        """Test the length of the output and whether it contains valid strings."""
+        seed = 1  # for reproducibility
+        max_length = 5
+        result = task_func(max_length, n_samples=10, seed=seed)
+        
+        # All outputs should be strings
+        self.assertTrue(all(isinstance(item, str) for item in result))
+        # All strings should be of length <= max_length and > 0
+        self.assertTrue(all(1 <= len(item) <= max_length for item in result))
+        expected = ['ou', 'g', 'tmjf', 'avlt', 's', 'sfy', 'aao', 'rzsn', 'yoir', 'yykx']
+        self.assertCountEqual(result, expected)
+    def test_randomness(self):
+        """Test that setting a seed produces reproducible results."""
+        seed = 2
+        result1 = task_func(3, seed=seed, n_samples=100)
+        result2 = task_func(3, seed=seed, n_samples=100)
+        self.assertEqual(result1, result2)  # results should be same with same seed
+    def test_varying_length(self):
+        """Test with varying n to check the function's robustness with different input sizes."""
+        seed = 3
+        for n in range(1, 15):  # testing multiple sizes
+            result = task_func(n, seed=seed, n_samples=10)
+            self.assertTrue(all(1 <= len(item) <= n for item in result))
+    def test_negative_input(self):
+        """Test how the function handles negative input. It should handle it gracefully."""
+        with self.assertRaises(ValueError):
+            task_func(-1, n_samples=22)  # negative numbers shouldn't be allowed
+    def test_zero_length(self):
+        """Test how the function handles zero input. It should handle it gracefully or according to its specification."""
+        self.assertRaises(ValueError, task_func, 0, n_samples=5)
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

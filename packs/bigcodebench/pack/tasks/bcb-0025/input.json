@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/25",
+ "instruction": "Serializes a dictionary to a JSON string, compresses it using zlib, and then encodes the compressed data with base64.\nThe function should output with:\n    str: A base64 encoded string that represents the zlib-compressed JSON string of the dictionary.\nYou should write self-contained code starting with:\n```\nimport base64\nimport json\nimport zlib\ndef task_func(data_dict):\n```",
+ "output_file": "/out/solution.py"
+}

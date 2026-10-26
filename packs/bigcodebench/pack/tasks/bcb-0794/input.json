@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/794",
+ "instruction": "Generate a random string of a given length, with each character being either a parenthesis (from the set \"(){}[]\") or a lowercase English character. For function uses a optional random_seed when sampling characters. >>> string = task_func(34, random_seed=42) >>> print(string) hbrpoigf)cbfnobm(o{rak)vrjnvgfygww >>> string = task_func(23, random_seed=1) >>> print(string) ieqh]{[yng]by)a{rogubbb\nNote that: The function uses the internal string constant BRACKETS for definition of the bracket set.\nThe function should output with:\n    str: The generated string.\nYou should write self-contained code starting with:\n```\nimport string\nimport random\ndef task_func(length, random_seed=None):\n```",
+ "output_file": "/out/solution.py"
+}

@@ -1,0 +1,10 @@
+This pack is derived from BigCodeBench (https://github.com/bigcode-project/bigcodebench),
+dataset bigcode/bigcodebench split v0.1.4 at revision b74c0d0bf70d2c0bc459be537895cca163007f1a, licensed under the Apache License 2.0
+(see LICENSE.upstream).
+
+Tasks were converted by packs/bigcodebench/convert.py: only tasks that use the Python
+standard library alone and need no network or GUI were kept. The task instruction is the
+upstream `instruct_prompt`; the check wraps the upstream `test` code unchanged.
+
+Zhuo et al., "BigCodeBench: Benchmarking Code Generation with Diverse Function Calls and
+Complex Instructions", arXiv:2406.15877.

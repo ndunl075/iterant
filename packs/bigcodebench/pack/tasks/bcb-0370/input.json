@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/370",
+ "instruction": "Protect all double quotes in all JSON files in the specified directory by prepending them with a double backslash. Functionality: - Reads each JSON file in the given directory. - Escapes the double quotes by prepending them with a double backslash. - Writes back the modified content to the respective JSON file.\nThe function should raise the exception for: FileNotFoundError: If the specified directory does not exist.\nThe function should output with:\n    list: A list of the processed JSON files.\nYou should write self-contained code starting with:\n```\nimport os\nimport re\nimport json\nimport glob\ndef task_func(directory_path: str) -> list:\n```",
+ "output_file": "/out/solution.py"
+}

@@ -1,0 +1,61 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/739. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+class TestCases(unittest.TestCase):
+    
+    def test_return_type(self):
+        result = task_func()
+        self.assertIsInstance(result, float)
+    def test_rounded_two_decimal(self):
+        result = task_func()
+        decimal_part = str(result).split('.')[1]
+        self.assertTrue(len(decimal_part) <= 2)
+    def test_randomness(self):
+        random.seed()  # Reset the seed to ensure randomness
+        results = {task_func() for _ in range(100)}
+        self.assertTrue(len(results) > 1)
+    def test_specific_hex_keys(self):
+        for hex_key in KEYS:
+            expected_result = round(struct.unpack('!f', bytes.fromhex(hex_key))[0], 2)
+            result = task_func(hex_key)
+            self.assertEqual(result, expected_result)
+    def test_no_seed(self):
+        random.seed()  # Reset the random seed
+        results = {task_func() for _ in range(100)}
+        self.assertTrue(len(results) > 1)
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

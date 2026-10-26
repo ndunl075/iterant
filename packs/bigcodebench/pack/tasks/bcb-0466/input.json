@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/466",
+ "instruction": "Serializes an object into a JSON string with support for complex data types like Enum. The function uses a custom JSONEncoder to handle Enum types by converting them to their names or values. Serialize a simple dictionary. >>> task_func({'name': 'Alice', 'age': 30}) '{\"name\": \"Alice\", \"age\": 30}'\nThe function should output with:\n    str: The serialized JSON string of the object.\nYou should write self-contained code starting with:\n```\nimport json\nfrom enum import Enum\nclass Color(Enum):\n    RED = 1\n    GREEN = 2\n    BLUE = 3\ndef task_func(my_obj):\n```",
+ "output_file": "/out/solution.py"
+}

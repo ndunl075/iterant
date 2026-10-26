@@ -1,0 +1,63 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/566. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+class TestCases(unittest.TestCase):
+    def test_regular_function(self):
+        def test_func(a, b=1): pass
+        result = task_func(test_func)
+        self.assertEqual(result['function_name'], 'test_func')
+        self.assertListEqual(result['args'], ['a', 'b'])
+        self.assertTupleEqual(result['defaults'], (1,))
+    def test_lambda_function(self):
+        lambda_func = lambda x, y=2: x + y
+        result = task_func(lambda_func)
+        self.assertTrue(result['is_lambda'])
+    def test_no_arguments(self):
+        def test_func(): pass
+        result = task_func(test_func)
+        self.assertEqual(len(result['args']), 0)
+    def test_annotations(self):
+        def test_func(a: int, b: str = 'hello') -> int: pass
+        result = task_func(test_func)
+        self.assertIn('a', result['annotations'])
+        self.assertIn('return', result['annotations'])
+    def test_defaults_none(self):
+        def test_func(a, b=None): pass
+        result = task_func(test_func)
+        self.assertIsNone(result['defaults'][0])
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

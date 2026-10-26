@@ -1,0 +1,25 @@
+{
+ "assignment": {
+  "bcb-0000": "train",
+  "bcb-0025": "select",
+  "bcb-0145": "test",
+  "bcb-0268": "train",
+  "bcb-0328": "holdout",
+  "bcb-0370": "train",
+  "bcb-0466": "holdout",
+  "bcb-0566": "select",
+  "bcb-0669": "holdout",
+  "bcb-0712": "test",
+  "bcb-0739": "holdout",
+  "bcb-0765": "select",
+  "bcb-0794": "train",
+  "bcb-0820": "test",
+  "bcb-0852": "select",
+  "bcb-0892": "train",
+  "bcb-0934": "select",
+  "bcb-0965": "train",
+  "bcb-1050": "select",
+  "bcb-1113": "select"
+ },
+ "seed": 0
+}

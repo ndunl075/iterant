@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/328",
+ "instruction": "Create a random sports ranking and sort it by points in descending order.\nNote that: Each team is assigned a name in the format \"Team i\" and a corresponding random number of points, where i ranges from 1 to the specified number of teams. The ranking is then sorted in descending order of points and returned as an OrderedDict.\nThe function should output with:\n    OrderedDict: Sorted dictionary where keys are team names and values are points.\nYou should write self-contained code starting with:\n```\nimport collections\nimport random\nfrom queue import PriorityQueue\ndef task_func(number_teams=5):\n```",
+ "output_file": "/out/solution.py"
+}

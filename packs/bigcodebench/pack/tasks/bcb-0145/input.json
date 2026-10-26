@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/145",
+ "instruction": "Generates a CSV file listing all IP addresses in the specified IP range. Each IP address is written as a row in the CSV file.\nThe function should output with:\n    str: The path to the generated CSV file.\nYou should write self-contained code starting with:\n```\nimport csv\nfrom ipaddress import IPv4Network\ndef task_func(ip_range, csv_path):\n```",
+ "output_file": "/out/solution.py"
+}

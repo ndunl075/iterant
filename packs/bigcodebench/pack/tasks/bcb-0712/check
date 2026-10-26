@@ -1,0 +1,197 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/712. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+class TestCases(unittest.TestCase):
+    def tearDown(self):
+        for d in ['./source', './destination', './src', './dst', './s', './d']:
+            if os.path.exists(d):
+                shutil.rmtree(d)
+    def test_case_1(self):
+        # Create source directory
+        if os.path.exists('./source'):
+            shutil.rmtree('./source')
+        os.mkdir('./source')
+        # Create destination directory
+        if os.path.exists('./destination'):
+            shutil.rmtree('./destination')
+        os.mkdir('./destination')
+        # Create files
+        for filename in ['a.txt', 'b.txt', 'c.docx', 'd.docx', 'e.txt', 'a.pdf', 'a.doc']:
+            with open(os.path.join('./source', filename), 'w') as f:
+                f.write('test')
+        # Run function
+        task_func('./source', './destination', 'txt')
+        # Check files
+        for d in ['./destination', './source']:
+            if d == './source':
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.pdf')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.doc')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'c.docx')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'd.docx')))  
+            else:
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'b.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'e.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'f.txt')))
+        # Remove files
+        shutil.rmtree('./source')
+        shutil.rmtree('./destination')
+    def test_case_2(self):
+        # Create source directory
+        if os.path.exists('./src'):
+            shutil.rmtree('./src')
+        os.mkdir('./src')
+        # Create destination directory
+        if os.path.exists('./dst'):
+            shutil.rmtree('./dst')
+        os.mkdir('./dst')
+        # Create files
+        for filename in ['a.txt', 'b.txt', 'c.docx', 'd.docx', 'e.txt', 'a.pdf', 'a.doc']:
+            with open(os.path.join('./src', filename), 'w') as f:
+                f.write('test')
+        # Run function
+        task_func('./src', './dst', 'txt')
+        # Check files
+        for d in ['./dst', './src']:
+            if d == './src':
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.pdf')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.doc')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'c.docx')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'd.docx')))  
+            else:
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'b.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'e.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'f.txt')))
+        # Remove files
+        shutil.rmtree('./src')
+        shutil.rmtree('./dst')
+    def test_case_3(self):
+        # Create source directory
+        if os.path.exists('./s'):
+            shutil.rmtree('./s')
+        os.mkdir('./s')
+        # Create destination directory
+        if os.path.exists('./d'):
+            shutil.rmtree('./d')
+        os.mkdir('./d')
+        # Create files
+        for filename in ['a.txt', 'b.txt', 'c.docx', 'd.docx', 'e.txt', 'a.pdf', 'a.doc']:
+            with open(os.path.join('./s', filename), 'w') as f:
+                f.write('test')
+        # Run function
+        task_func('./s', './d', 'txt')
+        # Check files
+        for d in ['./d', './s']:
+            if d == './s':
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.pdf')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.doc')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'c.docx')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'd.docx')))  
+            else:
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'b.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'e.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'f.txt')))
+        # Remove files
+        shutil.rmtree('./s')
+        shutil.rmtree('./d')
+    def test_case_4(self):
+        # Create source directory
+        if os.path.exists('./s'):
+            shutil.rmtree('./s')
+        os.mkdir('./s')
+        # Create destination directory
+        if os.path.exists('./destination'):
+            shutil.rmtree('./destination')
+        os.mkdir('./destination')
+        # Create files
+        for filename in ['bbb.txt', 'a.txt', 'b.txt', 'c.docx', 'd.docx', 'e.txt', 'a.pdf', 'a.doc']:
+            with open(os.path.join('./s', filename), 'w') as f:
+                f.write('test')
+        # Run function
+        task_func('./s', './destination', 'txt')
+        # Check files
+        for d in ['./destination', './s']:
+            if d == './s':
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.pdf')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.doc')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'c.docx')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'd.docx')))  
+            else:
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'b.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'e.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'f.txt')))
+        # Remove files
+        shutil.rmtree('./s')
+        shutil.rmtree('./destination')
+    def test_case_5(self):
+        # Create source directory
+        if os.path.exists('./source'):
+            shutil.rmtree('./source')
+        os.mkdir('./source')
+        # Create destination directory
+        if os.path.exists('./d'):
+            shutil.rmtree('./d')
+        os.mkdir('./d')
+        # Create files
+        for filename in ['a.txt', 'b.txt', 'c.docx', 'd.docx', 'e.txt', 'a.pdf', 'a.doc']:
+            with open(os.path.join('./source', filename), 'w') as f:
+                f.write('xxx')
+        # Run function
+        task_func('./source', './d', 'docx')
+        # Check files
+        for d in ['./d', './source']:
+            if d == './source':
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.pdf')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.doc')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'a.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'b.txt')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'e.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'f.txt')))
+            else:
+                self.assertTrue(os.path.exists(os.path.join(d, 'c.docx')))
+                self.assertTrue(os.path.exists(os.path.join(d, 'd.docx')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'a.pdf')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'a.doc')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'a.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'b.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'e.txt')))
+                self.assertFalse(os.path.exists(os.path.join(d, 'f.txt')))
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

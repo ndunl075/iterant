@@ -1,0 +1,82 @@
+#!/bin/sh
+# Hidden check for BigCodeBench/145. Reads /out/solution.py; see packs/bigcodebench/convert.py.
+command -v python3 >/dev/null 2>&1 || exit 127
+command -v timeout >/dev/null 2>&1 || exit 127
+T=$(mktemp -d) || exit 127
+cat > "$T/tests.py" <<'ITERANT_TESTS_EOF'
+import unittest
+from unittest.mock import patch, mock_open
+import os
+import ipaddress
+class TestCases(unittest.TestCase):
+    IP_RANGE = '192.168.0.0/30'
+    CSV_PATH = 'test.csv'
+    def tearDown(self):
+        """Clean up after each test."""
+        if os.path.exists(self.CSV_PATH):
+            os.remove(self.CSV_PATH)
+    def test_return_type(self):
+        """Test that the function returns a string."""
+        result = task_func(self.IP_RANGE, self.CSV_PATH)
+        self.assertIsInstance(result, str)
+    def test_file_creation(self):
+        """Test that the CSV file is created."""
+        result = task_func(self.IP_RANGE, self.CSV_PATH)
+        self.assertTrue(os.path.exists(result))
+    @patch("builtins.open", new_callable=mock_open)
+    def test_csv_content(self, mock_file):
+        """Test the content of the CSV file."""
+        task_func(self.IP_RANGE, self.CSV_PATH)
+        mock_file.assert_called_with(self.CSV_PATH, 'w', newline='')
+    @patch("csv.DictWriter")
+    def test_csv_writer_usage(self, mock_writer):
+        """Test that csv.DictWriter is used correctly."""
+        task_func(self.IP_RANGE, self.CSV_PATH)
+        mock_writer.assert_called()
+    @patch('ipaddress.IPv4Network.__iter__', return_value=iter([
+        ipaddress.IPv4Address('192.168.0.1'),
+        ipaddress.IPv4Address('192.168.0.2')
+    ]))
+    @patch('csv.DictWriter')
+    @patch("builtins.open", new_callable=mock_open)
+    def test_csv_writing(self, mock_file, mock_csv_writer, mock_ipv4network_iter):
+        """Test that the CSV writer writes the expected number of rows."""
+        task_func(self.IP_RANGE, self.CSV_PATH)
+        # The mock csv writer instance is obtained from the mock_csv_writer class.
+        mock_writer_instance = mock_csv_writer.return_value
+        # Assert that writeheader was called once.
+        mock_writer_instance.writeheader.assert_called_once()
+        # Assert that writerow was called twice (once for each mocked IP address).
+        self.assertEqual(mock_writer_instance.writerow.call_count, 2)
+ITERANT_TESTS_EOF
+cat > "$T/run.py" <<'ITERANT_RUN_EOF'
+import io, sys, unittest
+
+nonce = sys.stdin.read().strip()
+real_stdout = sys.__stdout__
+tests_path, solution_path = sys.argv[1], sys.argv[2]
+ns = {"__name__": "solution"}
+ok = False
+try:
+    sys.stdout = io.StringIO()
+    exec(compile(open(solution_path, encoding="utf-8").read(), "solution.py", "exec"), ns)
+    exec(compile(open(tests_path, encoding="utf-8").read(), "tests.py", "exec"), ns)
+    suite = unittest.TestSuite()
+    for obj in list(ns.values()):
+        if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
+            suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(obj))
+    result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+    ok = result.wasSuccessful() and result.testsRun > 0
+except BaseException:
+    ok = False
+sys.stdout = real_stdout
+if ok:
+    print("ITERANT_RESULT", nonce, "PASS")
+ITERANT_RUN_EOF
+NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(16))') || exit 127
+OUT=$(printf '%s' "$NONCE" |
+  timeout 60 python3 "$T/run.py" "$T/tests.py" /out/solution.py 2>/dev/null)
+case "$OUT" in
+  *"ITERANT_RESULT $NONCE PASS"*) exit 0 ;;
+esac
+exit 1

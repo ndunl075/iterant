@@ -1,0 +1,5 @@
+{
+ "task_id": "BigCodeBench/1050",
+ "instruction": "Hash each non-empty line of a multi-line string using SHA256 and save the hashes to files. The filename is the first 10 characters of the hash, with a '.txt' extension.\nNote that: Notes: If the DIRECTORY does not exist, it is created. Empty lines in the input string are ignored.\nThe function should output with:\n    list[str]: A list of file paths where the hashes of non-empty lines are saved.\nYou should write self-contained code starting with:\n```\nimport os\nimport hashlib\n# Constants\nDIRECTORY = \"./hashed_files\"\ndef task_func(input_string):\n```",
+ "output_file": "/out/solution.py"
+}

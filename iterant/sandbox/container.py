@@ -52,7 +52,7 @@ _GONE_MARKERS = (
 # Run in the fresh container: needed tools exist, and the cgroup caps really applied
 # (rootless runtimes without cgroup-v2 delegation silently ignore --cpus/--pids-limit).
 _VERIFY_SCRIPT = (
-    "command -v setsid >/dev/null && command -v sleep >/dev/null || exit 3; "
+    "setsid -w true && command -v sleep >/dev/null || exit 3; "
     "cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/pids.max /sys/fs/cgroup/memory.max"
 )
 
@@ -211,14 +211,15 @@ class ContainerSandbox:
             raise ValueError("timeout must be > 0")
         self._alive()
         pidfile = f"/tmp/.exec-{secrets.token_hex(6)}.pid"
-        # Each exec is its own session/process group (setsid); the inner shell records the
+        # Each exec is its own session/process group (setsid -w: without -w, setsid forks and
+        # returns 0 at once when it is a group leader, losing the exit code and output); the inner shell records the
         # group id, so a timeout can kill exactly this exec's processes and nothing else.
         wrapper = f'echo $$ > {pidfile}; sh -c "$0"; rc=$?; rm -f {pidfile}; exit $rc'
         start = time.monotonic()
         out = self._run(
             [
                 self._rt, "exec", "--workdir", WORK_DIR, self._name,
-                "setsid", "sh", "-c", wrapper, cmd,
+                "setsid", "-w", "sh", "-c", wrapper, cmd,
             ],
             timeout=timeout,
         )  # fmt: skip
@@ -382,9 +383,7 @@ class ContainerBackend:
             self._run(self.run_argv(name, image, cpu, mem, disk, ttl, network, env, label), "run")
             check = self._run_raw([rt, "exec", name, "sh", "-c", _VERIFY_SCRIPT])
             if check.returncode == 3:
-                raise SandboxError(
-                    "image must provide `setsid` and `sleep` (util-linux or busybox)"
-                )
+                raise SandboxError("image must provide `sleep` and util-linux `setsid` with -w")
             if check.returncode != 0:
                 raise SandboxError(
                     "cannot read cgroup limits: needs cgroup v2 with cpu/pids/memory controller "

@@ -12,7 +12,7 @@
 3. **The key never enters a sandbox.** All LLM traffic goes through `proxy/`, which holds the key and enforces model, effort and USD caps for each role.
 4. **The proposer is blind to selection data.** It sees `train` trajectories only. `select`, `holdout` and `test` return scores to the harness, never content.
 5. **Frozen target model.** Gains must come from the agent's design, not from a bigger model or a bigger budget. The proxy enforces this.
-6. **Append-only state.** Every candidate, run and decision lands in the archive, rejects included. Runs are resumable and keyed by `(cand, task, rep)`.
+6. **Append-only state.** Every candidate, run, proxy call and decision lands in the archive, rejects included. Rows are inserted once and never replaced or deleted (enforced by triggers); a candidate's `stage`, `status` and spend only advance. Runs are keyed by `(batch, cand, task, rep, attempt)`. A run resumes on `(batch, cand, task, rep)`, and the latest attempt wins. Each batch stores its pack hash, and a batch whose stored hash differs from the current pack is never resumed.
 7. **Pinned tasks.** Task packs are hash-checked before every batch, and a mismatch aborts the batch.
 
 ## 2. User contract
@@ -123,9 +123,13 @@ examples/         reference agent + starter packs (demo and CI fixture)  [T1]
 Every backend runs non-root with no host mounts, a CPU/mem/disk/time cap and default-deny egress, plus one route to the proxy.
 
 **Archive (SQLite, in `.iterant/` of the target repo):**
-- `candidates(id, parent, diff_sha, hypothesis, stage, status, usd)`
-- `runs(cand, task, split, rep, score, in_tok, out_tok, usd, wall_s, refusal, infra_err)`
+- `batches(id, gen, pack_hash, started_at)`: one scheduled set of runs, pinned to a pack hash (§1.7)
+- `candidates(id, parent, diff_sha, hypothesis, stage, status, usd_micros)`
+- `runs(batch, cand, task, rep, attempt, split, score, in_tok, out_tok, usd_micros, wall_s, refusal, infra_err)`: `attempt` 1 is the single retry of a refused or infra-errored run (§6)
 - `promotions(gen, cand, select_delta, select_p, holdout_delta, holdout_p)`
+- `proxy_calls(id, batch, cand, task, rep, attempt, role, model, in_tok, out_tok, usd_micros, refusal, created_at)`: the proxy's own log; the run key is NULL for calls outside a run (proposer, analyst, auditor)
+
+Money is integer micro-USD. All tables are STRICT. The full DDL, with its triggers, lives in `iterant/contracts.py`.
 
 **Stack:** Python 3.12, uv, pytest, ruff, pyright, the official `anthropic` SDK for Claude, and the `openai` SDK only for OpenAI-compatible local endpoints. Tests use a recorded-fixture fake LLM and never call a live model.
 

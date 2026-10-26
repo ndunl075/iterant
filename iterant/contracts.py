@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import PurePosixPath
@@ -107,17 +107,43 @@ class Task:
             raise ValueError("input and check must be different paths")
 
 
+# ``allowed``: the agent may execute code while solving a task. ``advisory-forbidden``: the
+# pack asks the agent not to, but nothing enforces it (the sandbox cannot tell a script the
+# agent wrote from one it ran to solve the task). The gate and the report read this field and
+# must present the pack as unenforced; they must not treat it as a guarantee.
+CodeExecPolicy = Literal["allowed", "advisory-forbidden"]
+CODE_EXEC_POLICIES: Final[tuple[CodeExecPolicy, ...]] = ("allowed", "advisory-forbidden")
+
+_PINNED_IMAGE = re.compile(r"[^\s@:/-][^\s@]*@sha256:[0-9a-f]{64}")
+
+
+def require_pinned_image(image: str) -> None:
+    """Raise ``ValueError`` unless ``image`` is ``name@sha256:<64 lowercase hex>``."""
+    if not _PINNED_IMAGE.fullmatch(image):
+        raise ValueError(f"grader image must be name@sha256:<64 hex>, got {image!r}")
+
+
 @dataclass(frozen=True)
 class Pack:
-    """A task pack. ``content_hash`` is checked before every batch (§1.7)."""
+    """A task pack. ``content_hash`` is checked before every batch (§1.7).
+
+    ``grader_image`` is the digest-pinned image the grader runs checks in. It comes from
+    ``pack.toml`` (so the content hash covers it), never from the target repo: a candidate
+    controls the target image and could plant files that change what the grader executes.
+    """
 
     name: str
     version: str
     tasks: tuple[Task, ...]
     content_hash: str
+    grader_image: str
+    code_exec_policy: CodeExecPolicy = "allowed"
 
     def __post_init__(self) -> None:
         _require_sha256(self.content_hash, "content_hash")
+        require_pinned_image(self.grader_image)
+        if self.code_exec_policy not in CODE_EXEC_POLICIES:
+            raise ValueError(f"unknown code_exec_policy {self.code_exec_policy!r}")
         ids = [t.id for t in self.tasks]
         if len(ids) != len(set(ids)):
             raise ValueError("task ids must be unique within a pack")
@@ -184,13 +210,23 @@ class IterantConfig:
 
 @dataclass(frozen=True)
 class ExecResult:
-    """Outcome of ``Sandbox.exec``. On timeout ``exit_code`` is -1 and ``timed_out`` is True."""
+    """Outcome of ``Sandbox.exec``. On timeout ``exit_code`` is -1 and ``timed_out`` is True.
+
+    ``truncated`` is True when stdout or stderr hit the backend's capture cap and was cut.
+    A truncated result is never trustworthy output: the grader scores it 0.0.
+    ``sandbox_lost`` is True when the command made the sandbox unusable (it killed PID 1, or
+    could not be killed). That is the candidate's doing: callers score the run 0.0 and must
+    not treat the later ``SandboxLost`` from ``put``/``get``/``exec`` on that sandbox as an
+    infra error.
+    """
 
     exit_code: int
     stdout: str
     stderr: str
     timed_out: bool
     wall_s: float
+    truncated: bool = False
+    sandbox_lost: bool = False
 
 
 @runtime_checkable
@@ -206,7 +242,21 @@ class Sandbox(Protocol):
         ...
 
     def exec(self, cmd: str, timeout: float) -> ExecResult:
-        """Run ``cmd`` via the shell; kill it after ``timeout`` seconds."""
+        """Run ``cmd`` via the shell; kill it after ``timeout`` seconds.
+
+        Candidate-caused outcomes are returned, never raised: a timeout, truncated output,
+        a non-zero exit, an OOM kill, pids exhaustion, or the command killing PID 1 so the
+        sandbox is gone. The result then has a non-zero ``exit_code`` (or
+        ``timed_out``/``truncated``) and the caller scores the run 0.0. When the sandbox is
+        unusable afterwards the result has ``sandbox_lost`` set and later calls raise
+        ``SandboxLost`` (a ``SandboxError`` subclass in ``iterant.sandbox``); that is still
+        the candidate's doing, so score 0.0 rather than dropping the run.
+
+        Raise only for failures the command cannot cause: the runtime is missing or broken,
+        or the sandbox was already destroyed or expired (a plain ``SandboxError``, not
+        ``SandboxLost``). The caller treats such a raise as an infra error (§6: retry once,
+        then drop the pair).
+        """
         ...
 
     def destroy(self) -> None:
@@ -229,6 +279,84 @@ class SandboxBackend(Protocol):
     ) -> Sandbox:
         """Start a sandbox. ``cpu`` is cores, ``mem``/``disk`` are MiB, ``ttl`` is seconds
         after which the backend destroys it regardless of use."""
+        ...
+
+
+# --- W2 protocols (§2, §3, §5) ----------------------------------------------
+# Types only. The proposer and gate workers implement them.
+
+
+@dataclass(frozen=True)
+class Proposal:
+    """PROPOSE output: a unified diff against the parent plus a one-line hypothesis."""
+
+    diff: str
+    hypothesis: str
+
+    def __post_init__(self) -> None:
+        if not self.diff.strip():
+            raise ValueError("diff must be non-empty (no diff is a PROPOSE kill, not a Proposal)")
+        if not self.hypothesis.strip() or "\n" in self.hypothesis.strip():
+            raise ValueError("hypothesis must be a single non-empty line")
+
+
+@dataclass(frozen=True)
+class TriedCandidate:
+    """One archive entry shown to the proposer: the candidate (its ``hypothesis``, and its
+    ``stage``/``status`` as the outcome) and the diff text it applied."""
+
+    candidate: Candidate
+    diff: str
+
+
+@runtime_checkable
+class Proposer(Protocol):
+    """Iterant's editing agent (§3 PROPOSE). Sees ``train`` data only (invariant 4)."""
+
+    def propose(
+        self,
+        parent: str,
+        workdir: str | os.PathLike[str],
+        failure_digest: str,
+        history: Sequence[TriedCandidate],
+    ) -> Proposal | None:
+        """Propose a change to candidate ``parent``'s genome.
+
+        ``workdir`` is a copy of the target repo at ``parent``; edits are limited to the
+        genome. ``failure_digest`` is built from ``train`` trajectories only; ``history`` is
+        the archive's tried candidates with their diffs and outcomes. Return None when the
+        proposer produced no diff.
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class GateResult:
+    """GATE verdict. ``passed`` holds exactly when there are no ``findings`` (any hit kills)."""
+
+    passed: bool
+    findings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.passed == bool(self.findings):
+            raise ValueError("a gate result passes exactly when it has no findings")
+
+
+@runtime_checkable
+class Gate(Protocol):
+    """GATE stage (§3): path allowlist, static checks, task-ID/check-path grep, diff audit."""
+
+    def check(
+        self,
+        proposal: Proposal,
+        *,
+        repo: str | os.PathLike[str],
+        target: TargetConfig,
+        pack: Pack,
+    ) -> GateResult:
+        """Check ``proposal`` against the target repo at ``repo``. ``target.genome`` is the
+        path allowlist; ``pack`` supplies the task IDs and check paths to grep for, and its
+        ``code_exec_policy``. Raise only for infrastructure failures, not for a bad diff."""
         ...
 
 

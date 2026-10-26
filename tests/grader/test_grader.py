@@ -13,18 +13,21 @@ from iterant.contracts import (
     ExecResult,
     HiddenCheckPath,
     NetMode,
+    Pack,
     Sandbox,
     SandboxBackend,
     Split,
     Task,
     VisibleInputPath,
 )
-from iterant.grader import Grader, GradeResult, interpret
+from iterant.grader import Grader, GradeResult, GraderPreflightError, interpret
 from iterant.grader.grader import DEFAULT_TIMEOUT_S, MAX_RESULT_BYTES, RUN_PATH, parse_result, same
 from iterant.packs import load_pack
 
 OnExec = Callable[["FakeSandbox", str, float], ExecResult]
 SYNTHETIC = Path(__file__).resolve().parents[1] / "packs" / "synthetic"
+IMAGE = "docker.io/library/python@sha256:" + "ab" * 32
+PACK = Pack("p", "1", (), "0" * 64, IMAGE)
 
 
 def res(code: int = 0, out: str = "", err: str = "", timed_out: bool = False) -> ExecResult:
@@ -111,12 +114,12 @@ def test_fakes_satisfy_protocols() -> None:
 def test_grade_uses_fresh_default_deny_sandbox_and_destroys_it(tmp_path: Path) -> None:
     task = make_task(tmp_path)
     backend = FakeBackend(says({"v": 1}))
-    grader = Grader(backend, "img", tmp_path, timeout=30)
+    grader = Grader(backend, PACK, tmp_path, timeout=30)
     r1 = grader.grade(task, {"answer.txt": b"42"})
     r2 = grader.grade(task, {"answer.txt": b"43"})
     assert (r1.score, r2.score) == (1.0, 1.0)
     assert len(backend.sandboxes) == 2
-    assert all(a[0] == "img" and a[5] == "default-deny" for a in backend.create_args)
+    assert all(a[0] == PACK.grader_image and a[5] == "default-deny" for a in backend.create_args)
     for sb in backend.sandboxes:
         assert sb.destroyed == 1 and len(sb.cmds) == 2
     assert backend.sandboxes[0].files["/work/out/answer.txt"] == b"42"
@@ -126,7 +129,7 @@ def test_grade_uses_fresh_default_deny_sandbox_and_destroys_it(tmp_path: Path) -
 def test_expected_values_never_reach_the_sandbox(tmp_path: Path) -> None:
     task = make_task(tmp_path, {"secret": "HIDDEN-EXPECTED"})
     backend = FakeBackend(says({"secret": "HIDDEN-EXPECTED"}))
-    r = Grader(backend, "img", tmp_path).grade(task, {"a/b.txt": b"x"})
+    r = Grader(backend, PACK, tmp_path).grade(task, {"a/b.txt": b"x"})
     assert r.score == 1.0
     sb = backend.sandboxes[0]
     assert sorted(sb.files) == [RUN_PATH, "/work/out/a/b.txt"]
@@ -137,18 +140,18 @@ def test_expected_values_never_reach_the_sandbox(tmp_path: Path) -> None:
 
 def test_verdict_compares_in_this_process(tmp_path: Path) -> None:
     task = make_task(tmp_path, {"v": 1})
-    assert Grader(FakeBackend(says({"v": 1})), "i", tmp_path).grade(task, {}).score == 1.0
-    assert Grader(FakeBackend(says({"v": 2})), "i", tmp_path).grade(task, {}).score == 0.0
+    assert Grader(FakeBackend(says({"v": 1})), PACK, tmp_path).grade(task, {}).score == 1.0
+    assert Grader(FakeBackend(says({"v": 2})), PACK, tmp_path).grade(task, {}).score == 0.0
     # the sandbox cannot claim a score: only the object it prints is compared
     forged = says({"v": 2, "score": 1.0})
-    assert Grader(FakeBackend(forged), "i", tmp_path).grade(task, {}).score == 0.0
+    assert Grader(FakeBackend(forged), PACK, tmp_path).grade(task, {}).score == 0.0
 
 
 def test_out_files_cannot_overwrite_the_run_script_or_check(tmp_path: Path) -> None:
     backend = FakeBackend()
     task = make_task(tmp_path)
     for bad in ("../run/run.sh", "../grader/check", RUN_PATH):
-        assert Grader(backend, "img", tmp_path).grade(task, {bad: b"exit 0"}).score == 0.0
+        assert Grader(backend, PACK, tmp_path).grade(task, {bad: b"exit 0"}).score == 0.0
     assert not backend.sandboxes  # refused before any sandbox exists
 
 
@@ -159,7 +162,7 @@ def test_exec_gets_timeout(tmp_path: Path) -> None:
         seen.append(timeout)
         return res(0, "{}")
 
-    Grader(FakeBackend(on_exec), "img", tmp_path, timeout=7).grade(make_task(tmp_path, {}), {})
+    Grader(FakeBackend(on_exec), PACK, tmp_path, timeout=7).grade(make_task(tmp_path, {}), {})
     assert seen == [7]
 
 
@@ -169,7 +172,7 @@ def test_exec_gets_timeout(tmp_path: Path) -> None:
 )
 def test_bad_out_paths_score_zero(tmp_path: Path, bad: str) -> None:
     backend = FakeBackend()
-    r = Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {bad: b""})
+    r = Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), {bad: b""})
     assert r.score == 0.0 and r.error is None and not backend.sandboxes
 
 
@@ -177,19 +180,19 @@ def test_bad_out_paths_score_zero(tmp_path: Path, bad: str) -> None:
 def test_missing_pack_file_is_infra_error(tmp_path: Path, victim: str) -> None:
     task = make_task(tmp_path)
     (tmp_path / "tasks" / "t1" / victim).unlink()
-    assert Grader(FakeBackend(), "img", tmp_path).grade(task, {}).error == "cannot read pack files"
+    assert Grader(FakeBackend(), PACK, tmp_path).grade(task, {}).error == "cannot read pack files"
 
 
 def test_bad_check_json_is_infra_error(tmp_path: Path) -> None:
     task = make_task(tmp_path)
     (tmp_path / "tasks" / "t1" / "check").write_bytes(b"{nope")
-    assert Grader(FakeBackend(), "img", tmp_path).grade(task, {}).infra_err
+    assert Grader(FakeBackend(), PACK, tmp_path).grade(task, {}).infra_err
 
 
 def test_create_failure_is_infra_error_without_backend_text(tmp_path: Path) -> None:
     backend = FakeBackend()
     backend.fail_create = RuntimeError("no podman at /home/secret")
-    r = Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {})
+    r = Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), {})
     assert r.error == "sandbox create failed" and r.score is None
 
 
@@ -198,7 +201,7 @@ def test_exec_failure_is_infra_error_and_sandbox_destroyed(tmp_path: Path) -> No
         raise OSError("lost")
 
     backend = FakeBackend(boom)
-    r = Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {})
+    r = Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), {})
     assert r.error == "sandbox error: OSError"
     assert backend.sandboxes[0].destroyed == 1
 
@@ -209,7 +212,7 @@ def test_destroy_failure_does_not_change_result(tmp_path: Path) -> None:
             raise RuntimeError("x")
 
     backend = FakeBackend(says({"v": 1}), sandbox_cls=Bad)
-    assert Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {}).score == 1.0
+    assert Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), {}).score == 1.0
 
 
 @pytest.mark.parametrize(
@@ -271,13 +274,13 @@ def test_errors_never_contain_sandbox_output(tmp_path: Path) -> None:
     task = make_task(tmp_path)
     for result in (res(127, secret, secret), res(0, secret, secret)):
         backend = FakeBackend(lambda *_args, r=result: r)
-        r = Grader(backend, "img", tmp_path).grade(task, {})
+        r = Grader(backend, PACK, tmp_path).grade(task, {})
         assert r.error is None or secret not in r.error
 
     def boom(_sb: FakeSandbox, _cmd: str, _timeout: float) -> ExecResult:
         raise OSError(secret)
 
-    r = Grader(FakeBackend(boom), "img", tmp_path).grade(task, {})
+    r = Grader(FakeBackend(boom), PACK, tmp_path).grade(task, {})
     assert r.error is not None and secret not in r.error
 
 
@@ -317,7 +320,7 @@ def test_synthetic_pack_end_to_end(tmp_path: Path) -> None:
     task = load_pack(SYNTHETIC).tasks[3]
     data = json.loads((SYNTHETIC / task.input).read_bytes())
     total = data["a"] + data["b"]
-    grader = Grader(LocalBackend(tmp_path), "img", SYNTHETIC)
+    grader = Grader(LocalBackend(tmp_path), PACK, SYNTHETIC)
 
     def solve(script: str) -> dict[str, bytes]:
         return {"solve.sh": script.encode()}
@@ -332,13 +335,13 @@ def test_synthetic_pack_end_to_end(tmp_path: Path) -> None:
 def test_oversized_output_scores_zero_without_a_sandbox(tmp_path: Path) -> None:
     backend = FakeBackend(says({"v": 1}))
     many = {f"f{i}": b"" for i in range(1001)}
-    r = Grader(backend, "img", tmp_path).grade(make_task(tmp_path), many)
+    r = Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), many)
     assert r.score == 0.0 and not backend.sandboxes
 
 
 def test_timeout_with_a_correct_result_scores_zero(tmp_path: Path) -> None:
     backend = FakeBackend(lambda *_a: res(-1, '{"v": 1}', "", True))
-    assert Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {}).score == 0.0
+    assert Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), {}).score == 0.0
 
 
 def test_default_wall_clock_limit_is_a_named_constant(tmp_path: Path) -> None:
@@ -348,7 +351,7 @@ def test_default_wall_clock_limit_is_a_named_constant(tmp_path: Path) -> None:
         seen.append(timeout)
         return res(0, "{}")
 
-    Grader(FakeBackend(on_exec), "img", tmp_path).grade(make_task(tmp_path, {}), {})
+    Grader(FakeBackend(on_exec), PACK, tmp_path).grade(make_task(tmp_path, {}), {})
     assert seen == [DEFAULT_TIMEOUT_S]
 
 
@@ -360,14 +363,14 @@ def test_agent_put_failure_scores_zero_but_trusted_failures_are_infra(tmp_path: 
             super().put(path, data)
 
     task = make_task(tmp_path)
-    r = Grader(FakeBackend(says({"v": 1}), PutFails), "img", tmp_path).grade(task, {"a": b"x"})
+    r = Grader(FakeBackend(says({"v": 1}), PutFails), PACK, tmp_path).grade(task, {"a": b"x"})
     assert r.score == 0.0 and r.error is None
 
     class TrustedPutFails(FakeSandbox):
         def put(self, path: str, data: bytes) -> None:
             raise OSError("disk")
 
-    r = Grader(FakeBackend(says({"v": 1}), TrustedPutFails), "img", tmp_path).grade(task, {})
+    r = Grader(FakeBackend(says({"v": 1}), TrustedPutFails), PACK, tmp_path).grade(task, {})
     assert r.error == "sandbox error: OSError"
 
 
@@ -377,7 +380,7 @@ def test_failed_preflight_is_infra_error_and_agent_code_never_runs(
 ) -> None:
     backend = FakeBackend(says({"v": 1}))
     backend.preflight = lambda _t: pre
-    r = Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {"a": b"x"})
+    r = Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), {"a": b"x"})
     assert r.error == "sandbox preflight failed"
     assert all(c.startswith("mkdir -p") for c in backend.sandboxes[0].cmds)
     assert "/work/out/a" not in backend.sandboxes[0].files
@@ -387,13 +390,13 @@ def test_agent_exit_126_127_cannot_hide_a_failure(tmp_path: Path) -> None:
     task = make_task(tmp_path)
     for code in (126, 127):
         backend = FakeBackend(lambda *_a, c=code: res(c))
-        r = Grader(backend, "img", tmp_path).grade(task, {})
+        r = Grader(backend, PACK, tmp_path).grade(task, {})
         assert r.score == 0.0 and r.error is None
 
 
 def test_agent_paths_stay_under_the_work_dir(tmp_path: Path) -> None:
     backend = FakeBackend(says({"v": 1}))
-    Grader(backend, "img", tmp_path).grade(make_task(tmp_path), {"x/y.txt": b"1"})
+    Grader(backend, PACK, tmp_path).grade(make_task(tmp_path), {"x/y.txt": b"1"})
     assert all(p.startswith("/work/") for p in backend.sandboxes[0].files)
 
 
@@ -401,5 +404,78 @@ def test_bad_check_file_values_are_infra_errors(tmp_path: Path) -> None:
     task = make_task(tmp_path)
     for bad in (b'{"v": 1e999}', b'{"v": NaN}', b"[1]", b'{"a": 1, "a": 2}'):
         (tmp_path / "tasks" / "t1" / "check").write_bytes(bad)
-        r = Grader(FakeBackend(), "img", tmp_path).grade(task, {})
+        r = Grader(FakeBackend(), PACK, tmp_path).grade(task, {})
         assert r.error == "cannot read pack files"
+
+
+def test_truncated_output_scores_zero(tmp_path: Path) -> None:
+    cut = ExecResult(0, json.dumps({"v": 1}), "", False, 0.1, truncated=True)
+    assert interpret(cut, {"v": 1}) == 0.0
+    r = Grader(FakeBackend(lambda *_a: cut), PACK, tmp_path).grade(make_task(tmp_path), {})
+    assert r.score == 0.0 and r.error is None
+
+
+def test_image_comes_from_the_pack_not_the_caller(tmp_path: Path) -> None:
+    import inspect
+
+    assert "image" not in inspect.signature(Grader).parameters
+    other = Pack("q", "1", (), "1" * 64, "example.com/other@sha256:" + "cd" * 32)
+    for pack in (PACK, other):
+        backend = FakeBackend(
+            lambda _sb, cmd, _t: res(0, "Python 3.12.7" if "-V" in cmd else '{"v": 1}')
+        )
+        Grader(backend, pack, tmp_path).grade(make_task(tmp_path / pack.name), {})
+        Grader(backend, pack, tmp_path).preflight()
+        assert {a[0] for a in backend.create_args} == {pack.grader_image}
+
+
+def test_preflight_runs_python_in_a_default_deny_sandbox(tmp_path: Path) -> None:
+    backend = FakeBackend(lambda *_a: res(0, "Python 3.12.7\n"))
+    Grader(backend, PACK, tmp_path).preflight()
+    (sb,) = backend.sandboxes
+    assert sb.cmds == ["python3 -V"] and sb.destroyed == 1
+    assert backend.create_args[0][0] == IMAGE and backend.create_args[0][5] == "default-deny"
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        res(127, "", "sh: python3: not found"),
+        res(0, "not python"),
+        res(-1, "", "", True),
+    ],
+)
+def test_preflight_failure_is_an_error_not_a_score(tmp_path: Path, result: ExecResult) -> None:
+    backend = FakeBackend(lambda *_a: result)
+    with pytest.raises(GraderPreflightError):
+        Grader(backend, PACK, tmp_path).preflight()
+    assert backend.sandboxes[0].destroyed == 1
+
+
+def test_preflight_backend_failures_are_errors(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    backend.fail_create = RuntimeError("no runtime")
+    with pytest.raises(GraderPreflightError):
+        Grader(backend, PACK, tmp_path).preflight()
+
+    def boom(_sb: FakeSandbox, _cmd: str, _timeout: float) -> ExecResult:
+        raise OSError("x")
+
+    with pytest.raises(GraderPreflightError):
+        Grader(FakeBackend(boom), PACK, tmp_path).preflight()
+
+
+def test_real_verify_rejects_files_that_differ_from_the_pack(tmp_path: Path) -> None:
+    import dataclasses
+
+    from iterant.packs import PackHashMismatch
+
+    pack = load_pack(SYNTHETIC)
+    Grader(FakeBackend(), pack, SYNTHETIC)  # matches: fine
+    with pytest.raises(PackHashMismatch):
+        Grader(FakeBackend(), dataclasses.replace(pack, content_hash="0" * 64), SYNTHETIC)
+
+
+def test_sandbox_lost_scores_zero(tmp_path: Path) -> None:
+    lost = ExecResult(137, "", "", False, 0.1, sandbox_lost=True)
+    assert interpret(lost, {"v": 1}) == 0.0

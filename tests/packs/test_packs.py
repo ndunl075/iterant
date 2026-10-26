@@ -22,12 +22,16 @@ from iterant.packs import (
 SYNTHETIC = Path(__file__).resolve().parent / "synthetic"
 # Pinned: fails if any byte of the synthetic pack changes (line endings included).
 # Update on purpose only, when the pack is regenerated.
-PINNED_FIXTURE_HASH = "0151b44a930b9cee450c7d4921d5b9a55220ff73d4b6ed6a31cac79776ac080e"
+PINNED_FIXTURE_HASH = "4595177c088599d030e5dcc4d2f6eed638ec7b33eab3a963d46cd6f0bdf11e3a"
+
+
+IMAGE = "example.com/grader@sha256:" + "ab" * 32
+PACK_TOML = f'name = "demo"\nversion = "1"\ngrader_image = "{IMAGE}"\n'
 
 
 def make_pack(root: Path, n: int = 12, tags: tuple[str, ...] = ("a", "b")) -> Path:
     root.mkdir(parents=True)
-    (root / "pack.toml").write_text('name = "demo"\nversion = "1"\n', encoding="utf-8")
+    (root / "pack.toml").write_text(PACK_TOML, encoding="utf-8")
     for i in range(n):
         d = root / "tasks" / f"t{i:03d}"
         d.mkdir(parents=True)
@@ -228,3 +232,53 @@ def test_synthetic_fixture_pack() -> None:
     assert pack.name == "synthetic" and len(pack.tasks) == 20
     assert {t.split for t in pack.tasks} == set(Split)
     assert pack.content_hash == PINNED_FIXTURE_HASH
+
+
+def test_grader_image_and_policy_load_from_pack_toml(tmp_path: Path) -> None:
+    root = make_pack(tmp_path / "p")
+    pack = load_pack(root)
+    assert pack.grader_image == IMAGE and pack.code_exec_policy == "allowed"
+    toml = PACK_TOML + '[policy]\nagent_code_exec_policy = "advisory-forbidden"\n'
+    (root / "pack.toml").write_text(toml, encoding="utf-8")
+    assert load_pack(root).code_exec_policy == "advisory-forbidden"
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        None,  # missing
+        "python:3.12-slim",  # a tag is mutable
+        "python@sha256:" + "ab" * 31,  # short digest
+        "python@sha256:" + "AB" * 32,  # not lowercase
+        "python:3.12@md5:" + "ab" * 16,
+        "@sha256:" + "ab" * 32,  # no name
+        "-x@sha256:" + "ab" * 32,  # would parse as a flag
+    ],
+)
+def test_unpinned_grader_image_is_rejected(tmp_path: Path, image: str | None) -> None:
+    root = make_pack(tmp_path / "p")
+    toml = 'name = "demo"\nversion = "1"\n' + (f'grader_image = "{image}"\n' if image else "")
+    (root / "pack.toml").write_text(toml, encoding="utf-8")
+    with pytest.raises(PackError, match="grader.image"):
+        load_pack(root)
+
+
+@pytest.mark.parametrize(
+    "policy",
+    ['agent_code_exec = "forbidden"', 'agent_code_exec_policy = "forbidden"', "other = 1"],
+)
+def test_bad_policy_is_rejected(tmp_path: Path, policy: str) -> None:
+    root = make_pack(tmp_path / "p")
+    (root / "pack.toml").write_text(PACK_TOML + f"[policy]\n{policy}\n", encoding="utf-8")
+    with pytest.raises(PackError, match="policy"):
+        load_pack(root)
+
+
+def test_swapping_the_grader_image_aborts_the_batch(tmp_path: Path) -> None:
+    root = make_pack(tmp_path / "p")
+    pinned = load_pack(root)
+    swapped = PACK_TOML.replace("ab" * 32, "cd" * 32)
+    (root / "pack.toml").write_text(swapped, encoding="utf-8")
+    assert compute_content_hash(root) != pinned.content_hash
+    with pytest.raises(PackHashMismatch):
+        verify(pinned, pinned.content_hash, root)

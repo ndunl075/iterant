@@ -28,7 +28,7 @@ from typing import cast
 import pytest
 
 from iterant.contracts import NetMode, Sandbox, SandboxBackend
-from iterant.sandbox import ContainerSandbox, DockerBackend, PodmanBackend, slugify
+from iterant.sandbox import ContainerSandbox, DockerBackend, PodmanBackend, SandboxLost, slugify
 
 BACKENDS = [
     pytest.param("podman", marks=pytest.mark.podman, id="podman"),
@@ -277,6 +277,62 @@ def test_memory_cap(harness: Harness) -> None:
     res = sb.exec("python3 -c \"b = b'x' * (400 << 20); print(len(b))\"", 60)
     assert res.exit_code != 0 and not res.timed_out
     assert sb.exec("true", 30).exit_code == 0  # sandbox survives the OOM kill
+
+
+def test_truncated_stdout_is_flagged(harness: Harness) -> None:
+    sb = harness.create()
+    res = sb.exec("python3 -c \"import sys; sys.stdout.write('x' * (20 << 20))\"", 60)
+    assert res.truncated and not res.timed_out and res.exit_code == 0
+    assert 0 < len(res.stdout) <= 16 << 20
+    small = sb.exec("echo hi", 30)
+    assert small.stdout == "hi\n" and not small.truncated
+
+
+FORK_UNTIL_REFUSED = """
+import os, sys, time
+for _ in range(5000):
+    try:
+        pid = os.fork()
+    except OSError:
+        sys.exit(42)  # the pids limit refused the fork
+    if pid == 0:
+        time.sleep(8)
+        os._exit(0)
+sys.exit(0)
+"""
+
+
+def test_pids_exhaustion_is_a_result_not_an_error(harness: Harness) -> None:
+    sb = harness.create()
+    sb.put("/work/forks.py", FORK_UNTIL_REFUSED.encode())
+    res = sb.exec("python3 /work/forks.py", 60)  # must not raise
+    assert res.exit_code == 42 and not res.timed_out
+    time.sleep(10)  # let the children exit
+    assert sb.exec("echo alive", 30).stdout.strip() == "alive"
+
+
+def test_killing_pid_1_is_a_lost_sandbox_not_an_error(harness: Harness) -> None:
+    sb = harness.create()
+    # Kill everything we may signal, including the container's main process (`sleep`), so
+    # the init process exits and the container goes away.
+    res = sb.exec("kill -9 1; kill -9 -1; sleep 5", 30)  # must not raise
+    assert res.sandbox_lost and not res.timed_out and res.exit_code != 0
+    for call in (lambda: sb.exec("true", 10), lambda: sb.put("/work/f", b""), lambda: sb.get("/f")):
+        with pytest.raises(SandboxLost):
+            call()
+    sb.destroy()  # idempotent and quiet for a container that is already gone
+    sb.destroy()
+
+
+def test_oom_is_a_result_not_an_error(harness: Harness) -> None:
+    sb = harness.create(mem=64)
+    # Several processes each take memory, so the cgroup OOM killer picks among many.
+    script = (
+        "for i in 1 2 3 4; do python3 -c \"b = b'x' * (200 << 20); print(len(b))\" & done; wait"
+    )
+    res = sb.exec(script, 60)  # must not raise
+    assert not res.timed_out and not res.truncated
+    assert res.stdout.split().count("209715200") < 4  # the 64 MiB cap stopped some of them
 
 
 def test_cpu_and_pids_caps_are_applied(harness: Harness) -> None:

@@ -2,7 +2,9 @@
 
 Layout::
 
-    pack.toml                 name = "...", version = "..."
+    pack.toml                 name = "...", version = "...", grader_image = "name@sha256:<hex>",
+                              optional [policy] agent_code_exec_policy = "allowed" |
+                              "advisory-forbidden" (default "allowed")
     splits.json               seed + {task id: split}; written by ``split_pack``
     tasks/<id>/input.json     visible to the agent
     tasks/<id>/run            shell script run by the grader in a sandbox (cwd /out): it executes
@@ -22,12 +24,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from iterant.contracts import (
+    CODE_EXEC_POLICIES,
     AcceptanceThresholds,
+    CodeExecPolicy,
     HiddenCheckPath,
     Pack,
     Split,
     Task,
     VisibleInputPath,
+    require_pinned_image,
 )
 from iterant.packs.hashing import PackError, compute_content_hash
 from iterant.packs.splitter import (
@@ -89,6 +94,16 @@ def split_pack(
     return plan.report
 
 
+def _code_exec_policy(table: object) -> CodeExecPolicy:
+    fields = cast("dict[str, Any]", table) if isinstance(table, dict) else None
+    if fields is None or set(fields) - {"agent_code_exec_policy"}:
+        raise PackError("[policy] may only contain `agent_code_exec_policy`")
+    value = fields.get("agent_code_exec_policy", "allowed")
+    if value not in CODE_EXEC_POLICIES:
+        raise PackError(f"agent_code_exec_policy must be one of {', '.join(CODE_EXEC_POLICIES)}")
+    return value
+
+
 def load_pack(root: Path) -> Pack:
     """Load and validate the pack at ``root``; ``content_hash`` is computed from disk."""
     meta = _toml(root / "pack.toml") if (root / "pack.toml").is_file() else None
@@ -97,6 +112,15 @@ def load_pack(root: Path) -> Pack:
     name, version = meta.get("name"), meta.get("version")
     if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
         raise PackError("pack.toml needs non-empty string `name` and `version`")
+
+    image = meta.get("grader_image")
+    if not isinstance(image, str):
+        raise PackError("pack.toml needs a string `grader_image` (name@sha256:<64 hex>)")
+    try:
+        require_pinned_image(image)
+    except ValueError as exc:
+        raise PackError(str(exc)) from exc
+    policy = _code_exec_policy(meta.get("policy", {}))
 
     entries = _discover(root)
     if not (root / SPLITS_FILE).is_file():
@@ -115,7 +139,14 @@ def load_pack(root: Path) -> Pack:
         )
         for task_id, tags in entries
     )
-    return Pack(name=name, version=version, tasks=tasks, content_hash=compute_content_hash(root))
+    return Pack(
+        name=name,
+        version=version,
+        tasks=tasks,
+        content_hash=compute_content_hash(root),
+        grader_image=image,
+        code_exec_policy=policy,
+    )
 
 
 def tasks_in(pack: Pack, split: Split) -> tuple[Task, ...]:

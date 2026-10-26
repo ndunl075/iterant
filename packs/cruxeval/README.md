@@ -14,11 +14,9 @@ The encoding is type-tagged: equal iff Python `==`, except (stricter than upstre
 set != list and `1` != `"1"` (`1 == 1.0`, `-0.0 == 0`, NaN equals NaN). Its single source is
 `iterant/packs/cruxeval_canon.py`; `run` embeds that file verbatim.
 
-**Policy: the agent must not execute code for this pack** (`[policy] agent_code_exec = "forbidden"`
-in `pack.toml`). Running the function would turn the benchmark into a test of the interpreter.
-Nothing enforces this yet.
+**Policy: advisory only.** `pack.toml` sets `[policy] agent_code_exec_policy = "advisory-forbidden"`: the pack asks the agent not to run code, because running the function would turn the benchmark into a test of the interpreter. **Nothing enforces this.** The sandbox cannot tell a script the agent wrote to solve the task from one it ran to execute the function, so a candidate that runs code is not blocked and not detected. The field is there so the gate and the report can say so; do not read it as a guarantee, and treat a high score from a candidate that has code-execution tools with that in mind.
 
-The target image needs `python3` (the grader's sandbox runs `run` with it). Without it every task silently scores 0.0 (exit 127); W2's startup check should verify it.
+**Grader image.** `pack.toml` pins `grader_image` to a digest (`docker.io/library/python@sha256:...`, python 3.12 slim). The grader runs `run` with that image's `python3 -I`, never with the candidate-built target image, so the target needs no `python3` and a candidate cannot change what the grader executes. The pin is part of the pack hash. `Grader.preflight()` runs `python3 -V` in the image and fails as an infra error if it cannot. To move to a newer image, edit `GRADER_IMAGE` in `iterant/packs/cruxeval.py` and `pack.toml`; the pack hash changes.
 
 **Not comparable with published numbers.** Upstream CRUXEval-O runs `assert {output} == {gold}` on the model's text, so `1` passes for `True` and expressions like `'a'*3` pass. Here the answer must be a plain literal and types are kept apart, so scores are not directly comparable with published CRUXEval-O results.
 

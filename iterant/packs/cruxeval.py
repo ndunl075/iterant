@@ -29,6 +29,12 @@ from iterant.packs.splitter import SplitReport
 
 PACK_NAME = "cruxeval-o"
 PACK_VERSION = "1"
+# python:3.12-slim (multi-arch index digest, looked up 2026-10-26). Grader sandboxes run `run`
+# with this image's `python3 -I`; it is never the candidate-built target image.
+GRADER_IMAGE = (
+    "docker.io/library/python"
+    "@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704"
+)
 INSTRUCTIONS = "Predict the exact return value. Write only a Python literal to /out/answer.txt."
 _HEREDOC = "ITERANT_PY"
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -120,8 +126,9 @@ def convert(source: Path, out: Path, expected_sha256: str | None = None) -> Spli
     run = run_script()
     out.mkdir(parents=True, exist_ok=True)
     (out / "pack.toml").write_bytes(
-        f'name = "{PACK_NAME}"\nversion = "{PACK_VERSION}"\n\n'
-        '[policy]\nagent_code_exec = "forbidden"\n'.encode()
+        f'name = "{PACK_NAME}"\nversion = "{PACK_VERSION}"\n'
+        f'grader_image = "{GRADER_IMAGE}"\n\n'
+        '[policy]\nagent_code_exec_policy = "advisory-forbidden"\n'.encode()
     )
     for row in rows:
         task = out / "tasks" / row["id"]

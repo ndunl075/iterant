@@ -12,11 +12,17 @@ Invariant 8 (verdicts are decided outside untrusted code) shapes the flow:
 3. The hidden ``check`` (JSON, the exact expected object) is read from the trusted pack
    here and compared here. It is never written into any sandbox.
 
+The image is ``pack.grader_image``: pinned by digest in ``pack.toml`` and covered by the pack
+hash. It is never the candidate-built target image, which a candidate could poison (a planted
+``.pth`` file changes what ``python3`` runs). ``preflight()`` proves the image works; call it
+before a batch, so a broken image is an infra error and not a wall of 0.0 scores.
+
 An infra error (``score is None``) may come only from things the agent cannot influence:
 unreadable pack files, sandbox create failure, a failed trusted write, a failed trusted
 pre-flight exec, or a backend exception while running ``run``. Everything the agent
 influences scores 0.0: an invalid output path, a failed write of its files, any non-zero
-exit (including 126/127), a timeout or kill, and a missing, oversized or malformed result.
+exit (including 126/127), a timeout or kill, truncated output, a sandbox killed from inside
+(OOM, pids limit, PID 1), and a missing, oversized or malformed result.
 A timeout is checked first; a non-zero exit scores 0.0 even if a result was printed.
 A well-formed result scores 1.0 if it equals the expected object (types included: ``1``
 is not ``true``), else 0.0.
@@ -35,8 +41,9 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from iterant.contracts import ExecResult, SandboxBackend, Task
+from iterant.contracts import ExecResult, Pack, SandboxBackend, Task
 from iterant.grader.outfiles import OutputRejected, check_limits
+from iterant.packs.hashing import verify
 
 AGENT_DIR = "/work/out"
 RUN_PATH = "/work/.grader/run.sh"
@@ -125,7 +132,7 @@ def same(a: Any, b: Any) -> bool:
 
 def interpret(result: ExecResult, expected: Any) -> float:
     """Score one ``run`` execution (agent-influenced, so never an infra error)."""
-    if result.timed_out or result.exit_code != 0:
+    if result.timed_out or result.truncated or result.sandbox_lost or result.exit_code != 0:
         return 0.0
     try:
         got = parse_json(result.stdout)
@@ -144,13 +151,22 @@ def _agent_path(rel: str) -> str | None:
     return f"{AGENT_DIR}/{rel}"
 
 
+class GraderPreflightError(RuntimeError):
+    """The grader image cannot run ``python3``: an infra error, never a score."""
+
+
 class Grader:
-    """Grades tasks of the pack at ``pack_root`` using sandboxes from ``backend``."""
+    """Grades tasks of ``pack`` (files at ``pack_root``) using sandboxes from ``backend``.
+
+    The image is ``pack.grader_image``. The constructor re-hashes ``pack_root`` against
+    ``pack.content_hash`` (invariant 7) and raises ``PackHashMismatch`` on a difference, so a
+    grader never runs checks from files that differ from the pack the caller pinned.
+    """
 
     def __init__(
         self,
         backend: SandboxBackend,
-        image: str,
+        pack: Pack,
         pack_root: Path,
         *,
         timeout: float = DEFAULT_TIMEOUT_S,
@@ -158,11 +174,42 @@ class Grader:
         mem: int = 1024,
         disk: int = 1024,
     ) -> None:
+        verify(pack, pack.content_hash, pack_root)
         self._backend = backend
-        self._image = image
+        self._image = pack.grader_image
         self._root = pack_root
         self._timeout = timeout
         self._cpu, self._mem, self._disk = cpu, mem, disk
+
+    def preflight(self) -> None:
+        """Run ``python3 -V`` in the grader image; raise ``GraderPreflightError`` if it fails.
+
+        Packs whose ``run`` scripts need ``python3`` (cruxeval-o) would otherwise score every
+        task 0.0 (exit 127) if the image lacked it. Nothing the candidate does can reach this
+        sandbox, so any failure here is an infra error.
+        """
+        try:
+            sandbox = self._backend.create(
+                self._image, self._cpu, self._mem, self._disk, PREFLIGHT_TIMEOUT_S + 60.0,
+                net="default-deny",
+            )  # fmt: skip
+        except Exception as exc:
+            raise GraderPreflightError(f"cannot create a sandbox: {type(exc).__name__}") from exc
+        try:
+            try:
+                res = sandbox.exec("python3 -V", PREFLIGHT_TIMEOUT_S)
+            except Exception as exc:
+                raise GraderPreflightError(f"preflight exec failed: {type(exc).__name__}") from exc
+            said = res.stdout + res.stderr
+            if res.timed_out or res.exit_code != 0 or not said.startswith("Python 3"):
+                raise GraderPreflightError(
+                    f"grader image {self._image} cannot run `python3 -V` (exit {res.exit_code})"
+                )
+        finally:
+            try:
+                sandbox.destroy()
+            except Exception:  # best-effort; the backend ttl reaps it
+                pass
 
     def grade(self, task: Task, out_files: Mapping[str, bytes]) -> GradeResult:
         """Score one run. ``out_files`` maps canonical paths relative to the agent's out dir."""

@@ -37,6 +37,7 @@ pack = "evals/support-pack"   # see below
 - The proxy speaks the Anthropic API and the OpenAI-compatible API, so local models (Ollama, llama.cpp) run the whole loop for $0. Hosted models are opt-in, and the user pays the provider.
 
 **2. Task pack** (`pack.toml` + `tasks/<id>/`):
+- `pack.toml` names the pack, its version and `grader_image`, a digest-pinned image (`name@sha256:<64 hex>`) that the grader runs checks in. It is never the candidate-built target image, which the candidate controls. The file is covered by the pack hash (§1.7). An optional `[policy] agent_code_exec_policy` is `allowed` (default) or `advisory-forbidden`: a request that the agent not execute code to solve tasks, which nothing enforces. The gate and report show it as unenforced.
 - `input.json` is visible to the agent.
 - `check` is hidden: a trusted pack command that reads `/out` as data and prints a score from 0 to 1, or exits 0 for pass (1.0) and non-zero for fail (0.0). It runs only in a fresh grader sandbox. Checks that must execute agent-produced code follow invariant 8.
 - Each task is assigned a split: `train`, `select`, `holdout` or `test`. Iterant does this automatically and stratifies by the pack's `tags`.
@@ -122,6 +123,8 @@ examples/         reference agent + starter packs (demo and CI fixture)  [T1]
 | `e2b` / `modal` (optional) | Hosts without KVM | Hosted microVM |
 
 Every backend runs non-root with no host mounts, a CPU/mem/disk/time cap and default-deny egress, plus one route to the proxy.
+
+`exec` returns an `ExecResult` for anything the command can cause: a timeout, output cut at the capture cap (`truncated`), a non-zero exit, an OOM kill, pids exhaustion, or killing PID 1 so the sandbox is gone (`sandbox_lost`; later calls raise `SandboxLost`). The grader scores all of these 0.0. `exec` raises only for failures the command cannot cause (runtime missing or broken, sandbox already destroyed or expired), and those are infra errors under the §6 policy.
 
 **Archive (SQLite, in `.iterant/` of the target repo):**
 - `batches(id, gen, pack_hash, started_at)`: one scheduled set of runs, pinned to a pack hash (§1.7)

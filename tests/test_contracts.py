@@ -1,5 +1,7 @@
 import dataclasses
+import os
 import sqlite3
+from collections.abc import Sequence
 from pathlib import PurePosixPath
 
 import pytest
@@ -11,12 +13,16 @@ from iterant.contracts import (
     Candidate,
     EvalConfig,
     ExecResult,
+    Gate,
+    GateResult,
     HiddenCheckPath,
     IterantConfig,
     NetMode,
     Pack,
     Profile,
     Promotion,
+    Proposal,
+    Proposer,
     ProxyCall,
     ProxyPolicy,
     Role,
@@ -33,9 +39,11 @@ from iterant.contracts import (
     Task,
     VisibleInputPath,
     open_archive,
+    require_pinned_image,
 )
 
 SHA = "a" * 64
+IMAGE = "docker.io/library/python@sha256:" + "b" * 64
 
 
 def make_task(tid: str = "t1") -> Task:
@@ -68,17 +76,66 @@ def test_enum_values() -> None:
 
 
 def test_task_and_pack() -> None:
-    pack = Pack("p", "1", (make_task("a"), make_task("b")), SHA)
+    pack = Pack("p", "1", (make_task("a"), make_task("b")), SHA, IMAGE)
     assert pack.tasks[0].id == "a"
     with pytest.raises(ValueError):
-        Pack("p", "1", (make_task("a"), make_task("a")), SHA)
+        Pack("p", "1", (make_task("a"), make_task("a")), SHA, IMAGE)
     with pytest.raises(ValueError):
-        Pack("p", "1", (), "XYZ")
+        Pack("p", "1", (), "XYZ", IMAGE)
     same = PurePosixPath("a")
     with pytest.raises(ValueError):
         Task("t", Split.TRAIN, (), VisibleInputPath(same), HiddenCheckPath(same))
     with pytest.raises(ValueError):
         Task("", Split.TRAIN, (), VisibleInputPath(same), HiddenCheckPath(PurePosixPath("b")))
+
+
+def test_pack_grader_image_and_policy() -> None:
+    pack = Pack("p", "1", (), SHA, IMAGE)
+    assert pack.grader_image == IMAGE and pack.code_exec_policy == "allowed"
+    assert Pack("p", "1", (), SHA, IMAGE, "advisory-forbidden").code_exec_policy != "allowed"
+    for bad in ("python:3.12", "python@sha256:abc", "@sha256:" + "b" * 64, ""):
+        with pytest.raises(ValueError):
+            Pack("p", "1", (), SHA, bad)
+        with pytest.raises(ValueError):
+            require_pinned_image(bad)
+    with pytest.raises(ValueError):
+        Pack("p", "1", (), SHA, IMAGE, "forbidden")  # type: ignore[arg-type]
+
+
+def test_exec_result_truncated_defaults_false() -> None:
+    assert not ExecResult(0, "", "", False, 0.1).truncated
+    assert ExecResult(0, "", "", False, 0.1, truncated=True).truncated
+
+
+def test_proposal_and_gate_result_validation() -> None:
+    assert Proposal("--- a\n+++ b\n", "tighten the prompt").hypothesis == "tighten the prompt"
+    for diff, hyp in (("", "h"), ("  \n", "h"), ("d", ""), ("d", "two\nlines")):
+        with pytest.raises(ValueError):
+            Proposal(diff, hyp)
+    assert GateResult(True).passed and GateResult(False, ("touches tasks/x",)).findings
+    with pytest.raises(ValueError):
+        GateResult(True, ("finding",))
+    with pytest.raises(ValueError):
+        GateResult(False)
+
+
+class _Proposer:
+    def propose(
+        self, parent: str, failure_digest: str, history: Sequence[Candidate]
+    ) -> Proposal | None:
+        return None
+
+
+class _Gate:
+    def check(
+        self, proposal: Proposal, *, repo: str | os.PathLike[str], target: TargetConfig, pack: Pack
+    ) -> GateResult:
+        return GateResult(True)
+
+
+def test_proposer_and_gate_protocols() -> None:
+    assert isinstance(_Proposer(), Proposer) and isinstance(_Gate(), Gate)
+    assert not isinstance(object(), Proposer) and not isinstance(object(), Gate)
 
 
 def test_config_types() -> None:
@@ -108,7 +165,7 @@ def test_frozen() -> None:
         ProxyCall(1, None, Role.PROPOSER, "m", 1, 1, 1, False, "t"),
         RoleCap("m", "low", 1, 2),
         ProxyPolicy(Profile.FREE),
-        Pack("p", "1", (), SHA),
+        Pack("p", "1", (), SHA, IMAGE),
     ]
     for obj in objs:
         first = dataclasses.fields(obj)[0].name  # type: ignore[arg-type]

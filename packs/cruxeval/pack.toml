@@ -1,5 +1,6 @@
 name = "cruxeval-o"
 version = "1"
+grader_image = "docker.io/library/python@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704"
 
 [policy]
-agent_code_exec = "forbidden"
+agent_code_exec_policy = "advisory-forbidden"

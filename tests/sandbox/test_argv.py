@@ -404,16 +404,77 @@ def test_liveness_comes_from_the_runtime_not_agent_stderr() -> None:
     assert res.exit_code == 125  # container exists: an ordinary failing command
     assert r.find("container", "inspect")
 
-    def gone(argv: list[str]) -> RunOutput | None:
+    # The container really died under the command (PID 1 killed): a result, not a raise,
+    # and the sandbox is dead afterwards.
+    sb2 = make(FakeRunner(gone_handler(125))).create("img", 1, 64, 64, 60, net="default-deny")
+    res2 = sb2.exec("x", 5)
+    assert res2.exit_code == 125 and not res2.timed_out
+    with pytest.raises(SandboxError, match="destroyed"):
+        sb2.exec("x", 5)
+
+
+def gone_handler(code: int, stdout: bytes = b"", truncated: bool = False) -> Handler:
+    """`exec x` ends with ``code`` and `container inspect` then says the container is absent."""
+
+    def handler(argv: list[str]) -> RunOutput | None:
         if "x" in argv[-1:] and argv[1] == "exec":
-            return RunOutput(125)
+            return RunOutput(code, stdout=stdout, truncated=truncated)
         if argv[1:3] == ["container", "inspect"]:
-            return RunOutput(1)
+            return RunOutput(1, stderr=b"Error: no such container")
         return None
 
-    sb2 = make(FakeRunner(gone)).create("img", 1, 64, 64, 60, net="default-deny")
-    with pytest.raises(SandboxError, match="gone"):
-        sb2.exec("x", 5)
+    return handler
+
+
+@pytest.mark.parametrize("code", [125, 126, 137, 255])
+def test_candidate_caused_container_death_is_a_result(code: int) -> None:
+    sb = make(FakeRunner(gone_handler(code))).create("img", 1, 64, 64, 60, net="default-deny")
+    res = sb.exec("x", 5)
+    assert res.exit_code == code and not res.timed_out
+    with pytest.raises(SandboxError):
+        sb.put("/work/f", b"")  # dead: later calls raise
+
+
+def test_exec_propagates_truncated() -> None:
+    def handler(argv: list[str]) -> RunOutput | None:
+        if argv[1] == "exec" and "x" in argv[-1:]:
+            return RunOutput(0, stdout=b"abc", truncated=True)
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60, net="default-deny")
+    res = sb.exec("x", 5)
+    assert res.truncated and res.stdout == "abc" and res.exit_code == 0
+    assert not sb.exec("y", 5).truncated
+
+
+def test_exec_runtime_failures_and_destroyed_sandbox_raise() -> None:
+    def boom(argv: list[str]) -> RunOutput | None:
+        if argv[1] == "exec" and "x" in argv[-1:]:
+            raise OSError("podman vanished")
+        return None
+
+    sb = make(FakeRunner(boom)).create("img", 1, 64, 64, 60, net="default-deny")
+    with pytest.raises(SandboxError, match="cannot run"):
+        sb.exec("x", 5)
+    sb.destroy()
+    with pytest.raises(SandboxError):
+        sb.exec("y", 5)
+
+
+def test_destroy_during_exec_raises_instead_of_scoring_the_command() -> None:
+    holder: list[ContainerSandbox] = []
+
+    def handler(argv: list[str]) -> RunOutput | None:
+        if argv[1] == "exec" and "x" in argv[-1:]:
+            holder[0].destroy()  # e.g. the ttl timer fired mid-exec
+            return RunOutput(137)
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60, net="default-deny")
+    assert isinstance(sb, ContainerSandbox)
+    holder.append(sb)
+    with pytest.raises(SandboxError, match="during exec"):
+        sb.exec("x", 5)
 
 
 def test_put_get_argv_and_errors() -> None:

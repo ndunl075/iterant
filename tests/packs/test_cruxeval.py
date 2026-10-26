@@ -31,8 +31,7 @@ HERE = Path(__file__).resolve().parent
 SAMPLE = HERE / "cruxeval_sample.jsonl"
 COMMITTED = Path(__file__).resolve().parents[2] / "packs" / "cruxeval"
 # Pinned: fails if any byte of the committed pack changes. Update on purpose only.
-PINNED_COMMITTED_HASH = "367b734e9cd4ed8aef59aefab07db0d6f6a371bbe927434d48b1f5ec5116018b"
-IMAGE = os.environ.get("ITERANT_TEST_IMAGE", "docker.io/library/python:3.12-slim")
+PINNED_COMMITTED_HASH = "ea27af766c6abfed8da016ee06a24ebf6c09dca0af17a6c87ecde2dc5728424e"
 
 
 def sample_rows() -> dict[str, dict[str, str]]:
@@ -405,7 +404,10 @@ def test_tags_policy_and_splits(tmp_path: Path) -> None:
     assert cruxeval.length_tag("x" * 160) == "long"
     assert pack.name == "cruxeval-o"
     meta = tomllib.loads((tmp_path / "p" / "pack.toml").read_text())
-    assert meta["policy"] == {"agent_code_exec": "forbidden"}
+    assert meta["policy"] == {"agent_code_exec_policy": "advisory-forbidden"}
+    assert meta["grader_image"] == cruxeval.GRADER_IMAGE
+    assert pack.grader_image == cruxeval.GRADER_IMAGE
+    assert pack.code_exec_policy == "advisory-forbidden"
 
 
 # ---------------------------------------------------------------- committed pack
@@ -422,6 +424,15 @@ def test_committed_pack_loads_with_a_stable_hash() -> None:
     for name in ("LICENSE", "NOTICE", "README.md"):
         assert (COMMITTED / name).is_file()
     assert "MIT License" in (COMMITTED / "LICENSE").read_text()
+
+
+def test_committed_pack_pins_the_grader_image_and_declares_the_policy() -> None:
+    pack = load_pack(COMMITTED)
+    assert pack.grader_image == cruxeval.GRADER_IMAGE
+    assert pack.grader_image.startswith("docker.io/library/python@sha256:")
+    assert pack.code_exec_policy == "advisory-forbidden"
+    toml = tomllib.loads((COMMITTED / "pack.toml").read_text(encoding="utf-8"))
+    assert toml["policy"] == {"agent_code_exec_policy": "advisory-forbidden"}
 
 
 def test_committed_pack_files_are_uniform() -> None:
@@ -505,8 +516,10 @@ def backend(request: pytest.FixtureRequest) -> Iterator[Tracking]:
 
 
 def test_real_tasks_graded_in_a_real_sandbox(backend: Tracking) -> None:
-    by_id = {t.id: t for t in load_pack(COMMITTED).tasks}
-    grader = Grader(backend, IMAGE, COMMITTED, timeout=30)
+    pack = load_pack(COMMITTED)
+    by_id = {t.id: t for t in pack.tasks}
+    grader = Grader(backend, pack, COMMITTED, timeout=30)
+    grader.preflight()
     for row in real_rows():
         task = by_id[row["id"]]
         out = row["output"]
@@ -519,4 +532,4 @@ def test_real_tasks_graded_in_a_real_sandbox(backend: Tracking) -> None:
         assert fenced.score == 1.0 and fenced.error is None, row["id"]
         for r in (wrong, junk, missing):
             assert r.score == 0.0 and r.error is None, (row["id"], r)
-    assert len(backend.created) == 25
+    assert len(backend.created) == 26  # preflight + 5 rows x 5 grades

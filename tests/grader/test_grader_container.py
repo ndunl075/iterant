@@ -7,7 +7,6 @@ Needs ``iterant.sandbox`` (PR #7) and a runtime; skips otherwise. Local-only in 
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from collections.abc import Iterator
@@ -21,7 +20,7 @@ from iterant.grader import Grader
 from iterant.packs import load_pack
 
 SYNTHETIC = Path(__file__).resolve().parents[1] / "packs" / "synthetic"
-IMAGE = os.environ.get("ITERANT_TEST_IMAGE", "docker.io/library/python:3.12-slim")
+PACK = load_pack(SYNTHETIC)
 
 BACKENDS = [
     pytest.param("podman", marks=pytest.mark.podman, id="podman"),
@@ -83,7 +82,7 @@ def test_synthetic_pack_graded_in_a_real_sandbox(backend: Tracking) -> None:
     task = load_pack(SYNTHETIC).tasks[3]
     data = json.loads((SYNTHETIC / task.input).read_bytes())
     total = data["a"] + data["b"]
-    grader = Grader(backend, IMAGE, SYNTHETIC, timeout=20)
+    grader = Grader(backend, PACK, SYNTHETIC, timeout=20)
 
     good = grader.grade(task, solve(f"printf '{{\"sum\": {total}}}'\n"))
     wrong = grader.grade(task, solve("printf '{\"sum\": -1}'\n"))
@@ -91,9 +90,14 @@ def test_synthetic_pack_graded_in_a_real_sandbox(backend: Tracking) -> None:
     missing = grader.grade(task, {})  # no solve.sh at all: sh fails
     bad_json = grader.grade(task, solve("echo not json\n"))
     nonfinite = grader.grade(task, solve("printf '{\"sum\": NaN}'\n"))
-    slow = Grader(backend, IMAGE, SYNTHETIC, timeout=5).grade(task, solve("sleep 60\n"))
+    slow = Grader(backend, PACK, SYNTHETIC, timeout=5).grade(task, solve("sleep 60\n"))
 
     assert good.score == 1.0 and good.error is None
     for r in (wrong, exit127, missing, bad_json, nonfinite, slow):
         assert r.score == 0.0 and r.error is None, r
     assert len(backend.created) == 7
+
+
+def test_preflight_in_a_real_sandbox(backend: Tracking) -> None:
+    Grader(backend, PACK, SYNTHETIC).preflight()
+    assert len(backend.created) == 1

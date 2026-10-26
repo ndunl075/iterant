@@ -49,6 +49,10 @@ _GONE_MARKERS = (
     "in progress",
 )
 
+# Exit codes of `exec` when the container may have died under it: runtime errors (125, 126),
+# SIGKILL (137, e.g. OOM or PID 1 killed) and a lost connection (255).
+_CONTAINER_LOST_CODES = (125, 126, 137, 255)
+
 # What `container inspect` says about a container that is really absent (not "being removed").
 _GATEWAY_OPT = "com.docker.network.bridge.gateway_mode_ipv4"
 _DOCKER_MIN_MAJOR = 28
@@ -172,10 +176,6 @@ class ContainerSandbox:
         if out.returncode != 0:
             raise SandboxError(f"{what} failed ({out.returncode}): {_text(out.stderr).strip()}")
 
-    def _container_exists(self) -> bool:
-        out = self._run([self._rt, "container", "inspect", self._name], timeout=_ADMIN_TIMEOUT_S)
-        return out.returncode == 0
-
     def _confirmed_removed(self, name: str) -> bool:
         try:
             out = self._runner([self._rt, "container", "inspect", name], timeout=_ADMIN_TIMEOUT_S)
@@ -217,6 +217,19 @@ class ContainerSandbox:
         return out.stdout
 
     def exec(self, cmd: str, timeout: float) -> ExecResult:
+        """Run ``cmd``; see ``Sandbox.exec`` for the contract.
+
+        Returned, never raised (the command can cause them): timeout, truncated output, a
+        non-zero exit, an OOM kill, pids exhaustion, and the command killing PID 1 so the
+        container is gone afterwards (the sandbox is then marked dead: later calls raise).
+        Raised as ``SandboxError`` (the command cannot cause them): the sandbox was already
+        destroyed or past its ttl, including a destroy or ttl expiry racing this exec, and
+        the runtime failing to run (missing binary, ``OSError``).
+
+        An exit of 125/126 with the container still present is returned as a result: it is
+        indistinguishable from the command itself exiting with that code, and either way
+        the grader scores it 0.0.
+        """
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
         self._alive()
@@ -234,14 +247,21 @@ class ContainerSandbox:
             timeout=timeout,
         )  # fmt: skip
         wall = time.monotonic() - start
+        if self._dead or time.monotonic() >= self._deadline:
+            # We tore it down (destroy or ttl) while the command ran: not the command's doing.
+            raise SandboxError(f"sandbox {self._name} was destroyed or expired during exec")
         if out.timed_out:
             if not self._kill_group(pidfile):
                 # Cannot prove the process is gone (e.g. pids limit hit): fail closed.
                 self._abort()
-            return ExecResult(-1, _text(out.stdout), _text(out.stderr), True, wall)
-        if out.returncode in (125, 126) and not self._container_exists():
-            raise SandboxError(f"sandbox {self._name} is gone")
-        return ExecResult(out.returncode, _text(out.stdout), _text(out.stderr), False, wall)
+            return ExecResult(-1, _text(out.stdout), _text(out.stderr), True, wall, out.truncated)
+        if out.returncode in _CONTAINER_LOST_CODES and self._confirmed_removed(self._name):
+            # PID 1 or the whole container died under the command. We never remove the
+            # container before destroy/ttl (checked above), so the command did it.
+            self._dead = True
+        return ExecResult(
+            out.returncode, _text(out.stdout), _text(out.stderr), False, wall, out.truncated
+        )
 
     def _kill_group(self, pidfile: str) -> bool:
         script = (

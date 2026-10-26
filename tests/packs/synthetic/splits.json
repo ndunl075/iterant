@@ -1,0 +1,25 @@
+{
+ "assignment": {
+  "s000": "select",
+  "s001": "select",
+  "s002": "train",
+  "s003": "holdout",
+  "s004": "test",
+  "s005": "select",
+  "s006": "select",
+  "s007": "train",
+  "s008": "select",
+  "s009": "select",
+  "s010": "test",
+  "s011": "train",
+  "s012": "holdout",
+  "s013": "test",
+  "s014": "holdout",
+  "s015": "select",
+  "s016": "train",
+  "s017": "holdout",
+  "s018": "train",
+  "s019": "train"
+ },
+ "seed": 1
+}

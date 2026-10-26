@@ -1,0 +1,2 @@
+# Pack bytes are hashed (invariant 7): never let git rewrite line endings.
+* -text

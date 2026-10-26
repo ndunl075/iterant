@@ -22,6 +22,7 @@ testpaths = ["tests"]
 addopts = "--strict-markers --import-mode=importlib"
 markers = [
     "podman: needs rootless Podman",
+    "docker: needs Docker (--unsafe-container backend)",
     "firecracker: needs Linux and /dev/kvm",
 ]
 

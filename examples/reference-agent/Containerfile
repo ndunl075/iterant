@@ -1,0 +1,8 @@
+FROM python:3.12-slim
+RUN useradd --create-home --uid 1000 agent
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+USER agent
+# The command comes from iterant.toml ([target].run); the sandbox sets ANTHROPIC_BASE_URL.

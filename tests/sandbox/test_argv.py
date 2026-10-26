@@ -484,6 +484,34 @@ def test_destroy_tolerates_already_gone_but_reports_real_errors() -> None:
     sb2.destroy()  # retry succeeds
 
 
+def test_destroy_tolerates_rm_error_when_container_is_confirmed_gone() -> None:
+    def handler(argv: list[str]) -> RunOutput | None:
+        if argv[1] == "rm":
+            return RunOutput(125, stderr=b"rootless netns: kill network process: permission denied")
+        if argv[1:3] == ["container", "inspect"] and argv[3].endswith("-relay"):
+            return RunOutput(1, stderr=b"Error: no such container")
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60, net="proxy-only")
+    with pytest.raises(SandboxError, match="teardown incomplete") as e:
+        sb.destroy()  # the sandbox container still exists: that error is real
+    assert "-relay" not in str(e.value)
+
+
+def test_docker_internal_network_has_no_host_gateway() -> None:
+    r = FakeRunner()
+    DockerBackend(PROXY, unsafe_container=True, runner=r).create("img", 1, 64, 64, 60)
+    net = r.find("network", "create")[0]
+    assert "com.docker.network.bridge.gateway_mode_ipv4=isolated" in net and "--internal" in net
+    assert "gateway_mode" not in " ".join(make_net_create_podman())
+
+
+def make_net_create_podman() -> list[str]:
+    r = FakeRunner()
+    make(r).create("img", 1, 64, 64, 60, net="proxy-only")
+    return r.find("network", "create")[0]
+
+
 def test_reap_is_scoped_by_label() -> None:
     def handler(argv: list[str]) -> RunOutput | None:
         if argv[1] == "ps":

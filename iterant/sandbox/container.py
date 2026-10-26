@@ -171,6 +171,13 @@ class ContainerSandbox:
         out = self._run([self._rt, "container", "inspect", self._name], timeout=_ADMIN_TIMEOUT_S)
         return out.returncode == 0
 
+    def _confirmed_removed(self, name: str) -> bool:
+        try:
+            out = self._runner([self._rt, "container", "inspect", name], timeout=_ADMIN_TIMEOUT_S)
+        except OSError:
+            return False
+        return out.returncode != 0 and _gone(out)
+
     def put(self, path: str, data: bytes) -> None:
         _require_abs(path)
         self._alive()
@@ -257,6 +264,11 @@ class ContainerSandbox:
                     errors.append(str(e))
                     continue
                 if out.returncode != 0 and not _gone(out):
+                    if argv[1:3] == ["rm", "-f"] and self._confirmed_removed(argv[3]):
+                        # e.g. rootless podman fails killing its netns helper after the
+                        # container itself is already deleted
+                        log.warning("%s: %s", " ".join(argv), _text(out.stderr).strip())
+                        continue
                     errors.append(f"{' '.join(argv)}: {_text(out.stderr).strip()}")
             if errors:
                 raise SandboxError("teardown incomplete: " + "; ".join(errors))
@@ -277,6 +289,7 @@ class ContainerBackend:
         sandbox_extra_args: Sequence[str],
         relay_extra_args: Sequence[str],
         work_tmpfs_owner: str,
+        network_extra_args: Sequence[str] = (),
         runner: Runner,
     ) -> None:
         if not _NAME_RE.fullmatch(name_prefix):
@@ -289,6 +302,7 @@ class ContainerBackend:
         self._sandbox_extra = list(sandbox_extra_args)
         self._relay_extra = list(relay_extra_args)
         self._work_tmpfs_owner = work_tmpfs_owner
+        self._network_extra = list(network_extra_args)
         self._proxy = _parse_proxy(proxy_url) if proxy_url is not None else None
 
     @property
@@ -360,7 +374,8 @@ class ContainerBackend:
                 teardown += [[rt, "rm", "-f", relay], [rt, "network", "rm", netname]]
                 self._ensure_image(self._relay_image)
                 self._run(
-                    [rt, "network", "create", "--internal", *label, netname], "network create"
+                    [rt, "network", "create", "--internal", *self._network_extra, *label, netname],
+                    "network create",
                 )
                 self._run(self.relay_argv(relay, netname, host, port, ttl, label), "relay run")
                 self._run([rt, "network", "connect", self._outer_network, relay], "relay connect")
@@ -522,5 +537,8 @@ class DockerBackend(ContainerBackend):
             sandbox_extra_args=(),
             relay_extra_args=("--add-host", "host.docker.internal:host-gateway"),
             work_tmpfs_owner=f"uid={SANDBOX_UID},gid={SANDBOX_UID}",
+            # no host-side gateway address on the internal net: the sandbox cannot reach host
+            # services through the bridge IP
+            network_extra_args=("--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated"),
             runner=runner,
         )

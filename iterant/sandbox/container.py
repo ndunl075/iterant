@@ -276,6 +276,7 @@ class ContainerBackend:
         outer_network: str,
         sandbox_extra_args: Sequence[str],
         relay_extra_args: Sequence[str],
+        work_tmpfs_owner: str,
         runner: Runner,
     ) -> None:
         if not _NAME_RE.fullmatch(name_prefix):
@@ -287,6 +288,7 @@ class ContainerBackend:
         self._outer_network = outer_network
         self._sandbox_extra = list(sandbox_extra_args)
         self._relay_extra = list(relay_extra_args)
+        self._work_tmpfs_owner = work_tmpfs_owner
         self._proxy = _parse_proxy(proxy_url) if proxy_url is not None else None
 
     @property
@@ -436,7 +438,7 @@ class ContainerBackend:
             "--read-only", *self._sandbox_extra,
             # exec so agents can run scripts they write; the tmpfs is the only writable disk.
             "--tmpfs", f"{WORK_DIR}:rw,exec,nosuid,nodev,size={disk}m,mode=0700,"
-            f"uid={SANDBOX_UID},gid={SANDBOX_UID}",
+            f"{self._work_tmpfs_owner}",
             "--tmpfs", f"/tmp:rw,noexec,nosuid,nodev,size={TMP_TMPFS_MIB}m,mode=1777",
             "--shm-size", SHM_SIZE,
             "--cap-drop=ALL", "--security-opt=no-new-privileges",
@@ -488,6 +490,8 @@ class PodmanBackend(ContainerBackend):
             # podman's --read-only otherwise leaves /run, /var/tmp writable (outside the disk cap)
             sandbox_extra_args=("--read-only-tmpfs=false",),
             relay_extra_args=(),
+            # podman's --tmpfs rejects uid=/gid=; `U` chowns the mount to the container user
+            work_tmpfs_owner="U",
             runner=runner,
         )
 
@@ -517,5 +521,6 @@ class DockerBackend(ContainerBackend):
             outer_network="bridge",
             sandbox_extra_args=(),
             relay_extra_args=("--add-host", "host.docker.internal:host-gateway"),
+            work_tmpfs_owner=f"uid={SANDBOX_UID},gid={SANDBOX_UID}",
             runner=runner,
         )

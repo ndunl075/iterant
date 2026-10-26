@@ -53,8 +53,9 @@ def _with_cap(line: str) -> str:
         ("12.345678", 12_345_678),
         ("0.000001", 1),
         ("1e-3", 1_000),
-        ("1_000.5", 1_000_500_000),
+        ("999.5", 999_500_000),
         ("19.99", 19_990_000),
+        ("1000", 1_000_000_000),
         ("0.1000000000000000000000000000000", 100_000),
     ],
 )
@@ -88,6 +89,10 @@ def _sub(old: str, new: str) -> str:
 
 CASES: list[tuple[str, str]] = [
     (_with_cap("max_usd_per_run = 0.0000001"), "target.model.max_usd_per_run: "),
+    (_with_cap("max_usd_per_run = 1e30"), "target.model.max_usd_per_run: must be at most 1000"),
+    (_with_cap("max_usd_per_run = 1000.01"), "target.model.max_usd_per_run: must be at most 1000"),
+    (_with_cap("max_usd_per_run = 1e20000000"), "target.model.max_usd_per_run: must be at most"),
+    (_with_cap("max_usd_per_run = 1e-20000000"), "target.model.max_usd_per_run: "),
     (_with_cap("max_usd_per_run = 0"), "target.model.max_usd_per_run: must be > 0"),
     (_with_cap("max_usd_per_run = -1"), "target.model.max_usd_per_run: must be > 0"),
     (_with_cap("max_usd_per_run = nan"), "target.model.max_usd_per_run: must be finite"),

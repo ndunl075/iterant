@@ -74,7 +74,7 @@ def test_editable(repo: Path, path: str) -> None:
         ("docs/sub/b.md", "outside the genome"),  # * stays in one segment
         ("docs/a.txt", "outside the genome"),
         ("secret.txt", "outside the genome"),
-        ("iterant.toml", "outside the genome"),
+        ("iterant.toml", "protected"),
         ("a/z.txt.bak", "outside the genome"),
         ("PROMPTS/system.md", "outside the genome"),  # case-sensitive mode
         ("../prompts/system.md", ".."),
@@ -109,6 +109,18 @@ def test_editable(repo: Path, path: str) -> None:
         ("GIT~1/config", "reserved"),
         ("prompts/ITERANT~1/x", "reserved"),
         (".git./config", "ending in '.'"),
+        ("prompts/ITERAN~1/x", "reserved"),
+        ("prompts/PROMPT~1.MD", "reserved"),
+        ("prompts/NUL", "device name"),
+        ("prompts/nul.txt", "device name"),
+        ("prompts/COM1", "device name"),
+        ("prompts/lpt9.md", "device name"),
+        ("tools/Aux.py", "device name"),
+        (".g‌it/config", "invisible"),
+        ("prompts/x​.md", "invisible"),
+        ("prompts/a﻿b", "invisible"),
+        ("prompts/­x.md", "invisible"),
+        ("prompts/.g️it/x", "invisible"),
     ],
 )
 def test_rejected(repo: Path, path: str, why: str) -> None:
@@ -327,3 +339,36 @@ def test_normalize_relative() -> None:
     assert normalize_relative("./a/./b") == "a/b"
     with pytest.raises(PathRejectedError):
         normalize_relative("a/*")
+
+
+def test_protected_folds_case_even_when_globs_are_case_sensitive(repo: Path) -> None:
+    g = Genome(repo, ["**"], protected=("evals/pack",), case_insensitive=False)
+    assert not g.is_editable("Evals/Pack/check.py")
+    assert not g.is_editable("EVALS/pack")
+    assert g.is_editable("evals/packs/x.py")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".github/workflows/ci.yml",
+        ".GitHub/workflows/ci.yml",
+        ".gitmodules",
+        ".gitattributes",
+        "prompts/.gitattributes",
+        "tools/.gitignore",
+        ".gitignore",
+        ".containerignore",
+        ".dockerignore",
+        "iterant.toml",
+    ],
+)
+def test_default_protected_beats_star_star(repo: Path, path: str) -> None:
+    g = Genome(repo, ["**"], case_insensitive=False)
+    d = g.check(path)
+    assert not d.ok and "protected" in d.reason
+
+
+def test_nfc_normalization_before_protected_compare(repo: Path) -> None:
+    g = Genome(repo, ["**"], protected=("café/x",), case_insensitive=False)
+    assert not g.is_editable("café/x")  # decomposed spelling of the same name

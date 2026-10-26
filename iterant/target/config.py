@@ -22,6 +22,7 @@ from iterant.contracts import (
 from iterant.target.genome import PathRejectedError, compile_glob, normalize_relative
 
 _MICROS_PER_USD = 1_000_000
+MAX_USD_PER_RUN = 1000
 
 
 class ConfigError(ValueError):
@@ -156,7 +157,14 @@ def _usd_micros(value: object, path: str) -> int:
     dec = Decimal(value)
     if not dec.is_finite():
         raise ConfigError(f"{path}: must be finite")
-    sign, digits, exponent = dec.as_tuple()
+    if dec <= 0:
+        raise ConfigError(f"{path}: must be > 0")
+    # Bound the size before any big-integer arithmetic (1e20000000 must fail fast).
+    if dec.adjusted() > 3 or len(dec.as_tuple().digits) > 40:
+        raise ConfigError(f"{path}: must be at most {MAX_USD_PER_RUN} USD")
+    if dec.adjusted() < -6:
+        raise ConfigError(f"{path}: {value} is finer than 1 micro-USD (0.000001)")
+    _, digits, exponent = dec.as_tuple()
     assert isinstance(exponent, int)  # finite
     coefficient = int("".join(map(str, digits)))
     shift = exponent + 6  # dollars -> micro-USD is a decimal shift by 6
@@ -166,8 +174,6 @@ def _usd_micros(value: object, path: str) -> int:
         micros, remainder = divmod(coefficient, 10**-shift)
         if remainder:
             raise ConfigError(f"{path}: {value} is finer than 1 micro-USD (0.000001)")
-    if sign:
-        micros = -micros
-    if micros <= 0:
-        raise ConfigError(f"{path}: must be > 0")
+    if micros > MAX_USD_PER_RUN * _MICROS_PER_USD:
+        raise ConfigError(f"{path}: must be at most {MAX_USD_PER_RUN} USD")
     return micros

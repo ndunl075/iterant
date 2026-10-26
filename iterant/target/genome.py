@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,25 @@ from pathlib import Path
 from iterant.contracts import IterantConfig
 
 DENIED_DIRS = (".git", ".iterant")
-_SHORT_NAME = re.compile(r"(?:git|iterant)~\d+")
+# Any 8.3 short name (``ITERAN~1``, ``GIT~1.TXT``): it may alias a reserved directory.
+_SHORT_NAME = re.compile(r"[^~]+~\d+(?:\.[^.]*)?")
+_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+# Code points HFS+/APFS ignore when comparing names (".g<ZWNJ>it" is ".git" there),
+# beyond category Cf: combining grapheme joiner, Mongolian and variation selectors, fillers.
+_IGNORABLE = frozenset(
+    {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x3164, 0xFFA0}
+    | set(range(0x180B, 0x1810))
+    | set(range(0xFE00, 0xFE10))
+    | set(range(0xE0100, 0xE01F0))
+)
+# Never editable, whatever the globs say: root-relative paths, then names matched at any
+# depth (git reads nested .gitattributes / .gitignore / .gitmodules too).
+DEFAULT_PROTECTED = (".github", "iterant.toml", ".containerignore", ".dockerignore")
+DEFAULT_PROTECTED_NAMES = (".gitmodules", ".gitattributes", ".gitignore")
 _UNSUPPORTED_GLOB_CHARS = frozenset("[]{}!")
 
 
@@ -55,6 +74,9 @@ def _split(raw: str, *, what: str, allow_wild: bool) -> tuple[str, ...]:
         raise PathRejectedError(f"{what} contains ':' (drive letter or stream)")
     if raw.endswith("/"):
         raise PathRejectedError(f"{what} ends with '/'; name files, or use 'dir/**'")
+    if any(unicodedata.category(c) == "Cf" or ord(c) in _IGNORABLE for c in raw):
+        raise PathRejectedError(f"{what} contains an invisible Unicode character")
+    raw = unicodedata.normalize("NFC", raw)
     parts: list[str] = []
     for seg in raw.split("/"):
         if seg == "":
@@ -67,6 +89,8 @@ def _split(raw: str, *, what: str, allow_wild: bool) -> tuple[str, ...]:
             raise PathRejectedError(f"{what} has a segment ending in '.' or space: {seg!r}")
         if _is_denied_segment(seg):
             raise PathRejectedError(f"{what} touches a reserved directory: {seg!r}")
+        if seg.casefold().split(".")[0] in _DEVICE_NAMES:
+            raise PathRejectedError(f"{what} uses a Windows device name: {seg!r}")
         if not allow_wild and any(c in seg for c in "*?"):
             raise PathRejectedError(f"{what} contains a wildcard")
         parts.append(seg)
@@ -106,6 +130,10 @@ def compile_glob(pattern: str, *, case_insensitive: bool = False) -> re.Pattern[
     return re.compile("".join(pieces), re.IGNORECASE if case_insensitive else 0)
 
 
+def _fold_always(parts: Sequence[str]) -> tuple[str, ...]:
+    return tuple(s.casefold() for s in parts)
+
+
 @dataclass(frozen=True)
 class Decision:
     """Verdict for one path. ``reason`` is empty when ``ok``."""
@@ -118,9 +146,15 @@ class Decision:
 class Genome:
     """The editable zone of one target repo.
 
-    ``protected`` paths (and everything under them) are never editable even if a
-    glob matches. ``case_insensitive`` defaults to True on Windows and macOS,
-    where ``Prompts/x`` and ``prompts/x`` are the same file.
+    ``protected`` paths (and everything under them), plus ``DEFAULT_PROTECTED`` and
+    ``DEFAULT_PROTECTED_NAMES``, are never editable even if a glob matches. They are
+    compared case-folded in every mode (fail closed: the repo may sit on a
+    case-insensitive mount). ``case_insensitive`` only affects glob matching and
+    defaults to True on Windows and macOS.
+
+    The check sees the filesystem as it is now. A symlink a diff would create is
+    invisible until the diff is applied, so run the check on the post-apply tree
+    (the gate also rejects mode-120000 entries).
     """
 
     def __init__(
@@ -140,7 +174,8 @@ class Genome:
         self.patterns = tuple(patterns)
         self._globs = tuple(compile_glob(p, case_insensitive=self._ci) for p in patterns)
         self._protected = tuple(
-            self._fold(_split(p, what=f"protected path {p!r}", allow_wild=False)) for p in protected
+            _fold_always(_split(p, what=f"protected path {p!r}", allow_wild=False))
+            for p in (*DEFAULT_PROTECTED, *protected)
         )
 
     def _fold(self, parts: Sequence[str]) -> tuple[str, ...]:
@@ -148,10 +183,12 @@ class Genome:
 
     def _verdict(self, parts: tuple[str, ...]) -> str:
         """Return a rejection reason for already-normalized segments, or ''."""
-        folded = self._fold(parts)
+        folded = _fold_always(parts)
         for prot in self._protected:
             if folded[: len(prot)] == prot:
                 return f"protected path: {'/'.join(prot)}"
+        if named := frozenset(DEFAULT_PROTECTED_NAMES).intersection(folded):
+            return f"protected path: {sorted(named)[0]}"
         joined = "/".join(parts)
         if not any(g.fullmatch(joined) for g in self._globs):
             return "outside the genome"

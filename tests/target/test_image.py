@@ -48,19 +48,125 @@ def test_exact_argv_and_id(tmp_path: Path) -> None:
     root = _repo(tmp_path).resolve()
     rec = Recorder(CommandResult(0), CommandResult(0, "sha256:abc123\n"))
     img = build_image(root, _config(), f"iterant-{SLUG}-t1", runner=rec)
-    assert rec.calls == [
-        [
-            "podman",
-            "build",
-            "--file",
-            str(root / "Containerfile"),
-            "--tag",
-            f"iterant-{SLUG}-t1",
-            str(root),
-        ],
-        ["podman", "image", "inspect", "--format", "{{.Id}}", f"iterant-{SLUG}-t1"],
+    build, inspect = rec.calls
+    context = build[-1]
+    assert context != str(root)  # never the repo itself
+    assert build == [
+        "podman",
+        "build",
+        "--file",
+        str(Path(context) / "Containerfile"),
+        "--tag",
+        f"iterant-{SLUG}-t1",
+        context,
     ]
+    assert inspect == ["podman", "image", "inspect", "--format", "{{.Id}}", f"iterant-{SLUG}-t1"]
     assert (img.tag, img.image_id) == (f"iterant-{SLUG}-t1", "sha256:abc123")
+    assert not Path(context).exists()  # temp context cleaned up
+
+
+class ContextSnapshot:
+    """Runner that records the files in the build context while the build is running."""
+
+    def __init__(self) -> None:
+        self.files: set[str] = set()
+
+    def __call__(self, argv: Sequence[str]) -> CommandResult:
+        if argv[1] == "build":
+            ctx = Path(argv[-1])
+            self.files = {p.relative_to(ctx).as_posix() for p in ctx.rglob("*") if p.is_file()}
+            return CommandResult(0)
+        return CommandResult(0, "id")
+
+
+def _populate(root: Path, files: Sequence[str]) -> None:
+    for rel in files:
+        f = root / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x", encoding="utf-8")
+
+
+def test_context_excludes_pack_git_iterant(tmp_path: Path) -> None:
+    _populate(
+        tmp_path,
+        [
+            "Containerfile",
+            "agent/loop.py",
+            "prompts/system.md",
+            "evals/pack/tasks/t1/check",
+            "evals/pack/pack.toml",
+            ".git/config",
+            ".iterant/archive.db",
+            "vendor/.git/HEAD",
+            "EVALS/PACK/x",
+        ],
+    )
+    snap = ContextSnapshot()
+    build_image(tmp_path, _config(), "iterant-x", runner=snap)
+    assert snap.files == {"Containerfile", "agent/loop.py", "prompts/system.md"}
+
+
+def test_context_honours_containerignore_with_negation(tmp_path: Path) -> None:
+    _populate(
+        tmp_path,
+        ["Containerfile", "keep.txt", "big/a.bin", "big/keep.md", "x.pyc", "d/y.pyc", "d/z.py"],
+    )
+    (tmp_path / ".containerignore").write_text(
+        "# comment\nbig\n!big/keep.md\n**/*.pyc\n", encoding="utf-8"
+    )
+    snap = ContextSnapshot()
+    build_image(tmp_path, _config(), "iterant-x", runner=snap)
+    # An excluded directory is pruned whole: `!big/keep.md` does not re-include (fails closed).
+    assert snap.files == {"Containerfile", "keep.txt", "d/z.py", ".containerignore"}
+
+
+def test_negation_cannot_reinclude_pack(tmp_path: Path) -> None:
+    _populate(tmp_path, ["Containerfile", "evals/pack/check"])
+    (tmp_path / ".dockerignore").write_text("!evals/pack/check\n", encoding="utf-8")
+    snap = ContextSnapshot()
+    build_image(tmp_path, _config(), "iterant-x", runner=snap)
+    assert "evals/pack/check" not in snap.files
+
+
+def test_symlinks_are_not_copied(tmp_path: Path) -> None:
+    _populate(tmp_path, ["Containerfile", "evals/pack/check"])
+    try:
+        (tmp_path / "leak").symlink_to(tmp_path / "evals" / "pack", target_is_directory=True)
+        (tmp_path / "leak.txt").symlink_to(tmp_path / "evals" / "pack" / "check")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    snap = ContextSnapshot()
+    build_image(tmp_path, _config(), "iterant-x", runner=snap)
+    assert snap.files == {"Containerfile"}
+
+
+def test_containerfile_in_excluded_path_refused(tmp_path: Path) -> None:
+    _populate(tmp_path, ["evals/pack/Containerfile"])
+    cfg = parse_config(
+        CONFIG_TEXT.replace('image = "Containerfile"', 'image = "evals/pack/Containerfile"')
+    )
+    with pytest.raises(ImageBuildError, match="excluded path"):
+        build_image(tmp_path, cfg, "iterant-x", runner=Recorder())
+
+
+def test_containerfile_ignored_by_ignore_file_refused(tmp_path: Path) -> None:
+    _populate(tmp_path, ["Containerfile"])
+    (tmp_path / ".containerignore").write_text("Containerfile\n", encoding="utf-8")
+    with pytest.raises(ImageBuildError, match="excluded path"):
+        build_image(tmp_path, _config(), "iterant-x", runner=Recorder())
+
+
+def test_context_cleaned_up_on_failure(tmp_path: Path) -> None:
+    _repo(tmp_path)
+    seen: list[str] = []
+
+    def runner(argv: Sequence[str]) -> CommandResult:
+        seen.append(argv[-1])
+        return CommandResult(1, "", "no")
+
+    with pytest.raises(ImageBuildError):
+        build_image(tmp_path, _config(), "iterant-x", runner=runner)
+    assert not Path(seen[0]).exists()
 
 
 def test_docker_engine(tmp_path: Path) -> None:

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +19,8 @@ from iterant.contracts import IterantConfig
 
 BUILD_TIMEOUT_S = 1800
 _ENGINES = ("podman", "docker")
+_ALWAYS_EXCLUDED = (".git", ".iterant")
+_IGNORE_FILES = (".containerignore", ".dockerignore")
 _TAG = re.compile(r"[a-z0-9][a-z0-9_.-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]*)?")
 
 
@@ -63,6 +67,76 @@ def subprocess_runner(argv: Sequence[str]) -> CommandResult:
     return CommandResult(proc.returncode, proc.stdout, proc.stderr)
 
 
+def _ignore_regex(pattern: str) -> re.Pattern[str]:
+    """One .containerignore pattern as a regex over a repo-relative POSIX path (or a parent)."""
+    pattern = pattern.strip("/")
+    out: list[str] = []
+    i = 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        else:
+            c = pattern[i]
+            out.append("[^/]*" if c == "*" else "[^/]" if c == "?" else re.escape(c))
+            i += 1
+    return re.compile("".join(out) + "(?:/.*)?", re.DOTALL)
+
+
+def _ignore_rules(root: Path) -> list[tuple[bool, re.Pattern[str]]]:
+    """``(negated, regex)`` per line of the first .containerignore/.dockerignore, in order."""
+    for name in _IGNORE_FILES:
+        f = root / name
+        if f.is_file() and not f.is_symlink():
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+            rules = [ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("#")]
+            return [(r.startswith("!"), _ignore_regex(r.lstrip("!"))) for r in rules]
+    return []
+
+
+class _Filter:
+    """Decides what stays out of the build context. Hard exclusions cannot be re-included."""
+
+    def __init__(self, root: Path, pack: str) -> None:
+        self._hard = tuple(p.casefold() for p in (*_ALWAYS_EXCLUDED, pack))
+        self._rules = _ignore_rules(root)
+
+    def excluded(self, rel: str) -> bool:
+        folded = rel.casefold()
+        if any(seg in _ALWAYS_EXCLUDED for seg in folded.split("/")):  # nested repos too
+            return True
+        if any(folded == h or folded.startswith(h + "/") for h in self._hard):
+            return True
+        hit = False
+        for negated, rx in self._rules:
+            if rx.fullmatch(rel):
+                hit = not negated
+        return hit
+
+
+def _copy_context(root: Path, dest: Path, flt: _Filter) -> None:
+    """Copy ``root`` into ``dest`` minus excluded paths. Symlinks and junctions are skipped."""
+    for cur, dirs, files in os.walk(root):
+        rel_dir = Path(cur).relative_to(root).as_posix()
+        prefix = "" if rel_dir == "." else rel_dir + "/"
+        dirs[:] = [
+            d
+            for d in dirs
+            if not flt.excluded(prefix + d)
+            and not os.path.islink(os.path.join(cur, d))
+            and not os.path.isjunction(os.path.join(cur, d))
+        ]
+        (dest / rel_dir).mkdir(parents=True, exist_ok=True)
+        for name in files:
+            src = os.path.join(cur, name)
+            if flt.excluded(prefix + name) or os.path.islink(src):
+                continue
+            shutil.copyfile(src, dest / rel_dir / name)
+
+
 def build_argv(engine: str, containerfile: Path, tag: str, context: Path) -> list[str]:
     return [engine, "build", "--file", str(containerfile), "--tag", tag, str(context)]
 
@@ -79,7 +153,12 @@ def build_image(
     engine: str = "podman",
     runner: Runner | None = None,
 ) -> Image:
-    """Build ``config.target.image`` with ``root`` as context, tagged ``tag``.
+    """Build ``config.target.image`` tagged ``tag`` from a filtered copy of ``root``.
+
+    The repo itself is never the build context: it holds the hidden checks. The
+    context is a temporary copy without ``.git/``, ``.iterant/``, the pack
+    directory and anything the repo's ``.containerignore`` (or ``.dockerignore``)
+    lists; symlinks are not copied. The Containerfile must survive that filter.
 
     ``tag`` is lowercase and should carry the caller's prefix (a branch slug in
     tests, so parallel workers never collide). Raises ``ImageBuildError`` on any
@@ -96,8 +175,20 @@ def build_image(
     if not containerfile.is_file():
         raise ImageBuildError(f"{config.target.image} is not a file")
 
+    rel_file = containerfile.relative_to(repo).as_posix()
+    flt = _Filter(repo, config.evaluation.pack)
+    if flt.excluded(rel_file):
+        raise ImageBuildError(
+            f"{rel_file} is in an excluded path (pack, .git, .iterant, ignore file)"
+        )
+
     run = runner or subprocess_runner
-    built = run(build_argv(engine, containerfile, tag, repo))
+    context = Path(tempfile.mkdtemp(prefix="iterant-ctx-"))
+    try:
+        _copy_context(repo, context, flt)
+        built = run(build_argv(engine, context / rel_file, tag, context))
+    finally:
+        shutil.rmtree(context, ignore_errors=True)
     if built.returncode != 0:
         raise ImageBuildError(f"{engine} build failed ({built.returncode}): {built.stderr[-2000:]}")
     inspected = run(inspect_argv(engine, tag))

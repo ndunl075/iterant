@@ -24,7 +24,7 @@ class Estimate:
     discordance_from_reps: bool  # False: no task had 2+ scored reps, bound used instead
     refusal_rate: float
     infra_err_rate: float
-    usd_per_run: float  # all attempts, retries included
+    usd_per_run: float  # total spend, retries included, per final run
     select_detectable_gain: float
     holdout_detectable_gain: float
     usd_per_candidate: float
@@ -69,7 +69,7 @@ def estimate(
     from_reps = bool(within)
     disc = math.fsum(within) / len(within) if from_reps else 2 * run_var
     disc = min(max(disc, 1e-6), 1.0)  # a perfectly stable pack still needs a finite answer
-    usd_per_run = math.fsum(r.usd_micros for r in runs) / len(runs) / 1_000_000
+    usd_per_run = math.fsum(r.usd_micros for r in runs) / len(finals) / 1_000_000
     arm_runs = t.select_tasks * t.select_reps + t.holdout_tasks * t.holdout_reps
     return Estimate(
         n_runs=len(finals),

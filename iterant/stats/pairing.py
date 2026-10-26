@@ -13,10 +13,11 @@ from iterant.contracts import RunResult, Split
 class Pairing:
     """Per-task paired gains. ``deltas[i]`` is candidate minus champion for ``task_ids[i]``.
 
-    ``dropped_tasks`` lists tasks removed from both arms: a final run (highest
-    attempt) of either arm was refused or infra-errored, or a task was missing from
-    one arm. ``candidate_runs`` and ``champion_runs`` are the final attempts of the
-    kept tasks only, so guards compare like with like.
+    ``dropped_tasks`` lists tasks removed from both arms because a final run (highest
+    attempt) of either arm was refused or infra-errored. ``candidate_runs`` and
+    ``champion_runs`` are the final attempts of the kept tasks; ``*_attempts`` are
+    every attempt of those tasks (retries included), which is what the cost and wall
+    guards must count.
     """
 
     task_ids: tuple[str, ...]
@@ -24,6 +25,8 @@ class Pairing:
     dropped_tasks: tuple[str, ...]
     candidate_runs: tuple[RunResult, ...]
     champion_runs: tuple[RunResult, ...]
+    candidate_attempts: tuple[RunResult, ...] = ()
+    champion_attempts: tuple[RunResult, ...] = ()
 
     @property
     def n_dropped(self) -> int:
@@ -84,20 +87,37 @@ def pair_runs(
     """Pair the two arms by task, averaging scores over reps.
 
     A task is dropped from both arms when any final run of either arm is refused or
-    infra-errored, or when either arm has no run for it. Raises ``ValueError`` if the
-    arms are not from one batch (or not all from ``split``).
+    infra-errored. Raises ``ValueError`` if the arms are not from one batch (or not
+    all from ``split``), if an arm mixes candidates or both arms are the same
+    candidate, or if a task has runs in only one arm.
     """
     check_same_batch(candidate, champion, split)
+    c_ids = {r.key.cand for r in candidate}
+    h_ids = {r.key.cand for r in champion}
+    if len(c_ids) > 1 or len(h_ids) > 1:
+        raise ValueError(f"each arm must be one candidate, got {sorted(c_ids)} and {sorted(h_ids)}")
+    if c_ids & h_ids:
+        raise ValueError(f"candidate and champion arms are the same candidate {sorted(c_ids)}")
     cand = _by_task(final_attempts(candidate))
     champ = _by_task(final_attempts(champion))
+    if cand.keys() != champ.keys():
+        lone = sorted(cand.keys() ^ champ.keys())
+        raise ValueError(f"tasks present in only one arm: {lone}")
+    c_all: dict[str, list[RunResult]] = {}
+    h_all: dict[str, list[RunResult]] = {}
+    for runs, acc in ((candidate, c_all), (champion, h_all)):
+        for r in runs:
+            acc.setdefault(r.key.task, []).append(r)
     kept: list[str] = []
     deltas: list[float] = []
     dropped: list[str] = []
     cand_kept: list[RunResult] = []
     champ_kept: list[RunResult] = []
-    for task in sorted(cand.keys() | champ.keys()):
-        c_runs, h_runs = cand.get(task, []), champ.get(task, [])
-        if not c_runs or not h_runs or any(r.score is None for r in (*c_runs, *h_runs)):
+    cand_att: list[RunResult] = []
+    champ_att: list[RunResult] = []
+    for task in sorted(cand):
+        c_runs, h_runs = cand[task], champ[task]
+        if any(r.score is None for r in (*c_runs, *h_runs)):
             dropped.append(task)
             continue
         c_mean = math.fsum(r.score for r in c_runs if r.score is not None) / len(c_runs)
@@ -106,10 +126,14 @@ def pair_runs(
         deltas.append(c_mean - h_mean)
         cand_kept.extend(c_runs)
         champ_kept.extend(h_runs)
+        cand_att.extend(c_all[task])
+        champ_att.extend(h_all[task])
     return Pairing(
         task_ids=tuple(kept),
         deltas=tuple(deltas),
         dropped_tasks=tuple(dropped),
         candidate_runs=tuple(cand_kept),
         champion_runs=tuple(champ_kept),
+        candidate_attempts=tuple(cand_att),
+        champion_attempts=tuple(champ_att),
     )

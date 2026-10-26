@@ -57,7 +57,7 @@ def test_aa_full_select_and_confirm_false_accept_rate_at_most_5_percent() -> Non
         false_accepts += accepted(sel, conf)
     rate = false_accepts / trials
     assert rate <= 0.05, f"A/A false accept {rate:.3f} (select alone passed {select_passes})"
-    assert select_passes / trials <= 0.12  # SELECT on its own is near its 5% level
+    assert select_passes / trials <= 0.08  # SELECT alone; p-value calibration is tested separately
 
 
 def test_known_gain_detection_rate_matches_power() -> None:

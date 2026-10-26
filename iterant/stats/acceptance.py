@@ -7,16 +7,21 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from iterant.contracts import AcceptanceThresholds, RunResult, Split
-from iterant.stats.bootstrap import DEFAULT_RESAMPLES, paired_bootstrap
 from iterant.stats.pairing import Pairing, final_attempts, pair_runs
+from iterant.stats.signflip import DEFAULT_RESAMPLES, paired_signflip
 
 # Guards compare sums of ints and means of floats; this absorbs float rounding at an
 # exact boundary (115 vs 100 * 1.15 must pass).
 _EPS = 1e-9
 
+# More refused/infra-errored task pairs than this share of all tasks rejects the
+# candidate: a verdict on few surviving tasks is not a verdict on the pack.
+MAX_DROPPED_FRACTION = 0.10
+
 
 class Reason(StrEnum):
     NO_PAIRED_TASKS = "no_paired_tasks"
+    TOO_MANY_DROPPED = "too_many_dropped"
     DELTA_BELOW_MIN = "delta_below_min"  # SELECT: delta < delta_min
     NOT_POSITIVE = "not_positive"  # CONFIRM: delta <= 0
     P_TOO_HIGH = "p_too_high"
@@ -46,21 +51,19 @@ def _rate(runs: Sequence[RunResult], attr: str) -> float:
     return sum(getattr(r, attr) for r in finals) / len(finals) if finals else 0.0
 
 
-def _mean(values: Sequence[float]) -> float:
-    return sum(values) / len(values) if values else 0.0
-
-
 def _guards(
     pairing: Pairing,
     candidate: Sequence[RunResult],
     champion: Sequence[RunResult],
     t: AcceptanceThresholds,
 ) -> list[tuple[Reason, str]]:
-    """Cost and wall time use the kept tasks' final runs (same tasks in both arms);
-    refusal and infra-error rates use every final run, including dropped tasks."""
+    """Cost and wall time count every attempt (retries included) of the kept tasks,
+    per final run, so a refused first try that cost money still counts; refusal and
+    infra-error rates use every final run, including dropped tasks."""
     out: list[tuple[Reason, str]] = []
-    c_cost = _mean([r.usd_micros for r in pairing.candidate_runs])
-    h_cost = _mean([r.usd_micros for r in pairing.champion_runs])
+    n_c, n_h = len(pairing.candidate_runs) or 1, len(pairing.champion_runs) or 1
+    c_cost = sum(r.usd_micros for r in pairing.candidate_attempts) / n_c
+    h_cost = sum(r.usd_micros for r in pairing.champion_attempts) / n_h
     if c_cost > h_cost * (1 + t.max_cost_increase) * (1 + _EPS):
         out.append(
             (
@@ -69,8 +72,8 @@ def _guards(
                 f"+ {t.max_cost_increase:.0%}",
             )
         )
-    c_wall = _mean([r.wall_s for r in pairing.candidate_runs])
-    h_wall = _mean([r.wall_s for r in pairing.champion_runs])
+    c_wall = sum(r.wall_s for r in pairing.candidate_attempts) / n_c
+    h_wall = sum(r.wall_s for r in pairing.champion_attempts) / n_h
     if c_wall > h_wall * (1 + t.max_wall_increase) * (1 + _EPS):
         out.append(
             (
@@ -98,7 +101,7 @@ def _decide(
     n_resamples: int,
 ) -> Decision:
     pairing = pair_runs(candidate, champion, split=stage)
-    boot = paired_bootstrap(pairing.deltas, seed=seed, n_resamples=n_resamples)
+    boot = paired_signflip(pairing.deltas, seed=seed, n_resamples=n_resamples)
     fails: list[tuple[Reason, str]] = []
     if boot.n == 0:
         fails.append((Reason.NO_PAIRED_TASKS, "no task has a scored run in both arms"))
@@ -112,6 +115,15 @@ def _decide(
         p_max = t.holdout_p
     if boot.n and not boot.p < p_max:
         fails.append((Reason.P_TOO_HIGH, f"p {boot.p:.4f} is not < {p_max}"))
+    n_all = boot.n + pairing.n_dropped
+    if pairing.n_dropped > MAX_DROPPED_FRACTION * n_all:
+        fails.append(
+            (
+                Reason.TOO_MANY_DROPPED,
+                f"{pairing.n_dropped} of {n_all} tasks dropped (refused/infra-error) "
+                f"> {MAX_DROPPED_FRACTION:.0%}",
+            )
+        )
     fails.extend(_guards(pairing, candidate, champion, t))
     return Decision(
         stage=stage,
@@ -135,8 +147,10 @@ def decide_select(
 ) -> Decision:
     """SELECT: ``delta >= delta_min`` and ``p < select_p``, plus the guards.
 
-    ``candidate`` and ``champion`` are the two arms' runs from one batch of
-    ``select`` tasks.
+    ``candidate`` and ``champion`` are the two arms' runs (all attempts) from one batch
+    of ``select`` tasks. ``seed`` should be derived per stage and per candidate, so
+    SELECT and CONFIRM never reuse one random stream. Production uses the default
+    ``n_resamples``.
     """
     return _decide(
         Split.SELECT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples
@@ -152,7 +166,8 @@ def decide_confirm(
     n_resamples: int = DEFAULT_RESAMPLES,
 ) -> Decision:
     """CONFIRM: holdout ``delta > 0`` and ``p < holdout_p``, plus the guards, on fresh
-    holdout runs of both arms."""
+    holdout runs of both arms. Use a different ``seed`` than SELECT's (see
+    ``decide_select``)."""
     return _decide(
         Split.HOLDOUT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples
     )

@@ -140,3 +140,40 @@ def test_accepted_requires_both_stages(mk: MakeRun) -> None:
     bad_c, bad_h = arms(mk, [0.0] * 20, Split.HOLDOUT)
     assert not accepted(sel, decide_confirm(bad_c, bad_h, seed=0))
     assert not accepted(conf, sel)  # stages in the wrong slots
+
+
+def test_cost_guard_counts_retried_attempts(mk: MakeRun) -> None:
+    gains = [0.2, 0.1] * 20
+    cand, champ = arms(mk, gains)
+    # a refused first try that cost 5000 on one task, then a clean retry
+    cand[0] = mk("t0", None, refusal=True, usd=5000, attempt=0)
+    cand.append(mk("t0", 0.7, attempt=1, usd=1000))
+    d = decide_select(cand, champ, seed=0)
+    # (39*1000 + 1000 + 5000) / 40 finals = 1125 <= 1150: still fine
+    assert d.accepted
+    cand.append(mk("t1", None, refusal=True, usd=20000, attempt=0))
+    cand[1] = mk("t1", 0.6, attempt=1, usd=1000)
+    assert Reason.COST_GUARD in decide_select(cand, champ, seed=0).reasons
+
+
+def test_too_many_dropped_tasks_rejects(mk: MakeRun) -> None:
+    gains = [0.2, 0.1] * 20
+    cand, champ = arms(mk, gains)
+    for i in range(5):  # 5 of 45 tasks (11%) refused in the candidate
+        cand.append(mk(f"x{i}", None, refusal=True))
+        champ.append(mk(f"x{i}", 0.5, cand="h"))
+    d = decide_select(cand, champ, seed=0)
+    assert Reason.TOO_MANY_DROPPED in d.reasons and d.n_dropped == 5
+    # 4 of 44 (9.1%) passes this check (the refusal guard still fires)
+    d = decide_select(cand[:-1], champ[:-1], seed=0)
+    assert Reason.TOO_MANY_DROPPED not in d.reasons
+
+
+def test_missing_task_and_identical_arms_raise(mk: MakeRun) -> None:
+    import pytest
+
+    cand, champ = arms(mk, [0.1] * 30)
+    with pytest.raises(ValueError):
+        decide_select(cand[:10], champ, seed=0)
+    with pytest.raises(ValueError):
+        decide_select(cand, cand, seed=0)

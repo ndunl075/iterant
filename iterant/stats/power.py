@@ -4,7 +4,13 @@ Model: per rep, the two arms disagree on a fraction ``discordance`` of tasks (th
 mean squared difference between paired runs; for 0/1 scores, the chance the two
 runs differ). With true gain ``g`` the per-task difference has variance ``d - g^2``.
 Averaging ``reps`` reps divides that by ``reps``, which assumes the disagreement is
-run noise, not a persistent per-task effect. The test is a one-sided z test.
+run noise, not a persistent per-task effect. If tasks differ persistently between
+arms, real power at ``reps > 1`` is lower than reported here. The test is a
+one-sided z test (the sign-flip test in use is close to it for these sizes).
+
+Exact figures at 15% discordance, k=1, power 0.8, alpha 0.05: +10 pts needs 87
+tasks, +5 needs 365, +3 needs 1,025. ARCHITECTURE.md section 4 rounds these to ~80, ~360
+and ~1,000.
 """
 
 from __future__ import annotations

@@ -70,7 +70,7 @@ def test_estimate_hand_computed(mk: MakeRun) -> None:
     assert e.run_variance == pytest.approx(0.3)  # 1.5 / 5 for [1,1,0,1,0,0]
     assert e.discordance == pytest.approx((0 + 1.0 + 0) / 3)  # 2 * var_within, averaged
     assert e.discordance_from_reps
-    assert e.usd_per_run == pytest.approx(0.003)  # 3000 micros mean
+    assert e.usd_per_run == pytest.approx(0.003)  # 18000 micros / 6 final runs
     assert e.select_detectable_gain == pytest.approx(
         smallest_detectable_gain(80, 1 / 3, 2, t.select_p)
     )
@@ -90,3 +90,8 @@ def test_estimate_single_rep_falls_back_and_ignores_failed_runs(mk: MakeRun) -> 
     assert e.n_tasks == 3
     with pytest.raises(ValueError):
         estimate([mk("c", None, infra=True)])
+
+
+def test_estimate_usd_per_run_is_per_final_run(mk: MakeRun) -> None:
+    runs = [mk("a", None, refusal=True, usd=3000), mk("a", 1.0, attempt=1, usd=1000)]
+    assert estimate(runs).usd_per_run == pytest.approx(0.004)  # 4000 micros / 1 final run

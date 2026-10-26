@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import PurePosixPath
 
 import pytest
+
 from iterant.contracts import (
     ARCHIVE_DDL,
     AcceptanceThresholds,

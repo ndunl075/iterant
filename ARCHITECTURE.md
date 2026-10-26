@@ -1,6 +1,6 @@
 # Iterant: architecture
 
-**Autotune for AI agents.** Point Iterant at your agent and your evals. It proposes changes to your agent's prompts, tools and logic, tests each one in disposable sandboxes, and keeps only the changes that beat the current version with statistical evidence.
+**Your agent improves itself.** Point Iterant at your agent and your evals. It proposes changes to your agent's prompts, tools and logic, tests each one in disposable sandboxes, and keeps only the changes that beat the current version with statistical evidence.
 
 - **Primary use:** improve *your* agent.
 - **Side use:** a research platform for safe self-improvement. Iterant can also target its own proposer (§8).

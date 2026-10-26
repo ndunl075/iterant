@@ -2,7 +2,7 @@
 
 ## Positioning (decided 2026-10-26)
 
-- **Primary: autotune for AI agents.** Users bring an agent and evals, and Iterant keeps only the proven improvements.
+- **Primary: your agent improves itself.** Users bring an agent and evals, and Iterant keeps only the proven improvements.
 - **Side: research mode** (`iterant meta`), Iterant improving its own proposer. This brings credibility and dogfooding.
 - **Edge over DGM and SICA:** it works on *your* agent, it's statistically gated, it has a hardened TCB, and it costs ~$10 per candidate on cheap models.
 - **Main adoption risk:** users without evals. Answer: starter packs, the reference agent, `iterant estimate` warnings, and eval bootstrap in v1.
@@ -18,8 +18,8 @@
 | Null/A-A test, hidden checks, no judge, proxy key custody, Opus 5.5 high proposer | ✓ | ✓ | Unanimous |
 
 ## Open (Nico decides)
-1. License (default Apache-2.0).
-2. Tagline. Working: "Autotune for AI agents." Alternate: "It edits itself. The evals decide."
+1. ~~License~~ Decided: Apache-2.0.
+2. ~~Tagline~~ Decided: "Iterant: your agent improves itself." It is a placeholder; revisit at launch.
 3. ~~Spend~~ Decided: **$0 budget.** The project never spends money. Statistical calibration uses simulation, end-to-end runs use local models, and the paid `claude` profile ships untested by us; contributors who use it report real costs.
 
 ## Waves

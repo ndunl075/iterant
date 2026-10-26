@@ -349,6 +349,18 @@ def test_proxy_only_reaches_only_the_proxy(harness: Harness) -> None:
         assert probe(sb, CONNECT, host, str(port)) == "blocked", (host, port)
     assert harness.other.hits == 0
     # DNS on the internal net must not forward upstream (an exfiltration channel).
+    # Control: the same lookup works from a container on the default network, otherwise
+    # "failed" would only mean this host has no internet.
+    ctl = subprocess.run(
+        [harness.runtime, "run", "--rm", "--name", f"{harness.rid(sb)}-dnsctl",
+         "--label", f"iterant.sandbox.id={harness.rid(sb)}", TEST_IMAGE,
+         "python3", "-c", RESOLVE.replace("sys.argv[1]", "'example.com'")],
+        capture_output=True, text=True, timeout=120,
+    )  # fmt: skip
+    if ctl.stdout.strip() != "resolved":
+        pytest.skip(
+            "control container cannot resolve example.com (no internet): DNS leak untestable"
+        )
     assert probe(sb, RESOLVE, "example.com") == "failed"
     url = cast(ContainerSandbox, sb).proxy_url
     assert url is not None

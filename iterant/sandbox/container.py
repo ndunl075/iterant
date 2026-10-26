@@ -40,7 +40,14 @@ _ADMIN_TIMEOUT_S = 60.0
 _PULL_TIMEOUT_S = 900.0
 _NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 _HOST_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-_GONE_MARKERS = ("no such", "not found", "no container", "does not exist", "not known")
+_GONE_MARKERS = (
+    "no such",
+    "not found",
+    "no container",
+    "does not exist",
+    "not known",
+    "in progress",
+)
 
 # Run in the fresh container: needed tools exist, and the cgroup caps really applied
 # (rootless runtimes without cgroup-v2 delegation silently ignore --cpus/--pids-limit).
@@ -199,7 +206,7 @@ class ContainerSandbox:
         pidfile = f"/tmp/.exec-{secrets.token_hex(6)}.pid"
         # Each exec is its own session/process group (setsid); the inner shell records the
         # group id, so a timeout can kill exactly this exec's processes and nothing else.
-        wrapper = f'echo $$ > {pidfile}; exec sh -c "$0"'
+        wrapper = f'echo $$ > {pidfile}; sh -c "$0"; rc=$?; rm -f {pidfile}; exit $rc'
         start = time.monotonic()
         out = self._run(
             [
@@ -295,6 +302,12 @@ class ContainerBackend:
             raise SandboxError(f"{what} failed ({out.returncode}): {_text(out.stderr).strip()}")
         return out
 
+    def _run_raw(self, argv: Sequence[str]) -> RunOutput:
+        try:
+            return self._runner(argv, timeout=_ADMIN_TIMEOUT_S)
+        except OSError as e:
+            raise SandboxError(f"cannot run {self._rt}: {e}") from e
+
     def _ensure_image(self, image: str) -> None:
         # Explicit pull with its own long timeout, instead of an implicit pull in `run`.
         try:
@@ -350,14 +363,23 @@ class ContainerBackend:
                 self._run(self.relay_argv(relay, netname, host, port, ttl, label), "relay run")
                 self._run([rt, "network", "connect", self._outer_network, relay], "relay connect")
             self._run(self.run_argv(name, image, cpu, mem, disk, ttl, network, env, label), "run")
-            check = self._run([rt, "exec", name, "sh", "-c", _VERIFY_SCRIPT], "cap check")
+            check = self._run_raw([rt, "exec", name, "sh", "-c", _VERIFY_SCRIPT])
+            if check.returncode == 3:
+                raise SandboxError(
+                    "image must provide `setsid` and `sleep` (util-linux or busybox)"
+                )
+            if check.returncode != 0:
+                raise SandboxError(
+                    "cannot read cgroup limits: needs cgroup v2 with cpu/pids/memory controller "
+                    f"delegation ({_text(check.stderr).strip()})"
+                )
             problem = _check_caps(_text(check.stdout), cpu, mem)
             if problem:
                 raise SandboxError(
                     f"{problem} (rootless runtimes need cgroup-v2 delegation for cpu/pids limits)"
                 )
         except BaseException:
-            for argv in reversed(teardown):
+            for argv in teardown:  # same order as destroy(): container, relay, then network
                 try:
                     self._runner(argv, timeout=_ADMIN_TIMEOUT_S)
                 except OSError:

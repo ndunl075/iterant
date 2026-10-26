@@ -260,18 +260,38 @@ def test_create_failure_cleans_up_what_it_made() -> None:
             return RunOutput(1, stderr=b"boom")
         return None
 
-    r = FakeRunner(handler)
+    live = {"relay"}  # a network cannot be removed while the relay still uses it
+    leaked: list[str] = []
+
+    def realistic(argv: list[str]) -> RunOutput | None:
+        if argv[1:3] == ["rm", "-f"] and argv[-1].endswith("-relay"):
+            live.discard("relay")
+        if argv[1:3] == ["network", "rm"] and live:
+            leaked.append(argv[-1])
+            return RunOutput(1, stderr=b"network is in use")
+        return handler(argv)
+
+    r = FakeRunner(realistic)
     with pytest.raises(SandboxError, match="boom"):
         make(r).create("img", 1, 64, 64, 60)
-    rm = [c for c in r.calls if c[1:3] == ["rm", "-f"]]
-    assert len(rm) == 2 and r.find("network", "rm")
+    teardown = [c for c in r.calls if c[1:3] in (["rm", "-f"], ["network", "rm"])]
+    names = [c[-1] for c in teardown]
+    sandbox = opt(runs(r)[-1], "--name")
+    assert names == [sandbox, f"{sandbox}-relay", f"{sandbox}-net"]  # network last
+    assert not leaked
 
 
 def test_cgroup_caps_not_applied_fails_create_and_cleans_up() -> None:
     r = FakeRunner(cgroups_ok=False)
-    with pytest.raises(SandboxError, match="cgroup"):
+    with pytest.raises(SandboxError, match="cgroup v2"):
         make(r).create("img", 1, 64, 64, 60, net="default-deny")
     assert r.find("rm", "-f")
+
+    def no_setsid(argv: list[str]) -> RunOutput | None:
+        return RunOutput(3) if argv[-1].endswith("memory.max") else None
+
+    with pytest.raises(SandboxError, match="setsid"):
+        make(FakeRunner(no_setsid)).create("img", 1, 64, 64, 60, net="default-deny")
 
     def wrong_cpu(argv: list[str]) -> RunOutput | None:
         if argv[-1].endswith("memory.max"):
@@ -308,7 +328,7 @@ def test_exec_argv_and_result() -> None:
     assert (res.exit_code, res.stdout, res.stderr, res.timed_out) == (3, "out", "err", False)
     c = r.find("echo hi")[0]
     assert c[:2] == ["podman", "exec"] and "setsid" in c and c[-1] == "echo hi"
-    assert "echo $$ >" in c[-2]  # records its process-group id
+    assert "echo $$ >" in c[-2] and "rm -f" in c[-2]  # records its group id, removes it after
     with pytest.raises(ValueError):
         sb.exec("true", 0)
 

@@ -19,10 +19,10 @@ from iterant.packs import (
     verify,
 )
 
-REPO = Path(__file__).resolve().parents[2]
-# Pinned: fails if any byte of the starter pack changes (line endings included).
+SYNTHETIC = Path(__file__).resolve().parent / "synthetic"
+# Pinned: fails if any byte of the synthetic pack changes (line endings included).
 # Update on purpose only, when the pack is regenerated.
-PINNED_FIXTURE_HASH = "d514f87bddc7a99b07f53325349f7f3cf269ede24654d6ba051732de27646b84"
+PINNED_FIXTURE_HASH = "0151b44a930b9cee450c7d4921d5b9a55220ff73d4b6ed6a31cac79776ac080e"
 
 
 def make_pack(root: Path, n: int = 12, tags: tuple[str, ...] = ("a", "b")) -> Path:
@@ -32,7 +32,8 @@ def make_pack(root: Path, n: int = 12, tags: tuple[str, ...] = ("a", "b")) -> Pa
         d = root / "tasks" / f"t{i:03d}"
         d.mkdir(parents=True)
         (d / "input.json").write_text(json.dumps({"q": i}), encoding="utf-8")
-        (d / "check").write_text("exit 0\n", encoding="utf-8")
+        (d / "run").write_text("echo {}\n", encoding="utf-8")
+        (d / "check").write_text("{}\n", encoding="utf-8")
         (d / "task.toml").write_text(f'tags = ["{tags[i % len(tags)]}"]\n', encoding="utf-8")
     split_pack(root, seed=1)
     return root
@@ -49,7 +50,14 @@ def test_load_roundtrip(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "victim",
-    ["tasks/t003/input.json", "tasks/t003/check", "tasks/t003/task.toml", "pack.toml", "NOTICE"],
+    [
+        "tasks/t003/input.json",
+        "tasks/t003/check",
+        "tasks/t003/run",
+        "tasks/t003/task.toml",
+        "pack.toml",
+        "NOTICE",
+    ],
 )
 def test_hash_changes_with_any_file(tmp_path: Path, victim: str) -> None:
     root = make_pack(tmp_path / "p")
@@ -135,6 +143,10 @@ def test_load_errors(tmp_path: Path) -> None:
     (root / "tasks" / "t000" / "check").unlink()
     with pytest.raises(PackError, match="missing check"):
         load_pack(root)
+    root = make_pack(tmp_path / "s")
+    (root / "tasks" / "t000" / "run").unlink()
+    with pytest.raises(PackError, match="missing run"):
+        load_pack(root)
     root = make_pack(tmp_path / "q")
     (root / "splits.json").unlink()
     with pytest.raises(PackError, match="splits.json"):
@@ -142,7 +154,8 @@ def test_load_errors(tmp_path: Path) -> None:
     root = make_pack(tmp_path / "r")
     (root / "tasks" / "extra").mkdir()
     (root / "tasks" / "extra" / "input.json").write_bytes(b"{}")
-    (root / "tasks" / "extra" / "check").write_bytes(b"")
+    (root / "tasks" / "extra" / "run").write_bytes(b"")
+    (root / "tasks" / "extra" / "check").write_bytes(b"{}")
     with pytest.raises(PackError, match="does not list exactly"):
         load_pack(root)
     with pytest.raises(PackError, match="pack.toml"):
@@ -210,10 +223,8 @@ def test_split_pack_persists_and_is_pinned_by_hash(tmp_path: Path) -> None:
     assert load_pack(root).content_hash != h
 
 
-def test_starter_fixture_pack() -> None:
-    root = REPO / "packs" / "bigcodebench" / "pack"
-    pack = load_pack(root)
-    assert pack.name == "bigcodebench-mini" and len(pack.tasks) == 20
+def test_synthetic_fixture_pack() -> None:
+    pack = load_pack(SYNTHETIC)
+    assert pack.name == "synthetic" and len(pack.tasks) == 20
     assert {t.split for t in pack.tasks} == set(Split)
-    assert (root / "LICENSE.upstream").is_file() and (root / "NOTICE").is_file()
     assert pack.content_hash == PINNED_FIXTURE_HASH

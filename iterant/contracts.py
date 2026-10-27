@@ -521,11 +521,22 @@ class ArchiveTampered(RuntimeError):
 
 
 class UnsupportedSchemaVersion(ArchiveTampered):
-    """``user_version`` is one this build has no reference schema for, so it cannot be checked."""
+    """``user_version`` is one this build has no reference schema for, so it cannot be checked
+    (typically an archive written by a newer Iterant). ``version`` is that ``user_version``."""
+
+    def __init__(self, message: str, version: int = 0) -> None:
+        super().__init__(message)
+        self.version = version
 
 
 # Planner statistics tables ``ANALYZE`` may add; the only ``sqlite_`` objects not in the DDL.
-_SQLITE_STAT_TABLES: Final = ("sqlite_stat1", "sqlite_stat2", "sqlite_stat3", "sqlite_stat4")
+# Only SQLite's own DDL for them is accepted (analyze.c): a rewritten stat table is reported.
+_SQLITE_STAT_DDL: Final = {
+    "sqlite_stat1": "CREATE TABLE sqlite_stat1(tbl,idx,stat)",
+    "sqlite_stat2": "CREATE TABLE sqlite_stat2(tbl,idx,sampleno,sample)",
+    "sqlite_stat3": "CREATE TABLE sqlite_stat3(tbl,idx,neq,nlt,ndlt,sample)",
+    "sqlite_stat4": "CREATE TABLE sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)",
+}
 
 
 @functools.cache
@@ -541,12 +552,12 @@ def _expected_schema(version: int) -> frozenset[tuple[str, str, str, str]]:
 
 
 def _schema_objects(con: sqlite3.Connection) -> list[tuple[str, str, str, str]]:
-    rows = con.execute(
-        "SELECT type, name, tbl_name, sql FROM sqlite_master"
-        " WHERE NOT (type = 'table' AND name IN (?, ?, ?, ?))",
-        _SQLITE_STAT_TABLES,
-    ).fetchall()
-    return [(str(t), str(n), str(tn), str(q)) for t, n, tn, q in rows]
+    rows = con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master").fetchall()
+    return [
+        (str(t), str(n), str(tn), str(q))
+        for t, n, tn, q in rows
+        if not (t == "table" and _SQLITE_STAT_DDL.get(str(n)) == q)
+    ]
 
 
 def verify_archive_schema(con: sqlite3.Connection) -> None:
@@ -556,8 +567,9 @@ def verify_archive_schema(con: sqlite3.Connection) -> None:
     An extra, missing or altered object is tampering: a dropped or edited append-only trigger,
     a trigger that silently ignores inserts, a stripped CHECK constraint, or every table
     dropped from an initialised archive. A brand-new file (``user_version`` 0, no objects) is
-    accepted: the schema is created next. A ``user_version`` newer than this build knows is
-    left to the archive layer's ``SchemaVersionError``.
+    accepted: the schema is created next. A ``user_version`` this build has no reference schema
+    for (for example one written by a newer Iterant) raises ``UnsupportedSchemaVersion``, a
+    subclass of ``ArchiveTampered``: callers that want a different message catch it first.
 
     Detection only: anyone who can write the file can also rewrite rows and restore the
     original schema text (a hash chain over rows is future work).
@@ -572,7 +584,8 @@ def verify_archive_schema(con: sqlite3.Connection) -> None:
     elif version not in SCHEMA_DDL_BY_VERSION:
         raise UnsupportedSchemaVersion(
             f"archive schema version {version} is not one this build knows"
-            f" ({', '.join(map(str, SCHEMA_DDL_BY_VERSION))}); refusing to open it unverified"
+            f" ({', '.join(map(str, SCHEMA_DDL_BY_VERSION))}); refusing to open it unverified",
+            version,
         )
     expected = _expected_schema(version)
     got = frozenset(found)
@@ -838,6 +851,10 @@ class AcceptanceThresholds:
     # test gives p < ``noise_guard_p`` (see ``iterant.stats.acceptance``).
     noise_guard_p: float = 0.05
     noise_guard_margin: float = 0.02
+    # Champion-side guard: close the batch when more than this share of the champion arm's
+    # first attempts in SELECT or CONFIRM are refusals (refusals score 0, so a refusing
+    # champion lets any candidate win). Not a calibration parameter.
+    max_champion_refusal_rate: float = 0.2
     max_diff_lines: int = 400  # PROPOSE kill rule
     smoke_tasks: int = 5  # SMOKE runs this many train tasks, 1 rep
 
@@ -851,6 +868,8 @@ class AcceptanceThresholds:
             raise ValueError("guard increases must be >= 0")
         if not 0.0 < self.noise_guard_p <= 1.0 or not 0.0 <= self.noise_guard_margin <= 1.0:
             raise ValueError("noise_guard_p must be in (0, 1] and noise_guard_margin in [0, 1]")
+        if not 0.0 <= self.max_champion_refusal_rate <= 1.0:
+            raise ValueError("max_champion_refusal_rate must be within [0, 1]")
         counts = (
             self.select_tasks,
             self.select_reps,

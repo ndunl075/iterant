@@ -121,13 +121,6 @@ def test_row3_nonsense_max_tokens_never_admits(proxy: Proxy, bad: object) -> Non
     assert isinstance(result, Rejection), result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=(ValueError, OverflowError),
-    reason="HOLE: max_tokens NaN/Infinity makes Proxy.admit raise (num() calls int(nan)) instead "
-    "of returning a Rejection; iterant/proxy/jsonutil.py:24 via iterant/proxy/rules.py:176. "
-    "Fails closed (no upstream call, no spend) but the server drops the connection with no reply.",
-)
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
 def test_row3_non_finite_max_tokens_is_a_rejection_not_a_crash(proxy: Proxy, bad: float) -> None:
     import json
@@ -139,14 +132,6 @@ def test_row3_non_finite_max_tokens_is_a_rejection_not_a_crash(proxy: Proxy, bad
     assert isinstance(result, Rejection), result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,  # the final cap assertion; admit itself must not raise
-    reason="HOLE: the per-run cap reserves only max_tokens of OUTPUT at admit "
-    "(iterant/proxy/core.py:180-183); the request's input size is never reserved, so one huge "
-    "prompt (up to the 8 MiB body limit, ~2M input tokens) is admitted and then settles far "
-    "past the run cap. Concurrent big calls multiply the overshoot.",
-)
 def test_row3_one_huge_prompt_cannot_blow_through_the_run_cap(proxy: Proxy) -> None:
     import json
 

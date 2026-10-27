@@ -124,13 +124,27 @@ def test_background_process_holding_the_pipes_does_not_hang_exec(guest: Any) -> 
 
 
 def test_long_commands_go_through_a_script_file(
-    guest: Any, monkeypatch: pytest.MonkeyPatch
+    guest: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(guest, "SHORT_CMD_MAX", 50)
+    # Private script dir: the shared /tmp may hold other runs' .cmd-* files.
+    private = tmp_path / "scripts"
+    private.mkdir()
+    real_mkstemp = guest.tempfile.mkstemp
+    made: list[str] = []
+
+    def mkstemp(*a: Any, **k: Any) -> tuple[int, str]:
+        k["dir"] = str(private)
+        fd, name = real_mkstemp(*a, **k)
+        made.append(name)
+        return fd, name
+
+    monkeypatch.setattr(guest.tempfile, "mkstemp", mkstemp)
     cmd = "echo " + "x" * 5000
     _, out, _ = run_exec(guest, cmd)
     assert out == b"x" * 5000 + b"\n"
-    assert not any(p.name.startswith(".cmd-") for p in Path("/tmp").iterdir())  # cleaned up
+    assert len(made) == 1  # it did use a script file
+    assert list(private.iterdir()) == []  # and cleaned it up
 
 
 def test_spawn_failure_is_a_result_not_a_refusal(

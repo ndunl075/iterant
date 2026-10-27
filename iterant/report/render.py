@@ -74,7 +74,8 @@ def _thresholds(t: AcceptanceThresholds) -> str:
         f"p &lt; {_e(t.select_p)}. "
         f"CONFIRM: delta &gt; 0, p &lt; {_e(t.holdout_p)}. "
         f"Guards: cost &le; +{_e(f'{t.max_cost_increase:.0%}')}, "
-        f"wall time &le; +{_e(f'{t.max_wall_increase:.0%}')}, first-try refusal and infra rates not clearly worse."
+        f"wall time &le; +{_e(f'{t.max_wall_increase:.0%}')}, "
+        "first-try refusal and infra rates not clearly worse."
     )
 
 

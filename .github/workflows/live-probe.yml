@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
-      MODEL: qwen2.5:3b
+      MODEL: qwen2.5:7b
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -28,6 +28,8 @@ jobs:
           (ollama serve > logs/ollama.log 2>&1 &)
           for i in $(seq 1 30); do curl -fs http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
           ollama pull "$MODEL"
+          (python3 .github/scripts/logproxy.py logs/upstream.jsonl &)
+          sleep 2
           ollama list
       - name: Prepare agent repo
         run: |
@@ -42,10 +44,11 @@ jobs:
         run: |
           A="$RUNNER_TEMP/agent"
           set +e
-          run() { echo "=== $* ==="; date; "$@" 2>&1 | tee -a "logs/$LOGN.log"; echo "EXIT ${PIPESTATUS[0]} for $LOGN"; date; }
-          LOGN=estimate run uv run iterant estimate --backend podman --split select --tasks 20 --reps 2 "$A"
-          LOGN=aatest run uv run iterant aa-test --backend podman "$A"
-          LOGN=run run uv run iterant run --backend podman --generations 1 "$A"
+          run() { echo "=== $* ==="; date; "$@" 2>&1 | tee -a "logs/$LOGN.log"; rc=${PIPESTATUS[0]}; echo "EXIT $rc for $LOGN"; echo "$LOGN $rc" >> logs/exitcodes.txt; date; }
+          U=http://127.0.0.1:11435/v1
+          LOGN=estimate run uv run iterant estimate --backend podman --openai-base-url $U --split select --tasks 20 --reps 2 "$A"
+          LOGN=aatest run uv run iterant aa-test --backend podman --openai-base-url $U "$A"
+          LOGN=run run uv run iterant run --backend podman --openai-base-url $U --generations 1 "$A"
           LOGN=status run uv run iterant status "$A"
           LOGN=report run uv run iterant report "$A"
           cp -r "$A/.iterant/report" logs/report 2>/dev/null

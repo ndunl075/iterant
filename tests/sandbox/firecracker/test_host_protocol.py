@@ -18,16 +18,17 @@ Script = Callable[[socket.socket, dict[str, object], bytes], None]
 
 
 class FakeVm:
-    def __init__(self, exited: bool = False) -> None:
+    def __init__(self, exited: bool = False, code: int = 0) -> None:
         self.exited = exited
+        self.code = code
 
     def poll(self) -> int | None:
-        return 0 if self.exited else None
+        return self.code if self.exited else None
 
     def wait(self, timeout: float | None = None) -> int:
         if not self.exited:
             raise subprocess.TimeoutExpired("vm", timeout or 0)
-        return 0
+        return self.code
 
 
 class Rig:
@@ -86,7 +87,7 @@ def test_exec_result_is_mapped() -> None:
 
 def test_exec_timeout_and_truncation_flags_pass_through() -> None:
     def script(sock: socket.socket, req: dict[str, object], _: bytes) -> None:
-        reply(sock, {"ok": True, "exit": 0, "timed_out": True, "truncated": True,
+        reply(sock, {"ok": True, "exit": -1, "timed_out": True, "truncated": True,
                      "out": 0, "err": 0})  # fmt: skip
 
     res = Rig(script).sandbox.exec("x", 1)
@@ -216,3 +217,87 @@ def test_ttl_expiry_destroys_and_exec_then_raises() -> None:
 def test_exec_that_cannot_fit_in_the_ttl_is_a_timeout() -> None:
     res = Rig(exec_ok, ttl=3).sandbox.exec("x", 100)  # ttl minus the margin is <= 0
     assert res.timed_out and res.exit_code == -1
+
+
+def exec_head(**over: object) -> dict[str, object]:
+    head: dict[str, object] = {"ok": True, "exit": 0, "timed_out": False, "truncated": False,
+                               "out": 0, "err": 0}  # fmt: skip
+    head.update(over)
+    return head
+
+
+def assert_lost(rig: Rig) -> None:
+    res = rig.sandbox.exec("x", 5)
+    assert res.sandbox_lost and not res.timed_out and res.exit_code != 0
+    with pytest.raises(SandboxLost):
+        rig.sandbox.exec("true", 5)
+    with pytest.raises(SandboxLost):
+        rig.sandbox.put("/work/f", b"")
+
+
+def test_agent_refusing_a_running_command_is_a_lost_sandbox() -> None:
+    # The real agent never says ok:false once the command runs; a replaced one might, to turn
+    # a bad run into an infra error (which is retried or dropped instead of scored).
+    rig = Rig(lambda sock, req, _: reply(sock, {"ok": False, "errno": 0, "msg": "no"}))
+    assert_lost(rig)
+
+
+def test_deeply_nested_header_does_not_escape_exec() -> None:
+    rig = Rig(lambda sock, req, _: sock.sendall(b"[" * 60000 + bytes([10])))
+    assert_lost(rig)
+
+
+def test_oversized_header_line_fails_closed() -> None:
+    rig = Rig(lambda sock, req, _: sock.sendall(b"a" * 70000))
+    assert_lost(rig)
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"exit": 256}, {"exit": -2}, {"exit": 1.5}, {"timed_out": 1}, {"truncated": "no"},
+        {"timed_out": True, "exit": 3}, {"err": None}, {"out": True},
+    ],
+)  # fmt: skip
+def test_out_of_range_exec_fields_fail_closed(over: dict[str, object]) -> None:
+    rig = Rig(lambda sock, req, _: reply(sock, exec_head(**over)))
+    assert_lost(rig)
+
+
+def test_payload_shorter_than_the_header_says_is_lost() -> None:
+    rig = Rig(lambda sock, req, _: reply(sock, exec_head(out=10), b"abc"))
+    assert_lost(rig)
+
+
+def test_vm_killed_by_the_host_is_an_infra_error() -> None:
+    # Guest resets exit Firecracker with status 0; a host-side kill or crash does not.
+    rig = Rig(lambda sock, req, _: None, vm=FakeVm(exited=True, code=137))
+    with pytest.raises(SandboxError) as info:
+        rig.sandbox.exec("x", 5)
+    assert not isinstance(info.value, SandboxLost)
+    assert rig.killed == 0
+    rig.refuse = True
+    with pytest.raises(SandboxError) as info2:
+        rig.sandbox.put("/work/f", b"")
+    assert not isinstance(info2.value, SandboxLost)
+
+
+def test_guest_reset_with_status_zero_is_lost() -> None:
+    rig = Rig(lambda sock, req, _: None, vm=FakeVm(exited=True, code=0))
+    assert_lost(rig)
+
+
+def test_short_or_oversized_get_is_lost() -> None:
+    sb = Rig(lambda sock, req, _: reply(sock, {"ok": True, "size": 10}, b"abc")).sandbox
+    with pytest.raises(SandboxLost):
+        sb.get("/work/f")
+    sb2 = Rig(lambda sock, req, _: reply(sock, {"ok": True, "size": 1 << 40})).sandbox
+    with pytest.raises(SandboxLost):
+        sb2.get("/work/f")
+
+
+def test_command_longer_than_the_cap_is_refused_before_sending() -> None:
+    rig = Rig(exec_ok)
+    with pytest.raises(ValueError):
+        rig.sandbox.exec("x" * ((1 << 20) + 1), 5)
+    assert rig.sandbox.exec("x" * (1 << 20), 5).exit_code == 3

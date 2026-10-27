@@ -10,26 +10,26 @@ host user, so the guest sees a non-root, non-sandbox owner and the file system i
 anyway), and device nodes under ``/dev`` are dropped (the guest mounts devtmpfs).
 """
 
-# The host checker may run on a platform without these POSIX APIs (e.g. Windows).
-# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
-# pyright: reportUnknownArgumentType=false
-
 from __future__ import annotations
 
 import hashlib
 import os
 import secrets
 import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 from iterant.sandbox.container import SandboxError
+from iterant.sandbox.firecracker.sandbox import remove_tree
 
 GUEST_DIR = "/.iterant"
 GUEST_INIT = f"{GUEST_DIR}/init"
 GUEST_PY = f"{GUEST_DIR}/guest.py"
 SANDBOX_UID = 10001
+FORMAT_VERSION = 2  # bump when _prepare_tree or the mke2fs options change: invalidates the cache
 _SHELL_INIT = (
     "#!/bin/sh\n"
     "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n"
@@ -49,6 +49,7 @@ def guest_source() -> str:
 
 def guest_digest() -> str:
     h = hashlib.sha256()
+    h.update(f"v{FORMAT_VERSION}".encode())
     h.update(_SHELL_INIT.encode())
     h.update(guest_source().encode())
     return h.hexdigest()[:12]
@@ -126,25 +127,45 @@ def _export_tree(runtime: str, image: str, tree: Path, ctr: str) -> None:
         subprocess.run([runtime, "rm", "-f", ctr], capture_output=True, timeout=_ADMIN_TIMEOUT_S)
 
 
+def _host_uid() -> int:
+    if sys.platform == "win32":
+        raise SandboxError("the firecracker backend needs Linux")
+    return os.getuid()
+
+
+def _open_up_and_strip(root: Path) -> None:
+    """Make every file readable by the builder (mke2fs reads them as this user) and drop
+    setuid/setgid bits. Directories are fixed before they are listed, so mode 000 is fine."""
+    stack = [root]
+    while stack:
+        d = stack.pop()
+        os.chmod(d, (os.lstat(d).st_mode | 0o700) & ~0o6000)
+        with os.scandir(d) as it:
+            entries = list(it)
+        for e in entries:
+            st = e.stat(follow_symlinks=False)
+            if stat.S_ISDIR(st.st_mode):
+                stack.append(Path(e.path))
+            elif stat.S_ISREG(st.st_mode):
+                os.chmod(e.path, (st.st_mode | 0o600) & ~0o6000)
+
+
 def _prepare_tree(tree: Path) -> None:
-    if os.getuid() == SANDBOX_UID:
+    if _host_uid() == SANDBOX_UID:
         raise SandboxError(f"the host user must not have uid {SANDBOX_UID} (the guest sandbox uid)")
-    if not any(os.path.lexists(tree / d / "python3") for d in _PY_DIRS):
-        raise SandboxError("the image must provide python3 (the guest agent is Python)")
-    if not os.path.lexists(tree / "bin" / "sh"):
-        raise SandboxError("the image must provide /bin/sh")
     for name in _SKELETON:
         p = tree / name
         if p.is_symlink() or (p.exists() and not p.is_dir()):
             raise SandboxError(f"/{name} in the image is not a plain directory")
         p.mkdir(exist_ok=True)
-    for dirpath, dirnames, filenames in os.walk(tree):
-        for name in (*dirnames, *filenames):
-            path = os.path.join(dirpath, name)
-            st = os.lstat(path)
-            if not os.path.islink(path) and st.st_mode & 0o6000:
-                os.chmod(path, st.st_mode & ~0o6000)
+    _open_up_and_strip(tree)
+    if not any(os.path.lexists(tree / d / "python3") for d in _PY_DIRS):
+        raise SandboxError("the image must provide python3 (the guest agent is Python)")
+    if not os.path.lexists(tree / "bin" / "sh"):
+        raise SandboxError("the image must provide /bin/sh")
     guest = tree / GUEST_DIR.lstrip("/")
+    if os.path.lexists(guest):
+        raise SandboxError(f"{GUEST_DIR} already exists in the image")
     guest.mkdir(mode=0o755)
     (guest / "init").write_text(_SHELL_INIT)
     os.chmod(guest / "init", 0o755)
@@ -179,19 +200,22 @@ def build_rootfs(runtime: str, image: str, cache_dir: Path, name_prefix: str) ->
     """Return the cached ext4 for ``image``, building it first if needed."""
     cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     iid = image_id(runtime, image)
-    final = cache_dir / f"rootfs-{iid[:32]}-{guest_digest()}.ext4"
+    final = cache_dir / f"rootfs-{iid}-{guest_digest()}.ext4"
     if final.exists():
         return final
     work = Path(tempfile.mkdtemp(prefix="build-", dir=cache_dir))
     try:
         tree = work / "tree"
         tree.mkdir()
-        _export_tree(runtime, image, tree, f"{name_prefix}-rootfs-{secrets.token_hex(4)}")
+        _export_tree(runtime, iid, tree, f"{name_prefix}-rootfs-{secrets.token_hex(4)}")
         _prepare_tree(tree)
         size_mib = int(_tree_bytes(tree) * 1.3) // (1024 * 1024) + 64
         img = work / "rootfs.ext4"
         make_ext4(img, size_mib, label="iterant-root", source=tree)
         os.replace(img, final)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        try:
+            remove_tree(str(work))
+        except OSError:
+            pass
     return final

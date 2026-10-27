@@ -1,15 +1,13 @@
 """One running Firecracker microVM: host side of the guest agent protocol (see ``guest.py``).
 
 Trust: the guest agent runs as the sandbox user, so a command can kill or replace it. The host
-therefore treats every guest answer as untrusted data and fails closed. A guest that vanishes,
-hangs or answers garbage is the candidate's doing (``sandbox_lost``), never an infra error; only
-failures on the host side of the line (no way to reach a VM that is still running) raise a
-plain ``SandboxError``.
+therefore treats every guest answer as untrusted data and fails closed. Once a command has
+been sent, a guest that vanishes, hangs, refuses or answers garbage is the candidate's doing
+(``sandbox_lost``), never an infra error. Only failures on the host side of the line raise a
+plain ``SandboxError``: a VM that is still running but unreachable, and a VM process that died
+with a non-zero status (a guest reset exits Firecracker with status 0; a host-side kill or a
+Firecracker crash does not).
 """
-
-# The host checker may run on a platform without these POSIX APIs (e.g. Windows).
-# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
-# pyright: reportUnknownArgumentType=false
 
 from __future__ import annotations
 
@@ -17,15 +15,17 @@ import errno
 import json
 import logging
 import os
+import selectors
 import shutil
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from iterant.contracts import ExecResult
 from iterant.sandbox.container import SandboxError, SandboxLost
@@ -35,9 +35,12 @@ log = logging.getLogger(__name__)
 CONTROL_PORT = 5000
 PROXY_VSOCK_PORT = 1025
 MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+MAX_COMMAND_CHARS = 1 << 20  # the guest runs anything over ~100 KB from a script file
 EXEC_TTL_MARGIN_S = 5.0  # exec never runs closer than this to the ttl
 EXEC_ANSWER_SLACK_S = 15.0  # the agent enforces the timeout; this much extra before "hung"
 VM_EXIT_WAIT_S = 3.0  # a guest whose agent died powers off within this long
+RELAY_MAX_CONNS = 64  # per sandbox: each costs two relay threads, two fds and a proxy thread
+RELAY_IDLE_S = 300.0  # no byte either way for this long ends the connection
 _IO_TIMEOUT_S = 120.0
 _HEADER_MAX = 65536
 
@@ -50,12 +53,22 @@ class VmProcess(Protocol):
 
 
 class _Gone(Exception):
-    """The guest answered nothing sensible: it died, hung or spoke garbage."""
+    """The guest connection ended early: the agent (or the whole VM) is gone."""
+
+
+class _Garbage(_Gone):
+    """The guest answered something no agent would: only a replaced agent does that."""
 
 
 def _require_abs(path: str) -> None:
     if not path.startswith("/") or "\0" in path:
         raise ValueError(f"sandbox path must be absolute, got {path!r}")
+
+
+def _unix_socket() -> socket.socket:
+    if sys.platform == "win32":
+        raise SandboxError("the firecracker backend needs Linux")
+    return socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 
 
 class Conn:
@@ -94,9 +107,11 @@ class Conn:
     def line(self) -> bytes:
         while (i := self._buf.find(b"\n")) < 0:
             if len(self._buf) > _HEADER_MAX:
-                raise _Gone("oversized header line")
+                raise _Garbage("oversized header line")
             if not self._fill():
                 raise _Gone("connection closed before a full line")
+        if i > _HEADER_MAX:
+            raise _Garbage("oversized header line")
         out = bytes(self._buf[:i])
         del self._buf[: i + 1]
         return out
@@ -110,25 +125,34 @@ class Conn:
         return out
 
     def header(self) -> dict[str, Any]:
+        """One JSON object line. The line is at most 64 KiB; anything the parser rejects
+        (syntax, depth, size) is garbage."""
         try:
             obj = json.loads(self.line())
-        except ValueError as e:
-            raise _Gone(f"unparseable header: {e}") from e
+        except (ValueError, RecursionError, MemoryError) as e:
+            raise _Garbage(f"unparseable header: {type(e).__name__}") from e
         if not isinstance(obj, dict):
-            raise _Gone("header is not an object")
-        return obj  # type: ignore[return-value]
+            raise _Garbage("header is not an object")
+        return cast("dict[str, Any]", obj)
 
 
-def _int_field(head: dict[str, Any], key: str, limit: int) -> int:
+def _int_field(head: dict[str, Any], key: str, low: int, high: int) -> int:
     val = head.get(key)
-    if not isinstance(val, int) or isinstance(val, bool) or not 0 <= val <= limit:
-        raise _Gone(f"bad {key!r} in header: {val!r}")
+    if not isinstance(val, int) or isinstance(val, bool) or not low <= val <= high:
+        raise _Garbage(f"bad {key!r} in header: {val!r}")
+    return val
+
+
+def _bool_field(head: dict[str, Any], key: str) -> bool:
+    val = head.get(key)
+    if not isinstance(val, bool):
+        raise _Garbage(f"bad {key!r} in header: {val!r}")
     return val
 
 
 def connect_vsock_uds(uds_path: str, deadline: float) -> Conn:
     """Open a stream to the guest's control port through Firecracker's vsock unix socket."""
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock = _unix_socket()
     conn = Conn(sock, deadline)
     try:
         sock.settimeout(max(deadline - time.monotonic(), 0.1))
@@ -202,12 +226,12 @@ class FirecrackerSandbox:
     def _open(self, budget: float) -> Conn:
         return self._connect(time.monotonic() + budget)
 
-    def _vm_exited(self) -> bool:
+    def _vm_exit_code(self) -> int | None:
+        """Exit status of the VM process, waiting briefly for a dying guest; None if running."""
         try:
-            self._vm.wait(timeout=VM_EXIT_WAIT_S)
+            return self._vm.wait(timeout=VM_EXIT_WAIT_S)
         except subprocess.TimeoutExpired:
-            return False
-        return True
+            return None
 
     def _mark_lost(self) -> SandboxLost:
         self._lost = True
@@ -218,11 +242,21 @@ class FirecrackerSandbox:
         return SandboxLost(f"sandbox {self._name} was lost to the command that ran in it")
 
     def _failure(self, what: str, err: BaseException) -> SandboxError:
-        """Classify a transport failure. Only the host can fail to reach a *running* VM; a VM
-        that is gone, hung or garbling was broken from inside, by a command."""
+        """Classify a transport failure.
+
+        The guest powers itself off (Firecracker exits 0) when its agent dies, so a VM gone
+        with status 0, a hung guest, or one answering garbage was broken from inside, by a
+        command: lost. A VM process that died with a non-zero status, or a running VM that
+        cannot be reached, is the host's problem: infra."""
         if self._dead:
             return SandboxError(f"sandbox {self._name} was destroyed or expired during {what}")
-        if isinstance(err, (_Gone, TimeoutError)) or self._vm_exited():
+        if isinstance(err, (_Garbage, TimeoutError)):
+            code = self._vm.poll()  # a hung or lying guest is still running
+        else:
+            code = self._vm_exit_code()
+        if code is not None and code != 0:
+            return SandboxError(f"{what} failed: the VM process died with status {code}")
+        if code == 0 or isinstance(err, (_Gone, TimeoutError)):
             return self._mark_lost()
         return SandboxError(f"{what} failed: cannot reach the running VM: {err}")
 
@@ -232,17 +266,16 @@ class FirecrackerSandbox:
         _require_abs(path)
         self._alive()
         req = json.dumps({"op": "put", "path": path, "size": len(data)}).encode() + b"\n"
+        conn: Conn | None = None
         try:
             conn = self._open(_IO_TIMEOUT_S)
-        except (OSError, _Gone) as e:
-            raise self._failure(f"put {path}", e) from e
-        try:
             conn.send(req + data)
             head = conn.header()
         except (OSError, _Gone, TimeoutError) as e:
             raise self._failure(f"put {path}", e) from e
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
         if head.get("ok") is not True:
             raise SandboxError(f"put {path} failed: {head.get('msg')}")
 
@@ -250,21 +283,20 @@ class FirecrackerSandbox:
         _require_abs(path)
         self._alive()
         req = json.dumps({"op": "get", "path": path}).encode() + b"\n"
+        conn: Conn | None = None
         try:
             conn = self._open(_IO_TIMEOUT_S)
-        except (OSError, _Gone) as e:
-            raise self._failure(f"get {path}", e) from e
-        try:
             conn.send(req)
             head = conn.header()
             if head.get("ok") is True:
-                data = conn.exact(_int_field(head, "size", MAX_OUTPUT_BYTES))
+                data = conn.exact(_int_field(head, "size", 0, MAX_OUTPUT_BYTES))
             else:
                 data = b""
         except (OSError, _Gone, TimeoutError) as e:
             raise self._failure(f"get {path}", e) from e
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
         if head.get("ok") is not True:
             code = head.get("errno")
             if code == errno.ENOENT:
@@ -283,14 +315,16 @@ class FirecrackerSandbox:
 
         Returned, never raised: a timeout (the agent kills the command's whole process group),
         truncated output, a non-zero exit, an OOM kill, pids exhaustion, and the command
-        killing the guest agent or the guest, or hanging it past the timeout (``sandbox_lost``;
-        later calls raise ``SandboxLost``). A timeout also results when the ttl leaves no room.
-        Raised as ``SandboxError``: the sandbox was already destroyed or past its ttl
-        (including a destroy or ttl expiry racing this exec), or the host cannot reach a VM
-        that is still running.
+        killing the guest agent or the guest, or hanging, refusing or garbling it
+        (``sandbox_lost``; later calls raise ``SandboxLost``). A timeout also results when the
+        ttl leaves no room. Raised as ``SandboxError``: the sandbox was already destroyed or
+        past its ttl (including a destroy or ttl expiry racing this exec), or the host cannot
+        reach a VM that is still running or lost it to a host-side kill.
         """
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
+        if len(cmd) > MAX_COMMAND_CHARS:
+            raise ValueError(f"command longer than {MAX_COMMAND_CHARS} characters")
         self._alive()
         room = self._deadline - time.monotonic() - EXEC_TTL_MARGIN_S
         if room <= 0:
@@ -304,20 +338,22 @@ class FirecrackerSandbox:
             conn.set_deadline(time.monotonic() + timeout + EXEC_ANSWER_SLACK_S)
             conn.send(req)
             head = conn.header()
+            # The command is running: the agent answers with a result or not at all, so a
+            # refusal or any out-of-range field is the agent's replacement talking.
             if head.get("ok") is not True:
-                raise SandboxError(f"exec failed in the guest agent: {head.get('msg')}")
-            n_out = _int_field(head, "out", MAX_OUTPUT_BYTES)
-            n_err = _int_field(head, "err", MAX_OUTPUT_BYTES)
-            code = head.get("exit")
-            if not isinstance(code, int) or isinstance(code, bool):
-                raise _Gone(f"bad exit code {code!r}")
+                raise _Garbage(f"agent refused a running command: {head.get('msg')!r}")
+            n_out = _int_field(head, "out", 0, MAX_OUTPUT_BYTES)
+            n_err = _int_field(head, "err", 0, MAX_OUTPUT_BYTES)
+            timed_out = _bool_field(head, "timed_out")
+            truncated = _bool_field(head, "truncated")
+            code = _int_field(head, "exit", -1 if timed_out else 0, -1 if timed_out else 255)
             out, err = conn.exact(n_out), conn.exact(n_err)
         except (OSError, _Gone, TimeoutError) as e:
             wall = time.monotonic() - start
             failure = self._failure("exec", e)
             if isinstance(failure, SandboxLost):
-                return ExecResult(-1 if isinstance(e, TimeoutError) else 137, "", "",
-                                  isinstance(e, TimeoutError), wall, False, True)  # fmt: skip
+                hung = isinstance(e, TimeoutError)
+                return ExecResult(-1 if hung else 137, "", "", hung, wall, False, True)
             raise failure from e
         finally:
             if conn is not None:
@@ -325,14 +361,13 @@ class FirecrackerSandbox:
         wall = time.monotonic() - start
         if self._dead:
             raise SandboxError(f"sandbox {self._name} was destroyed or expired during exec")
-        timed_out = head.get("timed_out") is True
         return ExecResult(
-            -1 if timed_out else code,
+            code,
             out.decode("utf-8", errors="replace"),
             err.decode("utf-8", errors="replace"),
             timed_out,
             wall,
-            head.get("truncated") is True,
+            truncated,
             False,
         )
 
@@ -381,18 +416,34 @@ class FirecrackerSandbox:
 
 class ProxyRelay:
     """Host end of the one allowed guest route: the guest's vsock connections to the proxy
-    port arrive on ``<uds>_<port>``; each is piped to the single proxy endpoint, nothing else."""
+    port arrive on ``<uds>_<port>``; each is piped to the single proxy endpoint, nothing else.
 
-    def __init__(self, uds_path: str, host: str, port: int) -> None:
+    A command can open vsock connections to the host port directly, so the relay is bounded:
+    at most ``max_conns`` at once (extra ones are closed at once) and a connection with no
+    traffic for ``idle_s`` is closed. Without that, a flood would exhaust the orchestrator's
+    threads and file descriptors for every sandbox."""
+
+    def __init__(
+        self,
+        uds_path: str,
+        host: str,
+        port: int,
+        *,
+        max_conns: int = RELAY_MAX_CONNS,
+        idle_s: float = RELAY_IDLE_S,
+    ) -> None:
         self._target = (host, port)
         self._path = uds_path
-        self._srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._idle_s = idle_s
+        self._slots = threading.BoundedSemaphore(max_conns)
+        self._srv = _unix_socket()
         self._srv.bind(uds_path)
-        self._srv.listen(32)
+        self._srv.listen(max_conns)
         self._closed = False
         self._lock = threading.Lock()
         self._open: set[socket.socket] = set()
-        threading.Thread(target=self._accept_loop, daemon=True).start()
+        self._thread = threading.Thread(target=self._accept_loop, daemon=True)
+        self._thread.start()
 
     def _accept_loop(self) -> None:
         while True:
@@ -400,12 +451,24 @@ class ProxyRelay:
                 guest, _ = self._srv.accept()
             except OSError:
                 return
-            threading.Thread(target=self._serve, args=(guest,), daemon=True).start()
+            if not self._slots.acquire(blocking=False):
+                guest.close()
+                continue
+            try:
+                threading.Thread(target=self._serve, args=(guest,), daemon=True).start()
+            except RuntimeError:  # cannot start a thread: refuse rather than die
+                self._slots.release()
+                guest.close()
 
     def _serve(self, guest: socket.socket) -> None:
         try:
+            self._relay(guest)
+        finally:
+            self._slots.release()
+
+    def _relay(self, guest: socket.socket) -> None:
+        try:
             up = socket.create_connection(self._target, timeout=10)
-            up.settimeout(None)
         except OSError:
             guest.close()
             return
@@ -415,59 +478,84 @@ class ProxyRelay:
                 up.close()
                 return
             self._open |= {guest, up}
-        t = threading.Thread(target=_pipe, args=(up, guest), daemon=True)
-        t.start()
-        _pipe(guest, up)
-        t.join()
-        with self._lock:
-            self._open -= {guest, up}
-        guest.close()
-        up.close()
+        # One thread per connection: wait on both ends, end it after ``idle_s`` of silence.
+        guest.settimeout(self._idle_s)
+        up.settimeout(self._idle_s)
+        sel = selectors.DefaultSelector()
+        sel.register(guest, selectors.EVENT_READ, up)
+        sel.register(up, selectors.EVENT_READ, guest)
+        try:
+            done = False
+            while not done:
+                ready = sel.select(self._idle_s)
+                if not ready:
+                    break
+                for key, _ in ready:
+                    data = cast(socket.socket, key.fileobj).recv(65536)
+                    if not data:
+                        done = True
+                        break
+                    cast(socket.socket, key.data).sendall(data)
+        except OSError:
+            pass
+        finally:
+            sel.close()
+            with self._lock:
+                self._open -= {guest, up}
+            guest.close()
+            up.close()
 
     def close(self) -> None:
         with self._lock:
             self._closed = True
             conns = list(self._open)
+        _shutdown(self._srv)  # wakes the accept thread; close() alone does not
         try:
             self._srv.close()
         except OSError:
             pass
-        for s in conns:
-            try:
-                s.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
+        _shutdown(*conns)
+        self._thread.join(timeout=5)
         Path(self._path).unlink(missing_ok=True)
 
 
-def _pipe(src: socket.socket, dst: socket.socket) -> None:
-    try:
-        while data := src.recv(65536):
-            dst.sendall(data)
-    except OSError:
-        pass
-    finally:
-        for s in (src, dst):
-            try:
-                s.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
+def _shutdown(*socks: socket.socket) -> None:
+    for s in socks:
+        try:
+            s.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
 
 def kill_process_group(proc: subprocess.Popen[bytes]) -> None:
     """SIGKILL the VM's process group (the ``timeout`` wrapper and Firecracker) and reap it."""
     if proc.poll() is None:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
+        if sys.platform == "win32":
             proc.kill()
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                proc.kill()
     try:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired as e:
         raise SandboxError(f"VM process {proc.pid} did not exit after SIGKILL") from e
 
 
+def _rm_error(func: Callable[[str], object], path: str, exc: BaseException) -> None:
+    # A directory without write/search permission blocks its own removal: open it up, retry.
+    parent = os.path.dirname(path)
+    for p in (parent, path):
+        try:
+            os.chmod(p, 0o700)
+        except OSError:
+            pass
+    func(path)
+
+
 def remove_tree(path: str) -> None:
-    shutil.rmtree(path, ignore_errors=False)
+    """Remove a tree, including directories and files with mode 000."""
+    shutil.rmtree(path, onexc=_rm_error)

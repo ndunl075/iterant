@@ -3,20 +3,20 @@
 Runs INSIDE the guest (Linux, python3 from the sandbox image, stdlib only; keep it free of
 syntax newer than Python 3.8). The host code only reads its text; it never imports it.
 
-PID 1 (root) mounts the pseudo file systems, the ``/work`` disk and a cgroup-v2 leaf carrying
-the cpu/memory/pids caps, then forks the agent and drops it to the sandbox user. If the agent
-dies (a command killed it), PID 1 powers the VM off: the host sees the VM gone and reports
-``sandbox_lost``. The agent serves one request per vsock connection:
+PID 1 (root) mounts the pseudo file systems and the ``/work`` disk, and builds a cgroup-v2
+leaf (``cmd``) carrying the cpu/memory/pids caps for commands. PID 1 and the agent stay
+outside that leaf, so a command can neither starve nor OOM them. PID 1 then forks the agent and
+drops it to the sandbox user. If the agent dies (a command killed it), PID 1 powers the VM
+off: the host sees the VM gone and reports ``sandbox_lost``. The agent serves one request per
+vsock connection:
 
     request  : one JSON line, then ``size`` raw bytes for ``put``
     response : one JSON line, then raw bytes named by the header (``get`` data, exec output)
 
-Everything the agent says is untrusted by the host: a command can kill or replace it.
+Once a command has started, the agent never answers ``ok: false``: it either returns the
+result or drops the connection (the host treats both a refusal and silence as a lost
+sandbox). Everything the agent says is untrusted by the host: a command can kill or replace it.
 """
-
-# The guest is Linux-only; the host's type checker may run on another platform.
-# pyright: basic
-# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
@@ -25,14 +25,20 @@ import ctypes
 import errno
 import json
 import os
+import selectors
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from typing import Any
+
+if sys.platform == "win32":  # keeps the type checker from analysing Linux-only calls elsewhere
+    raise ImportError("guest.py runs inside the Linux guest")
 
 AF_VSOCK = 40
 VMADDR_CID_ANY = 0xFFFFFFFF
@@ -44,6 +50,10 @@ SANDBOX_UID = 10001
 WORK = "/work"
 MAX_OUTPUT = 16 * 1024 * 1024
 MAX_GET = MAX_OUTPUT
+MAX_REQUEST_LINE = 8 * 1024 * 1024
+SHORT_CMD_MAX = 100_000  # longer commands go through a script file (argv limit is 128 KiB)
+EXIT_GRACE_S = 1.0  # after the command exits, how long to wait for output left in the pipes
+CGROUP_FD = 9  # open on cmd/cgroup.procs; the command wrapper joins the cmd cgroup through it
 PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 MS_RDONLY, MS_NOSUID, MS_NODEV, MS_NOEXEC, MS_REMOUNT, MS_BIND = 1, 2, 4, 8, 32, 4096
@@ -61,7 +71,7 @@ def _libc() -> Any:
     return lib
 
 
-LIBC: Any = _libc() if sys.platform == "linux" else None
+LIBC: Any = _libc()
 
 
 def mount(src: str, target: str, fstype: str | None, flags: int = 0, data: str = "") -> None:
@@ -108,11 +118,17 @@ def bring_up_loopback() -> None:
         sock.close()
 
 
-def setup_cgroup(cfg: dict[str, Any]) -> None:
+def setup_cgroup(cfg: dict[str, Any]) -> int:
+    """Create the ``cmd`` leaf with the caps and return an fd that moves a process into it.
+
+    PID 1 and the agent stay in the root cgroup. The agent (sandbox user) may write
+    ``cgroup.procs`` of the root and of ``cmd``; the bind mount below then hides the real root
+    from every path lookup, so commands only ever see the ``cmd`` leaf as ``/sys/fs/cgroup``.
+    """
     root = "/sys/fs/cgroup"
     mount("cgroup2", root, "cgroup2", MS_NOSUID | MS_NODEV | MS_NOEXEC)
     write_file(root + "/cgroup.subtree_control", "+cpu +memory +pids")
-    leaf = root + "/sbx"
+    leaf = root + "/cmd"
     os.mkdir(leaf)
     period = 100000
     write_file(leaf + "/cpu.max", f"{max(int(cfg['cpu'] * period), 1000)} {period}")
@@ -122,9 +138,12 @@ def setup_cgroup(cfg: dict[str, Any]) -> None:
     except OSError:  # no swap support in the kernel: nothing to cap
         pass
     write_file(leaf + "/pids.max", str(int(cfg["pids"])))
-    write_file(leaf + "/cgroup.procs", str(os.getpid()))
+    for procs in (root + "/cgroup.procs", leaf + "/cgroup.procs"):
+        os.chown(procs, SANDBOX_UID, SANDBOX_UID)
+    fd = os.open(leaf + "/cgroup.procs", os.O_WRONLY)
     # Show the leaf as the cgroup root, so `cat /sys/fs/cgroup/cpu.max` reports the caps.
     mount(leaf, root, None, MS_BIND)
+    return fd
 
 
 def init() -> None:
@@ -153,18 +172,22 @@ def init() -> None:
     os.chown(WORK, SANDBOX_UID, SANDBOX_UID)
     os.chmod(WORK, 0o700)
     bring_up_loopback()
-    setup_cgroup(cfg)
+    cg_fd = setup_cgroup(cfg)
     write_file("/proc/self/oom_score_adj", "-900")  # inherited by the agent, not by commands
     pid = os.fork()
     if pid == 0:
         try:
+            if cg_fd != CGROUP_FD:
+                os.dup2(cg_fd, CGROUP_FD, inheritable=True)
+                os.close(cg_fd)
             os.setgroups([])
             os.setgid(SANDBOX_UID)
             os.setuid(SANDBOX_UID)
-            agent(cfg)
+            agent(cfg, cgroup=True)
         except BaseException as e:
             log(f"agent failed: {e!r}")
         os._exit(1)
+    os.close(cg_fd)
     while True:  # reap orphans; when the agent is gone the sandbox is over
         try:
             done, _ = os.waitpid(-1, 0)
@@ -185,6 +208,10 @@ def poweroff() -> None:
 
 
 # ---- agent -------------------------------------------------------------------------------
+
+
+class NoReply(Exception):
+    """Drop the connection without an answer (the host reads that as a lost sandbox)."""
 
 
 def send_header(conn: socket.socket, obj: dict[str, Any]) -> None:
@@ -224,6 +251,11 @@ def do_put(conn: socket.socket, f: Any, req: dict[str, Any]) -> None:
 
 def do_get(conn: socket.socket, req: dict[str, Any]) -> None:
     try:
+        mode = os.stat(req["path"]).st_mode
+        if stat.S_ISDIR(mode):
+            raise IsADirectoryError(errno.EISDIR, "is a directory")
+        if not stat.S_ISREG(mode):  # a fifo or device would block this thread forever
+            raise OSError(errno.EINVAL, "not a regular file")
         with open(req["path"], "rb") as fh:
             size = os.fstat(fh.fileno()).st_size
             if size > MAX_GET:
@@ -240,75 +272,144 @@ def do_get(conn: socket.socket, req: dict[str, Any]) -> None:
     conn.sendall(data)
 
 
-def drain(stream: Any, sink: bytearray, cut: list[bool]) -> None:
-    # Keep the first MAX_OUTPUT bytes and keep reading so the command never blocks on a pipe.
-    while True:
-        chunk = stream.read(65536)
-        if not chunk:
-            return
-        room = max(MAX_OUTPUT - len(sink), 0)
-        sink += chunk[:room]
-        if len(chunk) > room:
-            cut[0] = True
+def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        pass
 
 
-def do_exec(conn: socket.socket, req: dict[str, Any], cfg: dict[str, Any]) -> None:
+def _pump(proc: subprocess.Popen[bytes], timeout: float) -> tuple[bytearray, bytearray, bool, bool]:
+    """Collect stdout/stderr until the command ends. Returns (out, err, truncated, timed_out).
+
+    One thread, no helper threads: nothing here can fail for lack of pids once the command
+    exists. Each stream keeps its first MAX_OUTPUT bytes and the rest is read and dropped so
+    the command never blocks on a pipe. After the main process exits, output still in the
+    pipes is collected for EXIT_GRACE_S; a background process holding the pipes open is left
+    running. A timeout kills the command's whole process group.
+    """
+    assert proc.stdout is not None and proc.stderr is not None
+    out, err = bytearray(), bytearray()
+    sinks = {proc.stdout.fileno(): out, proc.stderr.fileno(): err}
+    cut = False
+    sel = selectors.DefaultSelector()
+    sel.register(proc.stdout, selectors.EVENT_READ)
+    sel.register(proc.stderr, selectors.EVENT_READ)
+
+    def collect(limit: float) -> bool:
+        nonlocal cut
+        for key, _ in sel.select(max(min(limit, 0.2), 0.0)):
+            data = os.read(key.fd, 65536)
+            if not data:
+                sel.unregister(key.fileobj)
+                continue
+            sink = sinks[key.fd]
+            room = max(MAX_OUTPUT - len(sink), 0)
+            sink += data[:room]
+            if len(data) > room:
+                cut = True
+        return bool(sel.get_map())
+
+    deadline = time.monotonic() + timeout
+    grace_end: float | None = None
+    timed_out = False
+    while sel.get_map():
+        now = time.monotonic()
+        if grace_end is None and proc.poll() is not None:
+            grace_end = now + EXIT_GRACE_S
+        stop = deadline if grace_end is None else grace_end
+        if now >= stop:
+            timed_out = grace_end is None
+            break
+        collect(stop - now)
+    if not timed_out and proc.poll() is None:
+        try:
+            proc.wait(timeout=max(deadline - time.monotonic(), 0.001))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+    if timed_out:
+        _kill_group(proc)
+        proc.wait()
+        end = time.monotonic() + 2.0  # the kill closes the pipes; take what is left
+        while sel.get_map() and time.monotonic() < end:
+            collect(end - time.monotonic())
+    sel.close()
+    return out, err, cut, timed_out
+
+
+def do_exec(conn: socket.socket, req: dict[str, Any], cfg: dict[str, Any], cgroup: bool) -> None:
     cmd, timeout = req["cmd"], float(req["timeout"])
     env = {"PATH": PATH, "HOME": WORK, "LANG": "C.UTF-8"}
     if cfg.get("proxy_url"):
         env["ITERANT_PROXY_URL"] = cfg["proxy_url"]
-    # Commands are first in line for the OOM killer (the agent runs at -900).
-    wrapper = 'echo 1000 > /proc/self/oom_score_adj 2>/dev/null; exec /bin/sh -c "$0"'
-    start = time.monotonic()
+    # Join the cmd cgroup (fail closed: a command outside its caps must not run), then become
+    # first in line for the OOM killer (the agent runs at -900).
+    join = f"echo 0 >&{CGROUP_FD} || exit 125; " if cgroup else ""
+    prefix = join + f"exec {CGROUP_FD}>&-; " if cgroup else ""
+    wrapper = prefix + 'echo 1000 > /proc/self/oom_score_adj 2>/dev/null; exec /bin/sh "$@"'
+    script: str | None = None
+    argv = ["/bin/sh", "-c", wrapper, "sh"]
     try:
+        if len(cmd.encode()) > SHORT_CMD_MAX:
+            fd, script = tempfile.mkstemp(prefix=".cmd-", dir="/tmp")
+            with os.fdopen(fd, "w") as sf:
+                sf.write(cmd)
+            argv += [script]
+        else:
+            argv += ["-c", cmd]
         proc = subprocess.Popen(
-            ["/bin/sh", "-c", wrapper, cmd],
+            argv,
             cwd=WORK,
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
+            pass_fds=(CGROUP_FD,) if cgroup else (),
         )
     except OSError as e:  # e.g. the pids limit refused the fork: the command's doing
+        if script is not None:
+            _unlink(script)
         msg = f"cannot start command: {e}".encode()
         header = {"ok": True, "exit": 126, "timed_out": False, "truncated": False}
         send_header(conn, dict(header, out=0, err=len(msg), wall=0.0))
         conn.sendall(msg)
         return
-    out, err = bytearray(), bytearray()
-    out_cut, err_cut = [False], [False]
-    readers = [
-        threading.Thread(target=drain, args=(proc.stdout, out, out_cut), daemon=True),
-        threading.Thread(target=drain, args=(proc.stderr, err, err_cut), daemon=True),
-    ]
-    for t in readers:
-        t.start()
-    timed_out = False
+    # From here on the command is running: never answer ok:false, only a result or silence.
+    start = time.monotonic()
     try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
-        proc.wait()
-    for t in readers:
-        t.join(timeout=5)
-    rc = proc.returncode
-    code = -1 if timed_out else (128 - rc if rc < 0 else rc)
-    header = {"ok": True, "exit": code, "timed_out": timed_out}
-    header["truncated"] = out_cut[0] or err_cut[0]
-    send_header(conn, dict(header, out=len(out), err=len(err), wall=time.monotonic() - start))
-    conn.sendall(bytes(out))
-    conn.sendall(bytes(err))
+        out, err, cut, timed_out = _pump(proc, timeout)
+        out_b, err_b = bytes(out), bytes(err)  # snapshot: header and payload cannot disagree
+        rc = proc.returncode
+        code = -1 if timed_out else (128 - rc if rc < 0 else rc)
+        header = {"ok": True, "exit": code, "timed_out": timed_out, "truncated": cut}
+        send_header(
+            conn, dict(header, out=len(out_b), err=len(err_b), wall=time.monotonic() - start)
+        )
+        conn.sendall(out_b)
+        conn.sendall(err_b)
+    except BaseException as e:
+        _kill_group(proc)
+        raise NoReply(repr(e)) from e
+    finally:
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                stream.close()
+        if script is not None:
+            _unlink(script)
 
 
-def handle(conn: socket.socket, cfg: dict[str, Any]) -> None:
+def _unlink(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def handle(conn: socket.socket, cfg: dict[str, Any], cgroup: bool = False) -> None:
     try:
         f = conn.makefile("rb")
-        req = json.loads(f.readline(65536))
+        req = json.loads(f.readline(MAX_REQUEST_LINE))
         op = req["op"]
         if op == "ping":
             send_header(conn, {"ok": True})
@@ -317,9 +418,11 @@ def handle(conn: socket.socket, cfg: dict[str, Any]) -> None:
         elif op == "get":
             do_get(conn, req)
         elif op == "exec":
-            do_exec(conn, req, cfg)
+            do_exec(conn, req, cfg, cgroup)
         else:
             send_header(conn, {"ok": False, "errno": 0, "msg": "unknown op"})
+    except NoReply:
+        pass
     except Exception as e:  # a broken request must not take the agent down
         try:
             send_header(conn, {"ok": False, "errno": 0, "msg": repr(e)})
@@ -346,7 +449,17 @@ def pipe(a: socket.socket, b: socket.socket) -> None:
                 pass
 
 
+RELAY_SLOTS = threading.BoundedSemaphore(64)  # a command can flood the local relay port
+
+
 def relay_conn(local: socket.socket) -> None:
+    try:
+        _relay_conn(local)
+    finally:
+        RELAY_SLOTS.release()
+
+
+def _relay_conn(local: socket.socket) -> None:
     try:
         up = socket.socket(AF_VSOCK, socket.SOCK_STREAM)
         up.connect((VMADDR_CID_HOST, PROXY_VSOCK_PORT))
@@ -368,10 +481,13 @@ def proxy_relay() -> None:
     srv.listen(64)
     while True:
         c, _ = srv.accept()
+        if not RELAY_SLOTS.acquire(blocking=False):
+            c.close()
+            continue
         threading.Thread(target=relay_conn, args=(c,), daemon=True).start()
 
 
-def agent(cfg: dict[str, Any]) -> None:
+def agent(cfg: dict[str, Any], cgroup: bool = False) -> None:
     os.chdir(WORK)
     if cfg.get("proxy_url"):
         threading.Thread(target=proxy_relay, daemon=True).start()
@@ -380,7 +496,7 @@ def agent(cfg: dict[str, Any]) -> None:
     srv.listen(64)
     while True:
         conn, _ = srv.accept()
-        threading.Thread(target=handle, args=(conn, cfg), daemon=True).start()
+        threading.Thread(target=handle, args=(conn, cfg, cgroup), daemon=True).start()
 
 
 if __name__ == "__main__":

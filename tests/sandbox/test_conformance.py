@@ -24,7 +24,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -493,3 +493,99 @@ def test_proxy_only_reaches_only_the_proxy(harness: Harness) -> None:
     url = cast(ContainerSandbox, sb).proxy_url
     assert url is not None
     assert probe(sb, RESOLVE, url.split("/")[2].split(":")[0]) == "resolved"
+
+
+# -- firecracker-specific cases (the guest agent and the host relay have no container twin) --
+
+
+def _firecracker_only(harness: Harness) -> None:
+    if harness.runtime != "firecracker":
+        pytest.skip("firecracker-specific")
+
+
+def test_a_daemon_killing_the_agent_later_is_a_lost_sandbox(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = harness.create()
+    # The exec returns at once; a detached process then kills every process of the sandbox
+    # user, agent included. The guest powers off (Firecracker exits 0): lost, not infra.
+    res = sb.exec("(sleep 1; kill -9 -1) >/dev/null 2>&1 &", 30)
+    assert not res.sandbox_lost and res.exit_code == 0
+    time.sleep(4)
+    res = sb.exec("true", 10)
+    assert res.sandbox_lost and not res.timed_out
+    with pytest.raises(SandboxLost):
+        sb.put("/work/f", b"")
+    sb.destroy()
+
+
+def test_a_host_side_kill_is_an_infra_error_not_a_lost_sandbox(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = cast(FirecrackerSandbox, harness.create())
+    vm = cast(Any, sb)._vm  # SIGKILL the VM's process group, as a host-side kill would
+    cast(Any, os).killpg(vm.pid, 9)
+    vm.wait(timeout=10)
+    with pytest.raises(RuntimeError) as info:
+        sb.exec("true", 10)
+    assert not isinstance(info.value, SandboxLost)
+
+
+def test_background_process_holding_stdout_does_not_hang_exec(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = harness.create()
+    start = time.monotonic()
+    res = sb.exec("sleep 60 & echo started", 30)
+    assert res.stdout == "started" + chr(10) and res.exit_code == 0 and not res.timed_out
+    assert time.monotonic() - start < 10
+    assert sb.exec("echo alive", 30).stdout.strip() == "alive"
+
+
+FLOOD = """
+import socket, time
+socks = []
+for _ in range(300):
+    try:
+        s = socket.socket(40, socket.SOCK_STREAM)  # AF_VSOCK straight at the host proxy port
+        s.connect((2, 1025))
+        socks.append(s)
+    except OSError:
+        pass
+time.sleep(6)
+print(len(socks))
+"""
+
+
+def test_relay_flood_is_bounded_and_leaves_no_threads_behind(harness: Harness) -> None:
+    _firecracker_only(harness)
+    baseline = threading.active_count()
+    sb = harness.create(net="proxy-only")
+    sb.put("/work/flood.py", FLOOD.encode())
+    peak = [0]
+    stop = threading.Event()
+
+    def sample() -> None:
+        while not stop.is_set():
+            peak[0] = max(peak[0], threading.active_count())
+            time.sleep(0.05)
+
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
+    res = sb.exec("python3 /work/flood.py", 60)
+    stop.set()
+    sampler.join()
+    assert res.exit_code == 0 and not res.timed_out
+    # 64 relayed connections: one relay thread and one stub-server thread each, plus slack.
+    assert peak[0] - baseline <= 64 * 2 + 40, (peak[0], baseline)
+    sb.destroy()
+    deadline = time.monotonic() + 30
+    while threading.active_count() > baseline + 3 and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert threading.active_count() <= baseline + 3
+
+
+def test_long_commands_run(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = harness.create()
+    res = sb.exec("echo " + "x" * 200_000, 60)  # past the 128 KiB argv limit
+    assert res.exit_code == 0 and res.stdout == "x" * 200_000 + "\n"
+    with pytest.raises(ValueError):
+        sb.exec("x" * ((1 << 20) + 1), 5)

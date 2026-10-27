@@ -7,13 +7,16 @@ dest=${1:?usage: fetch-assets.sh DEST_DIR}
 
 FC_VERSION=1.12.1
 FC_SHA256=0a75e67ef6e4c540a2cf248b06822b0be9820cbba9fe19f9e0321200fe76ff6b
+FC_BIN_SHA256=b99ea49b8d8b7bfa307d3845585d6a97f7642aa17a985749900370070d8ca930  # the extracted binary; the backend checks it too
 FC_URL="https://github.com/firecracker-microvm/firecracker/releases/download/v${FC_VERSION}/firecracker-v${FC_VERSION}-x86_64.tgz"
 KERNEL_VERSION=6.1.128
 KERNEL_SHA256=27a8310b9a727517e9eb02044524b6ceb77de5728e3491b6974d5c846227ecc8
 KERNEL_URL="https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.12/x86_64/vmlinux-${KERNEL_VERSION}"
 
 [ "$(uname -m)" = x86_64 ] || { echo "only x86_64 is pinned" >&2; exit 1; }
-mkdir -p "$dest"
+# DEST must be ours alone: anything writable by others could swap the files after the check.
+mkdir -p -m 700 "$dest"
+[ -d "$dest" ] && [ -O "$dest" ] && [ "$(stat -c %a "$dest")" = 700 ]   || { echo "$dest must be a directory owned by you with mode 700" >&2; exit 1; }
 curl -fsSL -o "$dest/firecracker.tgz" "$FC_URL"
 curl -fsSL -o "$dest/vmlinux" "$KERNEL_URL"
 echo "$FC_SHA256  $dest/firecracker.tgz" | sha256sum -c - >&2
@@ -21,6 +24,7 @@ echo "$KERNEL_SHA256  $dest/vmlinux" | sha256sum -c - >&2
 tar -xzf "$dest/firecracker.tgz" -C "$dest" --strip-components=1 \
   "release-v${FC_VERSION}-x86_64/firecracker-v${FC_VERSION}-x86_64"
 mv "$dest/firecracker-v${FC_VERSION}-x86_64" "$dest/firecracker"
+echo "$FC_BIN_SHA256  $dest/firecracker" | sha256sum -c - >&2
 chmod +x "$dest/firecracker"
 echo "export ITERANT_FIRECRACKER_BIN=$dest/firecracker"
 echo "export ITERANT_FIRECRACKER_KERNEL=$dest/vmlinux"

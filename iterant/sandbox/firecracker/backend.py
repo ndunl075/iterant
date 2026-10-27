@@ -19,6 +19,7 @@ binary, ``mke2fs`` and ``podman`` or ``docker`` to export the image.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 import os
@@ -53,10 +54,34 @@ BOOT_TIMEOUT_S = 60.0
 GUEST_CID = 3
 SANDBOX_GRACE_S = 15  # the VM's own timeout outlives the host-side ttl by this much
 _LOG_TAIL = 4000
+# Pinned artifacts (see fetch-assets.sh): the extracted Firecracker v1.12.1 x86_64 binary and the
+# Firecracker CI v1.12 guest kernel vmlinux-6.1.128. The backend refuses anything else.
+FIRECRACKER_SHA256 = "b99ea49b8d8b7bfa307d3845585d6a97f7642aa17a985749900370070d8ca930"
+KERNEL_SHA256 = "27a8310b9a727517e9eb02044524b6ceb77de5728e3491b6974d5c846227ecc8"
 
 
 def kvm_usable() -> bool:
     return os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.R_OK | os.W_OK)
+
+
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _verified(path: str | None, expected: str, what: str, env: str) -> str:
+    if not path or not os.path.isfile(path):
+        raise SandboxError(f"{what} not found (set {env}; run fetch-assets.sh)")
+    try:
+        actual = _sha256(path)
+    except OSError as e:
+        raise SandboxError(f"cannot read {what} {path}: {e}") from e
+    if actual != expected:
+        raise SandboxError(f"{what} {path} does not match the pinned sha256 ({actual})")
+    return path
 
 
 def _default_cache() -> Path:
@@ -82,13 +107,21 @@ class FirecrackerBackend:
         container_runtime: str | None = None,
         sandbox_root: str | None = None,
         boot_timeout: float = BOOT_TIMEOUT_S,
+        pins: tuple[str, str] = (FIRECRACKER_SHA256, KERNEL_SHA256),
     ) -> None:
         if not _NAME_RE.fullmatch(name_prefix):
             raise ValueError("name_prefix must match [a-z0-9][a-z0-9-]* (use slugify())")
         self._prefix = name_prefix
         self._proxy = _parse_proxy(proxy_url) if proxy_url is not None else None
-        self._fc = firecracker_bin or os.environ.get(BIN_ENV) or shutil.which("firecracker")
-        self._kernel = kernel or os.environ.get(KERNEL_ENV)
+        fc_sha, kernel_sha = pins
+        self._fc = _verified(
+            firecracker_bin or os.environ.get(BIN_ENV), fc_sha, "firecracker", BIN_ENV
+        )
+        if not os.access(self._fc, os.X_OK):
+            raise SandboxError(f"firecracker binary {self._fc} is not executable")
+        self._kernel = _verified(
+            kernel or os.environ.get(KERNEL_ENV), kernel_sha, "kernel", KERNEL_ENV
+        )
         self._cache = cache_dir or _default_cache()
         self._runtime = container_runtime
         # AF_UNIX paths are limited to ~100 bytes, so sandbox dirs live under a short root.
@@ -102,10 +135,6 @@ class FirecrackerBackend:
         return found
 
     def _require_host(self) -> tuple[str, str]:
-        if not self._fc or not os.access(self._fc, os.X_OK):
-            raise SandboxError(f"firecracker binary not found (set {BIN_ENV})")
-        if not self._kernel or not os.path.isfile(self._kernel):
-            raise SandboxError(f"guest kernel not found (set {KERNEL_ENV})")
         if not kvm_usable():
             raise SandboxError("/dev/kvm is missing or not accessible to this user")
         return self._fc, self._kernel
@@ -179,11 +208,12 @@ class FirecrackerBackend:
             argv = [fc, "--no-api", "--config-file", str(cfg_path)]
             killer = shutil.which("timeout")
             if killer:  # the VM ends itself even if the host dies
-                argv = [killer, "-s", "KILL", str(math.ceil(ttl) + SANDBOX_GRACE_S), *argv]
+                limit = math.ceil(ttl + self._boot_timeout) + SANDBOX_GRACE_S  # ttl starts at boot
+                argv = [killer, "-s", "KILL", str(limit), *argv]
             with open(sbx_dir / "fc.log", "wb") as logf:
                 proc = subprocess.Popen(
                     argv, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT,
-                    cwd=sbx_dir, start_new_session=True,
+                    cwd=sbx_dir, start_new_session=True, env={"PATH": "/usr/bin:/bin"},
                 )  # fmt: skip
             vm = proc
 

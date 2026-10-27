@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -22,6 +23,11 @@ from iterant.target.genome import DENIED_DIRS, Genome, PathRejectedError, normal
 MAX_READ_BYTES = 64 * 1024
 MAX_WRITE_BYTES = 256 * 1024
 MAX_LISTED = 500
+
+
+def _lines(s: str) -> list[str]:
+    """Split after each LF only, as git does; ``str.splitlines`` also breaks on FF, CR, U+2028."""
+    return re.findall(r"[^\n]*\n|[^\n]+", s)
 
 
 class ToolError(Exception):
@@ -106,8 +112,14 @@ class Workspace:
         if len(data) > MAX_WRITE_BYTES:
             raise ToolError(f"content is larger than {MAX_WRITE_BYTES} bytes")
         full = self._root / norm
+        walked = self._root
+        for part in norm.split("/"):
+            walked = walked / part
+            if walked.is_symlink():
+                raise ToolError(f"refused: {norm} passes through a symlink")
         if full.is_dir():
             raise ToolError(f"{norm} is a directory")
+        norm = self._canonical(norm, full)
         if norm not in self._originals:
             if full.exists():
                 try:
@@ -119,6 +131,16 @@ class Workspace:
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_bytes(data)
         return f"wrote {norm} ({len(data)} bytes)"
+
+    def _canonical(self, norm: str, full: Path) -> str:
+        """The key already used for this file, if ``norm`` names the same file by another
+        spelling (case variants on a case-insensitive filesystem); else ``norm``."""
+        if full.exists():
+            for known in self._originals:
+                other = self._root / known
+                if other.exists() and os.path.samefile(full, other):
+                    return known
+        return norm
 
     # --- result -------------------------------------------------------------------
 
@@ -134,8 +156,8 @@ class Workspace:
             after = (self._root / norm).read_bytes().decode("utf-8")
             if before == after:
                 continue
-            old = (before or "").splitlines(keepends=True)
-            new = after.splitlines(keepends=True)
+            old = _lines(before or "")
+            new = _lines(after)
             out.append(f"diff --git a/{norm} b/{norm}\n")
             if before is None:
                 out.append("new file mode 100644\n")

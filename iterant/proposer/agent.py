@@ -7,6 +7,7 @@ is one proxy call, so the call token needs ``uses >= max_turns``.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,6 +22,7 @@ PROMPT_PATH = Path(__file__).with_name("prompt.md")
 MAX_HISTORY_CHARS = 20_000
 MAX_DIFF_LINES_SHOWN = 60
 MAX_HYPOTHESIS_CHARS = 300
+MAX_CONTEXT_CHARS = 400_000
 
 TOOLS: list[Obj] = [
     {
@@ -102,7 +104,13 @@ def one_line(s: str) -> str:
 
 
 class EditingProposer:
-    """``Proposer`` implementation. ``model`` and ``effort`` must equal the proposer role cap."""
+    """``Proposer`` implementation. ``model`` and ``effort`` must equal the proposer role cap.
+
+    ``propose`` returns None for no diff, a model refusal, or a conversation that outgrows
+    ``max_context_chars``. Running out of ``max_turns`` keeps the diff written so far. An
+    ``LLMError`` from the client propagates (an infra failure); ``workdir`` may then be
+    half-written, so the caller must discard it.
+    """
 
     def __init__(
         self,
@@ -113,6 +121,7 @@ class EditingProposer:
         effort: Effort,
         max_turns: int = 30,
         max_tokens: int = 16_000,
+        max_context_chars: int = MAX_CONTEXT_CHARS,
         system_prompt: str | None = None,
     ) -> None:
         self._client = client
@@ -121,6 +130,7 @@ class EditingProposer:
         self._effort: Effort = effort
         self._max_turns = max_turns
         self._max_tokens = max_tokens
+        self._max_context = max_context_chars
         self._system = (
             system_prompt if system_prompt is not None else PROMPT_PATH.read_text(encoding="utf-8")
         )
@@ -141,6 +151,8 @@ class EditingProposer:
         hypothesis = ""
         last_text = ""
         for _ in range(self._max_turns):
+            if len(json.dumps(messages)) > self._max_context:
+                return None
             resp = self._client.create(
                 {
                     "model": self._model,
@@ -152,7 +164,7 @@ class EditingProposer:
                 }
             )
             if resp.get("stop_reason") == "refusal":
-                break
+                return None
             content = arr(resp.get("content")) or []
             messages.append({"role": "assistant", "content": content})
             last_text = reply_text(resp) or last_text

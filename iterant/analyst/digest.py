@@ -64,7 +64,12 @@ def _final(results: Iterable[RunResult]) -> list[RunResult]:
 
 
 class FailureAnalyst:
-    """``digest(results, content)`` returns the failure digest text."""
+    """``digest(results, content)`` returns the failure digest text.
+
+    ``redact`` defaults to nothing. The caller must pass the pack's hidden check paths and
+    check text (and anything else that must not reach the proposer); only those strings are
+    scrubbed from model input and from the digest.
+    """
 
     def __init__(
         self,
@@ -82,6 +87,7 @@ class FailureAnalyst:
         self._client = client
         self._model = model
         self._effort: Effort = effort
+        # The orchestrator MUST pass hidden check paths/text here: nothing else removes them.
         self._redact = tuple(s for s in redact if s)
         self._threshold = pass_threshold
         self._max_failures = max_failures
@@ -159,7 +165,10 @@ class FailureAnalyst:
                 "messages": [
                     {
                         "role": "user",
-                        "content": f"Task {r.key.task}, score {(r.score or 0.0):.2f}.\n\n{excerpt}",
+                        "content": (
+                            f"Task {self.scrub(r.key.task)}, score {(r.score or 0.0):.2f}."
+                            f"\n\n{excerpt}"
+                        ),
                     }
                 ],
             }

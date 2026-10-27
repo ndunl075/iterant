@@ -289,17 +289,11 @@ class SandboxBackend(Protocol):
 
 # Every character ``str.splitlines`` treats as a line boundary (plus the lone "\r" of CRLF).
 # ``gitrefs.promote`` rejects them in a commit subject, so reject them at proposal time.
-_LINE_BREAKS: Final = (
-    "\n",
-    "\r",
-    "\x0b",
-    "\x0c",
-    "\x1c",
-    "\x1d",
-    "\x1e",
-    "\x85",
-    "\u2028",
-    "\u2029",
+_BAD_HYPOTHESIS_CHARS: Final = frozenset(
+    [
+        chr(c) for c in range(0x20) if c != 0x09
+    ]  # C0 controls except tab: newline, CR, NUL, FS/GS/RS...
+    + ["\x7f", "\x85", "\u2028", "\u2029"]
 )
 
 
@@ -313,9 +307,12 @@ class Proposal:
     def __post_init__(self) -> None:
         if not self.diff.strip():
             raise ValueError("diff must be non-empty (no diff is a PROPOSE kill, not a Proposal)")
-        hyp = self.hypothesis.strip()
-        if not hyp or any(ch in hyp for ch in _LINE_BREAKS):
-            raise ValueError("hypothesis must be a single non-empty line")
+        hyp = self.hypothesis
+        if not hyp.strip() or hyp != hyp.strip() or any(ch in _BAD_HYPOTHESIS_CHARS for ch in hyp):
+            raise ValueError(
+                "hypothesis must be a single non-empty line with no surrounding whitespace"
+                " or control characters"
+            )
 
 
 @dataclass(frozen=True)
@@ -513,47 +510,76 @@ class ProxyCall:
 
 
 class ArchiveTampered(RuntimeError):
-    """The archive's append-only triggers are missing or altered (invariant 6)."""
+    """The archive's schema, including its append-only triggers, was altered (invariant 6)."""
 
 
 @functools.cache
-def _expected_triggers() -> dict[str, str]:
-    """Trigger name -> CREATE text, exactly as SQLite stores it after running the DDL."""
+def _expected_schema(version: int) -> frozenset[tuple[str, str, str, str]]:
+    """(type, name, tbl_name, sql) of every schema object, as SQLite stores it after running
+    the DDL for ``version`` in memory."""
     con = sqlite3.connect(":memory:")
     try:
-        con.executescript(ARCHIVE_DDL)
-        rows = con.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").fetchall()
+        con.executescript(SCHEMA_DDL_BY_VERSION[version])
+        return frozenset(_schema_objects(con))
     finally:
         con.close()
-    return {str(n): str(q) for n, q in rows}
 
 
-def verify_archive_triggers(con: sqlite3.Connection) -> None:
-    """Raise ``ArchiveTampered`` unless every append-only trigger exists with its exact DDL.
+def _schema_objects(con: sqlite3.Connection) -> list[tuple[str, str, str, str]]:
+    rows = con.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    return [(str(t), str(n), str(tn), str(q)) for t, n, tn, q in rows]
 
-    A database with no tables yet (a new archive) is accepted: the schema is created next.
-    Detection only: anyone who can write the file can also rewrite it, but a dropped or
-    edited trigger (``DROP TRIGGER``, ``writable_schema``) is caught on the next open.
+
+def verify_archive_schema(con: sqlite3.Connection) -> None:
+    """Raise ``ArchiveTampered`` unless the database's whole schema (every table, index and
+    trigger: type, name and SQL) equals the reference DDL for its ``user_version``.
+
+    An extra, missing or altered object is tampering: a dropped or edited append-only trigger,
+    a trigger that silently ignores inserts, a stripped CHECK constraint, or every table
+    dropped from an initialised archive. A brand-new file (``user_version`` 0, no objects) is
+    accepted: the schema is created next. A ``user_version`` newer than this build knows is
+    left to the archive layer's ``SchemaVersionError``.
+
+    Detection only: anyone who can write the file can also rewrite rows and restore the
+    original schema text (a hash chain over rows is future work).
     """
-    if con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").fetchone() is None:
+    row = con.execute("PRAGMA user_version").fetchone()
+    version = int(row[0])
+    found = _schema_objects(con)
+    if version == 0 and not found:
         return
-    found = {
-        str(n): str(q)
-        for n, q in con.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")
-    }
-    bad = sorted(n for n, q in _expected_triggers().items() if found.get(n) != q)
-    if bad:
-        raise ArchiveTampered(
-            f"archive append-only triggers missing or altered: {', '.join(bad)};"
-            " refusing to open a possibly tampered archive"
-        )
+    if version == 0:
+        version = max(SCHEMA_DDL_BY_VERSION)  # schema written, version stamp not yet (crash)
+    elif version not in SCHEMA_DDL_BY_VERSION:
+        return
+    expected = _expected_schema(version)
+    got = frozenset(found)
+    if got == expected:
+        return
+    exp = {(t, n): q for t, n, _tn, q in expected}
+    act = {(t, n): q for t, n, _tn, q in got}
+    missing = sorted(f"{t} {n}" for (t, n) in exp.keys() - act.keys())
+    extra = sorted(f"{t} {n}" for (t, n) in act.keys() - exp.keys())
+    altered = sorted(f"{t} {n}" for (t, n) in exp.keys() & act.keys() if exp[(t, n)] != act[(t, n)])
+    parts = [
+        f"{label}: {', '.join(v)}"
+        for label, v in (("missing", missing), ("extra", extra), ("altered", altered))
+        if v
+    ]
+    raise ArchiveTampered(
+        "archive schema does not match the expected one ("
+        + ("; ".join(parts) or "table name or sql differs")
+        + "); refusing to open a possibly tampered archive"
+    )
 
 
 def open_archive(path: str | os.PathLike[str]) -> sqlite3.Connection:
     """Open the archive database with foreign keys enforced.
 
-    Raises ``ArchiveTampered`` if an existing archive's append-only triggers are missing
-    or altered.
+    Raises ``ArchiveTampered`` if an existing archive's schema (tables, indexes,
+    append-only triggers) differs from the expected one.
 
     Every connection to the archive must come from this function: SQLite ignores
     foreign keys unless ``PRAGMA foreign_keys = ON`` is set on each connection.
@@ -565,7 +591,7 @@ def open_archive(path: str | os.PathLike[str]) -> sqlite3.Connection:
         con.close()
         raise RuntimeError("could not enable SQLite foreign key enforcement")
     try:
-        verify_archive_triggers(con)
+        verify_archive_schema(con)
     except BaseException:
         con.close()
         raise
@@ -700,6 +726,9 @@ CREATE TABLE IF NOT EXISTS proxy_calls (
 """ + _append_only("proxy_calls", "id = NEW.id")
 
 ARCHIVE_DDL: Final = BATCHES_DDL + CANDIDATES_DDL + RUNS_DDL + PROMOTIONS_DDL + PROXY_CALLS_DDL
+
+# Expected schema by ``PRAGMA user_version``; see ``iterant.archive.db.SCHEMA_VERSION``.
+SCHEMA_DDL_BY_VERSION: Final[Mapping[int, str]] = {1: ARCHIVE_DDL}
 
 # --- proxy roles and profiles (§6) -------------------------------------------
 

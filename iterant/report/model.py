@@ -24,6 +24,7 @@ from typing import Any, Final
 from iterant.archive import ArchiveNotInitialized, diff_sha256
 from iterant.contracts import (
     AcceptanceThresholds,
+    ArchiveTampered,
     Candidate,
     Pack,
     Promotion,
@@ -32,6 +33,7 @@ from iterant.contracts import (
     Split,
     Stage,
     Status,
+    verify_archive_schema,
 )
 from iterant.stats.acceptance import decide_confirm, decide_select
 from iterant.stats.pairing import final_attempts
@@ -157,7 +159,12 @@ def _connect(db: Path) -> sqlite3.Connection:
             con = sqlite3.connect(f"{uri}?{flags}", uri=True, isolation_level=None)
             con.execute("BEGIN")  # one read transaction: a consistent snapshot
             con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            verify_archive_schema(con)  # a tampered archive must not be reported as evidence
             return con
+        except ArchiveTampered:
+            if con is not None:
+                con.close()
+            raise
         except sqlite3.DatabaseError as exc:
             if con is not None:
                 con.close()

@@ -445,3 +445,69 @@ def test_untampered_and_new_archives_open(tmp_path: Path) -> None:
         pass
     with Archive.open(tmp_path / "r") as a:
         assert a.schema_version == SCHEMA_VERSION
+
+
+def _initialised(tmp_path: Path) -> Path:
+    with Archive.open(tmp_path):
+        pass
+    return archive_path(tmp_path)
+
+
+def test_open_refuses_an_extra_trigger_that_drops_inserts(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "CREATE TRIGGER runs_swallow BEFORE INSERT ON runs BEGIN SELECT RAISE(IGNORE); END",
+    )
+    with pytest.raises(ArchiveTampered, match="extra: trigger runs_swallow"):
+        Archive.open(tmp_path)
+    with pytest.raises(ArchiveTampered):
+        open_archive(path)
+
+
+def test_open_refuses_an_edited_table_definition(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "PRAGMA writable_schema=1",
+        "UPDATE sqlite_master SET sql = replace(sql, 'CHECK (gen >= 0)', '')"
+        " WHERE type = 'table' AND name = 'batches'",
+        "PRAGMA writable_schema=0",
+    )
+    with pytest.raises(ArchiveTampered, match="altered: table batches"):
+        Archive.open(tmp_path)
+
+
+def test_open_refuses_an_initialised_archive_with_every_table_dropped(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "DROP TABLE proxy_calls",
+        "DROP TABLE promotions",
+        "DROP TABLE runs",
+        "DROP TABLE candidates",
+        "DROP TABLE batches",
+    )
+    with pytest.raises(ArchiveTampered, match="missing"):
+        Archive.open(tmp_path)  # must not silently re-initialise
+    assert _trigger_names(path) == []
+
+
+def test_report_connect_refuses_a_tampered_archive(tmp_path: Path) -> None:
+    from iterant.report import model
+
+    path = _initialised(tmp_path)
+    _tamper(path, "DROP TRIGGER runs_no_update")
+    with pytest.raises(ArchiveTampered):
+        model._connect(path)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_status_cli_reports_a_tampered_archive(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from iterant.cli.main import main
+
+    path = _initialised(tmp_path)
+    _tamper(path, "DROP TRIGGER runs_no_update")
+    assert main(["status", str(tmp_path)]) == 1
+    assert "archive integrity check failed" in capsys.readouterr().err

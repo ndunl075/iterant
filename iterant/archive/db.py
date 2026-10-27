@@ -42,7 +42,10 @@ from iterant.contracts import (
 
 ARCHIVE_RELPATH: Final = Path(".iterant") / "archive.db"
 # Stored in ``PRAGMA user_version``. Bump it and add a migration step in
-# ``_ensure_schema`` when the DDL changes.
+# ``_ensure_schema`` when the DDL changes. Also add the new version's full DDL to
+# ``contracts.SCHEMA_DDL_BY_VERSION``: every open verifies the on-disk schema against the DDL
+# for its ``user_version`` (``ArchiveTampered`` on any difference). A migration therefore keeps
+# the old version's entry (so the old schema verifies), migrates, then stamps the new version.
 SCHEMA_VERSION: Final = 1
 
 DEFAULT_BUSY_TIMEOUT: Final = 5.0

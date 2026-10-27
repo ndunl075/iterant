@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import traceback
 from collections.abc import Callable, Sequence
 
 from iterant.analyst import LLMError
-from iterant.archive import ArchiveError, GitRefError
+from iterant.archive import ArchiveError, GitRefError, SchemaVersionError
 from iterant.cli.calibrate import cmd_aa_test, cmd_estimate
 from iterant.cli.errors import (
     EXIT_BUDGET,
@@ -24,7 +25,7 @@ from iterant.cli.run import cmd_run
 from iterant.cli.runtime import RuntimeFactory, build_runtime
 from iterant.cli.settings import add_common_arguments, add_threshold_arguments
 from iterant.cli.status import cmd_status
-from iterant.contracts import ArchiveTampered, Profile, Split
+from iterant.contracts import ArchiveTampered, Profile, Split, UnsupportedSchemaVersion
 from iterant.gate import GateInfraError
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import BatchAborted, BudgetExhausted, OrchestratorBusy
@@ -118,6 +119,9 @@ def _dispatch(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     return handlers[args.handler]()
 
 
+_NEWER_ARCHIVE = "this archive was written by a newer Iterant (schema {}); upgrade Iterant"
+
+
 def _fail(message: str, code: int) -> int:
     print(f"iterant: error: {message}", file=sys.stderr)
     return code
@@ -155,8 +159,15 @@ def main(argv: Sequence[str] | None = None, *, factory: RuntimeFactory = build_r
         return _fail(f"{type(exc).__name__}: {exc}", EXIT_INFRA)
     except ConfigError as exc:
         return _fail(f"iterant.toml: {exc}", EXIT_USAGE)
+    except UnsupportedSchemaVersion as exc:
+        return _fail(_NEWER_ARCHIVE.format(exc.version), EXIT_ERROR)
     except ArchiveTampered as exc:
         return _fail(f"archive integrity check failed: {exc}", EXIT_ERROR)
+    except SchemaVersionError as exc:
+        found = re.search(r"schema version (\d+)", str(exc))
+        if found is None:
+            return _fail(f"SchemaVersionError: {exc}", EXIT_ERROR)
+        return _fail(_NEWER_ARCHIVE.format(found.group(1)), EXIT_ERROR)
     except (PackError, ArchiveError, GitRefError) as exc:
         return _fail(f"{type(exc).__name__}: {exc}", EXIT_ERROR)
     except KeyboardInterrupt:

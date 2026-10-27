@@ -27,6 +27,7 @@ from iterant.cli.lock import acquire_retrying, cli_lock
 from iterant.cli.runtime import Runtime, RuntimeFactory
 from iterant.cli.sample import make_executor, run_slots, worst_run_cost
 from iterant.cli.settings import Project, Settings, load_project, settings_from_args
+from iterant.cli.status import record_last_run
 from iterant.contracts import Profile, Split, open_archive
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import (
@@ -180,6 +181,7 @@ def _run_locked(
             rt.grader.preflight()
         except GraderPreflightError as exc:
             raise CliError(f"grader preflight failed: {exc}", EXIT_INFRA) from exc
+        record_last_run(project.repo, settings.thresholds)  # only a run that really started
         return _loop(rt, settings, args.generations)
     finally:
         rt.close()

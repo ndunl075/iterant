@@ -26,6 +26,8 @@ _P_ONLY = AcceptanceThresholds(delta_min=0.0001, select_p=0.05, holdout_p=0.2)
 # compared at this size. Without it the empirical rate sits ~8 pts below power().
 _SIZE = 0.035
 _AA_TRIALS = 400
+_POWER_TRIALS = 600  # standard error of a rate is <= 0.02; 200 trials left seeds borderline
+_POWER_TOL = 0.08  # a bracket, not a point match: bias down to about -0.06 at task_sd > 0
 _R = 100  # resamples: far fewer than production's 10,000, to keep CI fast
 
 
@@ -92,10 +94,10 @@ def test_power_monotone_in_gain() -> None:
 def test_empirical_power_matches_analytic(gain: float, task_sd: float) -> None:
     """With ``task_sd > 0`` the gain is heterogeneous across tasks (mean still ``gain``)."""
     cfg = SimConfig(gain=gain, task_effect_sd=task_sd, thresholds=_P_ONLY)
-    s = run_trials(cfg, seed=7, trials=200, n_resamples=_R, select_only=True)
+    s = run_trials(cfg, seed=7, trials=_POWER_TRIALS, n_resamples=_R, select_only=True)
     expected = analytic_power_at(s, _SIZE)
     assert expected is not None
-    assert abs(s.select_pass.rate - expected) < 0.07, (
+    assert abs(s.select_pass.rate - expected) < _POWER_TOL, (
         f"gain {gain}: observed {s.select_pass.rate:.3f} vs power() at size {_SIZE}: {expected:.3f}"
     )
     # Never meaningfully above power() at the nominal 5% size.
@@ -118,12 +120,14 @@ def test_power_near_target_at_analytic_smallest_gain() -> None:
             replace(base, gain=gain), seed=1 + i, trials=20, n_resamples=_R, select_only=True
         )
         gain = analytic_smallest_gain(s)
-    s = run_trials(replace(base, gain=gain), seed=9, trials=200, n_resamples=_R, select_only=True)
+    s = run_trials(
+        replace(base, gain=gain), seed=9, trials=_POWER_TRIALS, n_resamples=_R, select_only=True
+    )
     assert s.analytic_power is not None
     assert abs(s.analytic_power - 0.8) < 0.03
     expected = analytic_power_at(s, _SIZE)
     assert expected is not None
-    assert abs(s.select_pass.rate - expected) < 0.07
+    assert abs(s.select_pass.rate - expected) < _POWER_TOL
 
 
 def test_candidate_that_refuses_more_is_rejected() -> None:

@@ -439,7 +439,8 @@ class Orchestrator:
             try:
                 proposal = self._proposer.propose(g.champ.id, work, g.digest, self._history())
             except Exception as exc:
-                msg = f"proposer failed: {type(exc).__name__}"
+                reason = " ".join(str(exc).split())[:200]
+                msg = f"proposer failed: {type(exc).__name__}" + (f": {reason}" if reason else "")
                 self._add(g, cid, "", msg, Stage.PROPOSE, Status.ERROR)
                 return
         if proposal is None:

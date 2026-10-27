@@ -130,7 +130,7 @@ def test_none_when_there_is_no_diff(repo: Path, config) -> None:  # type: ignore
         script(fake, use("finish", hypothesis="nothing to change"))
         assert make(fake, config).propose("seed", repo, "d", []) is None
     with FakeLLM() as fake:
-        script(fake, anthropic_message("I would not change anything."))
+        fake.add(None, anthropic_message("I would not change anything."))  # also after nudges
         assert make(fake, config).propose("seed", repo, "d", []) is None
     with FakeLLM() as fake:  # rewriting a file with identical content is no diff either
         script(

@@ -26,7 +26,7 @@ from iterant.archive import Archive
 from iterant.cli.errors import EXIT_USAGE, CliError
 from iterant.cli.images import ContainerImages
 from iterant.cli.profiles import build_policy, role_models
-from iterant.cli.settings import Project, Settings
+from iterant.cli.settings import Project, Settings, llm_timeout_for
 from iterant.contracts import (
     Effort,
     Gate,
@@ -94,12 +94,13 @@ class _FreshTokenClient:
     """A ``MessagesClient`` that asks the proxy for a new single-use call token per request,
     so one client serves every call of a role (invariant 3: only tokens leave the proxy)."""
 
-    def __init__(self, base_url: str, issue: Callable[[], str]) -> None:
+    def __init__(self, base_url: str, issue: Callable[[], str], timeout: float = 300.0) -> None:
         self._base = base_url
         self._issue = issue
+        self._timeout = timeout
 
     def create(self, body: Obj) -> Obj:
-        return HttpMessagesClient(self._base, self._issue()).create(body)
+        return HttpMessagesClient(self._base, self._issue(), timeout=self._timeout).create(body)
 
     def create_many(self, bodies: Sequence[Obj]) -> list[Obj | None]:
         return [self._create_or_none(b) for b in bodies]
@@ -349,11 +350,13 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
         raise
     models = role_models(settings.profile, config.target.model)
     base = client_url(bind, port)
+    timeout = llm_timeout_for(settings)
     auditor = ProxyAuditor(
         base,
         lambda: proxy.issue_call_token(Role.AUDITOR),
         models.auditor[0],
         models.auditor[1],
+        timeout_s=timeout,
     )
     rt = Runtime(
         project=project,
@@ -365,14 +368,16 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
             project.repo, config, engine=image_engine(settings.backend), prefix=prefix
         ),
         proposer=EditingProposer(
-            _FreshTokenClient(base, lambda: proxy.issue_call_token(Role.PROPOSER)),
+            _FreshTokenClient(base, lambda: proxy.issue_call_token(Role.PROPOSER), timeout),
             config,
             model=models.proposer[0],
             effort=models.proposer[1],
             max_turns=PROPOSER_MAX_TURNS,
         ),
         gate=DiffGate(auditor, project.pack_root, protected=(config.evaluation.pack,)),
-        analyst_client=_FreshTokenClient(base, lambda: proxy.issue_call_token(Role.ANALYST)),
+        analyst_client=_FreshTokenClient(
+            base, lambda: proxy.issue_call_token(Role.ANALYST), timeout
+        ),
         analyst_model=models.analyst[0],
         analyst_effort=models.analyst[1],
     )

@@ -12,6 +12,7 @@ Conventions
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import sqlite3
@@ -286,6 +287,22 @@ class SandboxBackend(Protocol):
 # Types only. The proposer and gate workers implement them.
 
 
+# Every character ``str.splitlines`` treats as a line boundary (plus the lone "\r" of CRLF).
+# ``gitrefs.promote`` rejects them in a commit subject, so reject them at proposal time.
+_LINE_BREAKS: Final = (
+    "\n",
+    "\r",
+    "\x0b",
+    "\x0c",
+    "\x1c",
+    "\x1d",
+    "\x1e",
+    "\x85",
+    "\u2028",
+    "\u2029",
+)
+
+
 @dataclass(frozen=True)
 class Proposal:
     """PROPOSE output: a unified diff against the parent plus a one-line hypothesis."""
@@ -296,7 +313,8 @@ class Proposal:
     def __post_init__(self) -> None:
         if not self.diff.strip():
             raise ValueError("diff must be non-empty (no diff is a PROPOSE kill, not a Proposal)")
-        if not self.hypothesis.strip() or "\n" in self.hypothesis.strip():
+        hyp = self.hypothesis.strip()
+        if not hyp or any(ch in hyp for ch in _LINE_BREAKS):
             raise ValueError("hypothesis must be a single non-empty line")
 
 
@@ -494,8 +512,48 @@ class ProxyCall:
             raise ValueError("token and usd_micros values must be >= 0")
 
 
+class ArchiveTampered(RuntimeError):
+    """The archive's append-only triggers are missing or altered (invariant 6)."""
+
+
+@functools.cache
+def _expected_triggers() -> dict[str, str]:
+    """Trigger name -> CREATE text, exactly as SQLite stores it after running the DDL."""
+    con = sqlite3.connect(":memory:")
+    try:
+        con.executescript(ARCHIVE_DDL)
+        rows = con.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").fetchall()
+    finally:
+        con.close()
+    return {str(n): str(q) for n, q in rows}
+
+
+def verify_archive_triggers(con: sqlite3.Connection) -> None:
+    """Raise ``ArchiveTampered`` unless every append-only trigger exists with its exact DDL.
+
+    A database with no tables yet (a new archive) is accepted: the schema is created next.
+    Detection only: anyone who can write the file can also rewrite it, but a dropped or
+    edited trigger (``DROP TRIGGER``, ``writable_schema``) is caught on the next open.
+    """
+    if con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").fetchone() is None:
+        return
+    found = {
+        str(n): str(q)
+        for n, q in con.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")
+    }
+    bad = sorted(n for n, q in _expected_triggers().items() if found.get(n) != q)
+    if bad:
+        raise ArchiveTampered(
+            f"archive append-only triggers missing or altered: {', '.join(bad)};"
+            " refusing to open a possibly tampered archive"
+        )
+
+
 def open_archive(path: str | os.PathLike[str]) -> sqlite3.Connection:
     """Open the archive database with foreign keys enforced.
+
+    Raises ``ArchiveTampered`` if an existing archive's append-only triggers are missing
+    or altered.
 
     Every connection to the archive must come from this function: SQLite ignores
     foreign keys unless ``PRAGMA foreign_keys = ON`` is set on each connection.
@@ -506,6 +564,11 @@ def open_archive(path: str | os.PathLike[str]) -> sqlite3.Connection:
     if con.execute("PRAGMA foreign_keys").fetchone() != (1,):
         con.close()
         raise RuntimeError("could not enable SQLite foreign key enforcement")
+    try:
+        verify_archive_triggers(con)
+    except BaseException:
+        con.close()
+        raise
     return con
 
 

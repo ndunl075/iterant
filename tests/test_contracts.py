@@ -113,6 +113,9 @@ def test_proposal_and_gate_result_validation() -> None:
     for diff, hyp in (("", "h"), ("  \n", "h"), ("d", ""), ("d", "two\nlines")):
         with pytest.raises(ValueError):
             Proposal(diff, hyp)
+    for sep in ("\r", "\x0b", "\x0c", "\x1c", "\x85", "\u2028", "\u2029"):
+        with pytest.raises(ValueError):
+            Proposal("d", f"one{sep}two")
     assert GateResult(True).passed and GateResult(False, ("touches tasks/x",)).findings
     with pytest.raises(ValueError):
         GateResult(True, ("finding",))

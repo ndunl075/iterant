@@ -92,7 +92,8 @@ def _ensure_schema(con: sqlite3.Connection) -> None:
         )
     # All statements are IF NOT EXISTS, so re-running is harmless (idempotent, and
     # safe if two processes initialise at once).
-    con.executescript(ARCHIVE_DDL)
+    # One transaction, so a crash cannot leave a half-built schema that later looks tampered.
+    con.executescript(f"BEGIN;{ARCHIVE_DDL}COMMIT;")
     if version < SCHEMA_VERSION:
         # WAL lets the proxy's per-call connections write while the orchestrator reads.
         con.execute("PRAGMA journal_mode = WAL")

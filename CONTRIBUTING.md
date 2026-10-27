@@ -4,7 +4,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) section 1 (invariants) first. A PR that 
 
 ## Checks
 
-All four must pass locally and in CI:
+Set up once with `uv sync` (Python 3.12 and [uv](https://docs.astral.sh/uv/)). All four must pass locally and in CI:
 
 ```sh
 uv run pytest -q

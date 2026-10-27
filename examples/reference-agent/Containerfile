@@ -1,6 +1,9 @@
 FROM python:3.12-slim
 RUN useradd --create-home --uid 1000 agent
 WORKDIR /app
+# The sandbox runs commands from its own writable working directory, not WORKDIR, so the
+# agent package must be importable from anywhere.
+ENV PYTHONPATH=/app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .

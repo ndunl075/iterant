@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -43,7 +44,14 @@ from iterant.orchestrator import GraderLike, ImageSource
 from iterant.proposer import EditingProposer
 from iterant.proxy import CallSink, Proxy, ProxyConfig, ProxyServer
 from iterant.proxy.jsonutil import Obj
-from iterant.sandbox import DockerBackend, PodmanBackend, slugify
+from iterant.sandbox import (
+    DockerBackend,
+    FirecrackerBackend,
+    PodmanBackend,
+    SandboxError,
+    slugify,
+)
+from iterant.sandbox.firecracker.backend import kvm_usable
 
 ANTHROPIC_URL = "https://api.anthropic.com"
 PROPOSER_MAX_TURNS = 30
@@ -193,7 +201,11 @@ def default_proxy_bind(backend: str) -> str:
     podman (rootless, pasta): the relay's ``host.containers.internal`` is forwarded to the
     host's primary address, not to loopback (checked on a podman 5.7 runner), so that is the
     address to bind. docker: the ``docker0`` bridge gateway that ``host-gateway`` maps to.
+    firecracker: the relay that reaches the proxy runs on the host itself, so loopback is enough
+    (and the proxy is then not exposed to the network).
     """
+    if backend == "firecracker":
+        return "127.0.0.1"
     if backend == "docker":
         try:
             out = subprocess.run(
@@ -232,9 +244,45 @@ def client_url(bind: str, port: str) -> str:
     return f"http://[{bind}]:{port}" if ":" in bind else f"http://{bind}:{port}"
 
 
+def image_engine(backend: str) -> str:
+    """The container engine that builds the target image for ``backend``. The firecracker
+    backend boots microVMs but still builds (and exports) images with podman, else docker."""
+    if backend != "firecracker":
+        return backend
+    for engine in ("podman", "docker"):
+        if shutil.which(engine):
+            return engine
+    raise CliError(
+        "the firecracker backend builds the target image with podman (or docker), and neither "
+        "is on PATH",
+        EXIT_USAGE,
+    )
+
+
+def require_firecracker_host() -> None:
+    """Fail early, before anything is started, on a host that cannot run microVMs."""
+    if not kvm_usable():
+        raise CliError(
+            "the firecracker backend needs Linux with /dev/kvm readable and writable by this "
+            "user, and this host has none; use --backend podman (rootless) instead",
+            EXIT_USAGE,
+        )
+
+
 def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtime:
     """The real wiring. Nothing here calls a model; calls happen when commands run."""
     config = project.config
+    firecracker = settings.backend == "firecracker"
+    if firecracker:
+        require_firecracker_host()
+        image_engine("firecracker")  # fail early if no container engine is installed
+        if settings.proxy_host is not None and not is_loopback(settings.proxy_host):
+            raise CliError(
+                f"--proxy-host {settings.proxy_host!r}: the firecracker relay runs on this host "
+                "and connects to the proxy from here, so the proxy host must be a loopback "
+                "address (127.0.0.1 or localhost)",
+                EXIT_USAGE,
+            )
     defaulted = settings.proxy_bind is None
     bind = settings.proxy_bind or default_proxy_bind(settings.backend)
     if bind in WILDCARDS:
@@ -244,7 +292,7 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
             "Prefer the default bind address, or firewall the port.",
             file=sys.stderr,
         )
-    elif is_loopback(bind) and not defaulted:
+    elif is_loopback(bind) and not defaulted and not firecracker:
         print(
             f"iterant: note: --proxy-bind {bind} is loopback; sandboxes cannot reach a "
             "loopback-only proxy through rootless podman",
@@ -261,7 +309,7 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
             EXIT_USAGE,
         ) from exc
     archive = Archive.open_path(db_path)
-    if defaulted:
+    if defaulted and not firecracker:
         print(
             f"iterant: note: the proxy is reachable on {bind} from the local network "
             "(every request needs a per-run token); pass --proxy-bind to change that",
@@ -270,9 +318,14 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
     prefix = f"iterant-{slugify(project.repo.resolve().name) or 'repo'}"
     port = server.base_url.rsplit(":", 1)[1]
     try:
-        if settings.backend == "docker":
+        if firecracker:
+            host = settings.proxy_host or "127.0.0.1"
+            backend: SandboxBackend = FirecrackerBackend(
+                f"http://{host}:{port}/", name_prefix=prefix
+            )
+        elif settings.backend == "docker":
             host = settings.proxy_host or "host.docker.internal"
-            backend: SandboxBackend = DockerBackend(
+            backend = DockerBackend(
                 f"http://{host}:{port}/",
                 unsafe_container=settings.unsafe_container,
                 name_prefix=prefix,
@@ -280,10 +333,20 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
         else:
             host = settings.proxy_host or "host.containers.internal"
             backend = PodmanBackend(f"http://{host}:{port}/", name_prefix=prefix)
-    except ValueError as exc:
+    except BaseException as exc:  # whatever went wrong, nothing started here may leak
         server.stop()
         archive.close()
-        raise CliError(f"--proxy-host: {exc}", EXIT_USAGE) from exc
+        if isinstance(exc, SandboxError) and firecracker:  # pinned binary/kernel missing
+            raise CliError(
+                f"firecracker backend unavailable: {exc}. Fetch the pinned assets with "
+                "iterant/sandbox/firecracker/fetch-assets.sh and set ITERANT_FIRECRACKER_BIN "
+                "and ITERANT_FIRECRACKER_KERNEL, or use --backend podman.",
+                EXIT_USAGE,
+            ) from exc
+        if isinstance(exc, ValueError):
+            label = "firecracker backend" if firecracker else "--proxy-host"
+            raise CliError(f"{label}: {exc}", EXIT_USAGE) from exc
+        raise
     models = role_models(settings.profile, config.target.model)
     base = client_url(bind, port)
     auditor = ProxyAuditor(
@@ -298,7 +361,9 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
         proxy=proxy,
         backend=backend,
         grader=Grader(backend, project.pack, project.pack_root),
-        images=ContainerImages(project.repo, config, engine=settings.backend, prefix=prefix),
+        images=ContainerImages(
+            project.repo, config, engine=image_engine(settings.backend), prefix=prefix
+        ),
         proposer=EditingProposer(
             _FreshTokenClient(base, lambda: proxy.issue_call_token(Role.PROPOSER)),
             config,

@@ -22,7 +22,7 @@ CONFIG_NAME = "iterant.toml"
 class Settings:
     repo: Path
     profile: Profile = Profile.FREE
-    backend: str = "podman"  # "podman" or "docker"
+    backend: str = "podman"  # "podman", "docker" or "firecracker"
     unsafe_container: bool = False
     openai_base_url: str = DEFAULT_OLLAMA_URL
     thresholds: AcceptanceThresholds = field(default_factory=AcceptanceThresholds)
@@ -45,7 +45,13 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
         default=Profile.FREE.value,
         help="free: local model through Ollama, $0 (default); claude: paid, opt-in",
     )
-    p.add_argument("--backend", choices=["podman", "docker"], default="podman")
+    p.add_argument(
+        "--backend",
+        choices=["podman", "docker", "firecracker"],
+        default="podman",
+        help="sandbox backend (default podman, rootless). firecracker: microVMs; needs Linux "
+        "with /dev/kvm and the pinned assets (iterant/sandbox/firecracker/fetch-assets.sh)",
+    )
     p.add_argument(
         "--unsafe-container",
         action="store_true",

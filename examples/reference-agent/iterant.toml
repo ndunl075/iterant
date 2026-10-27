@@ -1,12 +1,17 @@
+# Free profile (the default): one local model through Ollama, $0. Pull the model first
+# (`ollama pull llama3.1:8b`). The agent reads its model from this file, and the proxy
+# rejects any other, so changing `name` is all it takes to use another local model.
+# For the paid claude profile, rewrite this file: `iterant init . --profile claude --force
+# --genome "prompts/**" --genome "tools/**" --genome agent/loop.py --pack evals/reference-pack`.
 [target]
 genome = ["prompts/**", "tools/**", "agent/loop.py"]
 image = "Containerfile"
 run = "python -m agent --task /task/input.json --out /out"
 
 [target.model]
-name = "claude-haiku-5-5"
+name = "llama3.1:8b"
 effort = "medium"
-max_usd_per_run = 0.10
+max_tokens_per_run = 200000
 
 [eval]
 pack = "evals/reference-pack"

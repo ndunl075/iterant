@@ -94,9 +94,9 @@ class DiffGate:
     ``pack_root`` is the pack directory on the trusted host (for hidden-check content).
     ``protected`` adds repo paths that are never editable, beyond ``iterant.toml`` and the
     target image; pass the ``[eval] pack`` path here. Protected paths, the pack directory,
-    ``.env*`` files, ``.git``/``.iterant`` at any depth and the repo's ``.containerignore``
-    entries are also left out of the tree uploaded to the lint/test sandbox, so the hidden
-    checks and local secrets never enter it.
+    dotenv files (``.env``, ``.env.*``, ``.envrc``, ``*.env``), ``.git``/``.iterant`` at any
+    depth and the repo's ``.containerignore`` entries are also left out of the tree uploaded to
+    the lint/test sandbox, so the hidden checks and local secrets never enter it.
 
     Limits, by design: the leak grep is textual, so a task id or check path assembled from
     pieces (``"alpha" + "-17"``, ``tasks/*/check``) gets past it. The auditor prompt names
@@ -234,15 +234,31 @@ def _path_findings(files: list[FileDiff], genome: Genome) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _is_env_name(name: str) -> bool:
+    """Dotenv-style secret files and directories. Anything starting with ``.env`` (``.env``,
+    ``.env.local``, ``.env-prod``, ``.env_local``, ``.env~``, ``.envrc.local`` ...) and anything
+    ending in ``.env`` is excluded, except look-alike words where a letter follows the prefix
+    (``.environment.md``). ``.envs`` (cookiecutter-django's directory) is listed by name.
+    ``name`` is already case-folded."""
+    if name == ".envs" or name.endswith(".env"):
+        return True
+    for prefix in (".envrc", ".env"):
+        if name.startswith(prefix):
+            rest = name[len(prefix) :]
+            if not rest or not ("a" <= rest[0] <= "z"):
+                return True
+    return False
+
+
 def _excluder(
     root: Path, hidden: Sequence[str], *, containerignore: bool = False
 ) -> Callable[[str], bool]:
     """Which repo-relative paths stay out of the patched tree (hard set) and, with
     ``containerignore``, out of the sandbox upload too.
 
-    The hard set is the pack and protected paths, ``.env*`` files and ``.git``/``.iterant``
-    at any depth. The repo's ``.containerignore`` only trims the upload: a genome file it
-    matches must still exist for ``git apply``.
+    The hard set is the pack and protected paths, dotenv files (``.env``, ``.env.*``, ``.envrc``,
+    ``*.env``) and ``.git``/``.iterant`` at any depth. The repo's ``.containerignore`` only
+    trims the upload: a genome file it matches must still exist for ``git apply``.
     """
     folded = tuple(h.casefold().strip("/") for h in hidden)
     flt = _Filter(root, hidden[0] if hidden else ".iterant") if containerignore else None
@@ -250,7 +266,7 @@ def _excluder(
     def excluded(rel: str) -> bool:
         low = rel.casefold()
         segments = low.split("/")
-        if segments[-1].startswith(".env") or any(seg in _SKIP_DIRS for seg in segments):
+        if _is_env_name(segments[-1]) or any(seg in _SKIP_DIRS for seg in segments):
             return True
         if any(low == h or low.startswith(h + "/") for h in folded):
             return True

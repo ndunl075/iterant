@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -300,3 +301,28 @@ def test_exec_heuristic() -> None:
     assert not adds_code_execution(header)  # a real file header is skipped
     assert adds_code_execution("+++ subprocess.run(x)\n")  # no `--- ` before it: an added line
     assert adds_code_execution("--- a/f\n+++ b/f\n++ os.system('x')\n")
+
+
+def test_a_failed_immutable_open_retries_as_plain_read_only(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+
+    from iterant.report import model
+
+    real = sqlite3.connect
+    uris: list[str] = []
+
+    def flaky(target: str, *a: Any, **k: Any) -> sqlite3.Connection:
+        uris.append(target)
+        con = real(target, *a, **k)
+        if "immutable=1" in target:  # a writer appeared: the immutable read sees a torn database
+            con.close()
+            raise sqlite3.DatabaseError("database disk image is malformed")
+        return con
+
+    monkeypatch.setattr(model.sqlite3, "connect", flaky)
+    index = render(db(repo), tmp_path / "out", pack=pack())
+    assert index.is_file()
+    assert any("immutable=1" in u for u in uris)
+    assert any(u.endswith("mode=ro") for u in uris)

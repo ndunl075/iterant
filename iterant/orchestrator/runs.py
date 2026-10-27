@@ -48,6 +48,7 @@ _PROBE_TIMEOUT_S = 10.0
 # A get stalled on a FIFO ends at the container backend's 120 s IO timeout; the margin keeps
 # the sandbox alive past that, plus the probe and some slack.
 _IO_TIMEOUT_S = 120.0
+_TTL_SLACK_S = 5.0  # treat a sandbox this close to its TTL as already expired
 _TTL_MARGIN_S = _IO_TIMEOUT_S + _PROBE_TIMEOUT_S + 60.0
 # One record per entry: type, hard-link count, size, path relative to the out dir, NUL-ended.
 _LIST_CMD = r"find {out} -mindepth 1 -printf '%y\t%n\t%s\t%P\0'"
@@ -107,7 +108,8 @@ def read_out(
         kind, links, size_text, rel = parts
         if kind == "d":
             continue
-        if kind != "f" or links != "1" or not size_text.isdigit() or not rel:
+        ascii_size = size_text.isascii() and size_text.isdigit()  # int() accepts other digits
+        if kind != "f" or links != "1" or not ascii_size or not rel:
             raise OutputRejected("output contains a link or special file")
         size = int(size_text)
         if size > MAX_OUT_FILE_BYTES:
@@ -152,7 +154,9 @@ class RunExecutor:
         run_command: str,
         read_input: Callable[[Task], bytes],
         config: OrchestratorConfig,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        self._clock = clock
         self._backend = backend
         self._grader = grader
         self._proxy = proxy
@@ -221,6 +225,7 @@ class RunExecutor:
             sandbox = self._backend.create(
                 image, cfg.cpu, cfg.mem, cfg.disk, sandbox_ttl(cfg), "proxy-only"
             )
+            created = self._clock()
         except Exception:
             if token is not None:
                 self._proxy.sessions.revoke_run(key)
@@ -243,11 +248,18 @@ class RunExecutor:
                 return finish(0.0, wall=agent_wall, fault="bad-output")
             except SandboxLost:
                 return finish(0.0, wall=agent_wall, fault="lost")
-            except Exception:
+            except SandboxError:
+                expired = self._clock() - created >= sandbox_ttl(cfg) - _TTL_SLACK_S
+                if expired:
+                    # the backend may have reaped it: an expired sandbox is never the agent's doing
+                    return finish(None, infra=True, wall=agent_wall)
                 if agent_wall is not None and self._runtime_healthy(image):
                     # the agent ran and a fresh sandbox is fine, so it broke this one
                     # (a delayed fork bomb, chmod 000, a FIFO ...): the candidate's doing
                     return finish(0.0, wall=agent_wall, fault="bad-output")
+                return finish(None, infra=True, wall=agent_wall)
+            except Exception:
+                # not a sandbox problem at all: an orchestrator bug, never the candidate's fault
                 return finish(None, infra=True, wall=agent_wall)
         finally:
             self._proxy.sessions.revoke_run(key)

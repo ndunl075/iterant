@@ -217,3 +217,30 @@ def test_a_wrong_answer_scores_zero_and_a_right_one_one(world):
     world.solver = lambda arm, t, n: "ok"
     r = world.executor().execute(RunKey(1, "c", "se00", 0, 1), task(world), "img:c").result
     assert r.score == 1.0 and r.usd_micros == world.RUN_COST
+
+
+def test_a_non_sandbox_exception_after_the_agent_ran_is_infra_and_never_probed(world, monkeypatch):
+    from iterant.orchestrator import runs
+
+    def boom(*a, **k):
+        raise TypeError("orchestrator bug")
+
+    monkeypatch.setattr(runs, "read_out", boom)
+    world.solver = lambda arm, t, n: "ok"
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
+    assert (r.score, r.infra_err) == (None, True)
+    assert len(world.backend.sandboxes) == 1  # no fresh-sandbox probe
+
+
+def test_an_expired_agent_sandbox_is_infra_before_any_probe(world):
+    from iterant.orchestrator.runs import sandbox_ttl
+
+    world.solver = lambda arm, t, n: "ok"
+    world.get_fails = True  # would score 0.0 if the sandbox were alive and the runtime healthy
+    ex = world.executor()
+    ttl = sandbox_ttl(OrchestratorConfig())
+    ticks = iter([0.0, ttl + 1.0, ttl + 2.0, ttl + 3.0])
+    ex._clock = lambda: next(ticks)  # pyright: ignore[reportPrivateUsage]
+    r = ex.execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
+    assert (r.score, r.infra_err) == (None, True)
+    assert len(world.backend.sandboxes) == 1

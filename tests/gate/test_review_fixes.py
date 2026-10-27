@@ -287,3 +287,35 @@ def test_long_context_line_is_fine_long_added_line_is_not(
     assert (
         run_gate(edit("prompts/system.md", "w " * 6000 + "\n")).findings[0].startswith("diff-size:")
     )
+
+
+def test_a_genome_file_that_only_looks_like_dotenv_is_editable_and_uploaded(
+    repo: Path,
+    target: TargetConfig,
+    pack: Pack,
+    make_gate: Make,
+    edit: Edit,
+    fake_backend: Any,
+) -> None:
+    (repo / "tools" / ".environment.md").write_bytes(b"notes\n")  # LF, as the diff expects
+    gate = gate_with_tests(make_gate, fake_backend)
+    assert run(gate, repo, target, pack, edit("tools/.environment.md", "new notes\n")).passed
+    member = tar_of(fake_backend).extractfile("tools/.environment.md")
+    assert member is not None and member.read().decode() == "new notes\n"
+
+
+def test_dotenv_variants_stay_out_of_the_upload(
+    repo: Path,
+    target: TargetConfig,
+    pack: Pack,
+    make_gate: Make,
+    edit: Edit,
+    fake_backend: Any,
+) -> None:
+    secrets = (".env.local", "prod.env", ".ENV", ".envrc")
+    for name in secrets:
+        (repo / "tools" / name).write_text("S=1\n", encoding="utf-8")
+    gate = gate_with_tests(make_gate, fake_backend)
+    assert run(gate, repo, target, pack, edit("prompts/system.md", GOOD)).passed
+    names = [n.casefold() for n in tar_of(fake_backend).getnames()]
+    assert not [n for n in names if n.rsplit("/", 1)[-1] in {s.casefold() for s in secrets}]

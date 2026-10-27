@@ -81,12 +81,12 @@ def test_smoke_kills_a_crash_or_timeout_the_champion_did_not_have(world):
 def test_smoke_fails_closed_when_the_outcome_store_is_lost(world):
     world.queue(world.proposal("v0", "v1", "h"))
     (world.repo / ".iterant").mkdir(exist_ok=True)
-    real = Outcomes.recorded
-    Outcomes.recorded = lambda self, b, c: set()  # type: ignore[method-assign]
+    real = Outcomes.recorded_by_cand
+    Outcomes.recorded_by_cand = lambda self, b: {}  # type: ignore[method-assign]
     try:
         res = world.orchestrator().run_generation()
     finally:
-        Outcomes.recorded = real  # type: ignore[method-assign]
+        Outcomes.recorded_by_cand = real  # type: ignore[method-assign]
     [c] = res.candidates
     assert (c.stage, c.status) == (Stage.SMOKE, Status.REJECTED)
 

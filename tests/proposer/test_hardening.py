@@ -74,7 +74,7 @@ def test_prose_reply_gets_nudged_then_edits(repo: Path, config) -> None:  # type
         fake.add(lambda b: len(b["messages"]) == 1, anthropic_message("I would change it"))
         fake.add(
             lambda b: len(b["messages"]) == 3,
-            use("write_file", path="agent/loop.py", content="def run():\n    return 2\n"),
+            use("write_file", path="prompts/new.md", content="def run():\n    return 2\n"),
         )
         fake.add(lambda b: len(b["messages"]) == 5, use("finish", hypothesis="h"))
         proposal = make(fake, config).propose("seed", repo, "d", [])
@@ -100,7 +100,7 @@ def test_no_nudge_after_a_write(repo: Path, config) -> None:  # type: ignore[no-
     with FakeLLM() as fake:
         fake.add(
             lambda b: len(b["messages"]) == 1,
-            use("write_file", path="agent/loop.py", content="y = 1\n"),
+            use("write_file", path="prompts/new.md", content="y = 1\n"),
         )
         fake.add(lambda b: len(b["messages"]) == 3, anthropic_message("done"))
         proposal = make(fake, config).propose("seed", repo, "d", [])

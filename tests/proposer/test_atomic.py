@@ -30,6 +30,7 @@ def test_a_write_that_fails_part_way_leaves_the_original_intact(
 
     monkeypatch.setattr(Path, "write_bytes", half)
     w = ws(repo)
+    w.read("prompts/system.md")
     with pytest.raises(ToolError, match="cannot write"):
         w.write("prompts/system.md", "x" * 100)
     assert target.read_bytes() == before
@@ -48,6 +49,7 @@ def test_a_failed_replace_leaves_the_original_and_no_temp_file(
 
     monkeypatch.setattr(os, "replace", boom)
     w = ws(repo)
+    w.read("prompts/system.md")
     with pytest.raises(ToolError):
         w.write("prompts/system.md", "new\n")
     assert target.read_bytes() == before
@@ -57,6 +59,7 @@ def test_a_failed_replace_leaves_the_original_and_no_temp_file(
 
 def test_a_successful_write_replaces_the_file_and_leaves_no_temp(repo: Path) -> None:
     w = ws(repo)
+    w.read("prompts/system.md")
     w.write("prompts/system.md", "new\n")
     assert (repo / "prompts" / "system.md").read_text() == "new\n"
     assert sorted(p.name for p in (repo / "prompts").iterdir()) == ["system.md"]
@@ -69,6 +72,7 @@ def test_an_executable_file_stays_executable_and_the_diff_has_no_mode_line(repo:
     target.write_text("#!/bin/sh\necho 1\n")
     target.chmod(0o755)
     w = ws(repo)
+    w.read("prompts/run.sh")
     w.write("prompts/run.sh", "#!/bin/sh\necho 2\n")
     assert target.stat().st_mode & 0o777 == 0o755
     assert "+echo 2" in w.diff()
@@ -86,7 +90,9 @@ def test_the_original_mode_is_copied_onto_the_temp_file(
         real(src, dst)
 
     monkeypatch.setattr(shutil, "copymode", spy)
-    ws(repo).write("prompts/system.md", "new\n")
+    w = ws(repo)
+    w.read("prompts/system.md")
+    w.write("prompts/system.md", "new\n")
     assert len(calls) == 1 and calls[0][0] == "system.md" and calls[0][1] != "system.md"
 
 
@@ -101,6 +107,7 @@ def test_a_copymode_failure_is_a_tool_error_and_leaves_the_original(
 
     monkeypatch.setattr(shutil, "copymode", boom)
     w = ws(repo)
+    w.read("prompts/system.md")
     with pytest.raises(ToolError, match="cannot write"):
         w.write("prompts/system.md", "new\n")
     assert target.read_bytes() == before and w.touched == ()

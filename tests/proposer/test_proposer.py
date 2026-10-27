@@ -117,6 +117,7 @@ def test_refused_edit_does_not_block_a_valid_one(repo: Path, config) -> None:  #
         script(
             fake,
             use("write_file", path="agent/other.py", content="X = 2\n"),
+            use("read_file", path="agent/loop.py"),
             use("write_file", path="agent/loop.py", content="def run():\n    return 3\n"),
             use("finish", hypothesis="loop change"),
         )
@@ -135,6 +136,7 @@ def test_none_when_there_is_no_diff(repo: Path, config) -> None:  # type: ignore
     with FakeLLM() as fake:  # rewriting a file with identical content is no diff either
         script(
             fake,
+            use("read_file", path="prompts/system.md"),
             use("write_file", path="prompts/system.md", content="You are helpful.\n"),
             use("finish", hypothesis="noop"),
         )
@@ -260,6 +262,7 @@ def test_long_hypothesis_is_capped_to_one_line(repo: Path, config) -> None:  # t
     with FakeLLM() as fake:
         script(
             fake,
+            use("read_file", path="agent/loop.py"),
             use("write_file", path="agent/loop.py", content="z = 1\n"),
             use("finish", hypothesis="word " * 200),
         )
@@ -273,6 +276,7 @@ def test_control_characters_in_a_hypothesis_are_replaced(repo: Path, config) -> 
     with FakeLLM() as fake:
         script(
             fake,
+            use("read_file", path="agent/loop.py"),
             use("write_file", path="agent/loop.py", content="z = 1\n"),
             use("finish", hypothesis="a\x00b\x1b[31m\x1dc\x7fd"),
         )
@@ -318,6 +322,7 @@ def test_case_variant_paths_share_one_original(repo: Path, config) -> None:  # t
     with FakeLLM() as fake:
         script(
             fake,
+            use("read_file", path="prompts/system.md"),
             use("write_file", path="Prompts/system.md", content="first\n"),
             use("write_file", path="prompts/system.md", content="You are helpful.\nsecond\n"),
             use("finish", hypothesis="h"),

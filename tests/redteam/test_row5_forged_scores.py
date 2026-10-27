@@ -167,25 +167,34 @@ def test_row5_archive_rows_cannot_be_rewritten_after_the_fact(world) -> None:  #
         con.close()
 
 
-def _tamper_after(world, statements: list[str]) -> bool:  # type: ignore[no-untyped-def]
-    """Run ``statements`` against a copy-free archive file, then try to rewrite a score.
-    True if the rewrite got through."""
+def _rewrite_succeeds(path, statements: list[str] | None = None) -> bool:  # type: ignore[no-untyped-def]
+    """Run ``statements`` on one connection, close it, then try the rewrite on a FRESH one
+    (SQLite caches the schema per connection, so only a reopen shows what is really on disk)."""
     import sqlite3
 
-    world.queue(world.proposal("v0", "v1", "h"))
-    world.orchestrator().run_generation()
-    con = sqlite3.connect(world.repo / ".iterant" / "archive.db", isolation_level=None)
-    try:
-        for sql in statements:
-            try:
-                con.execute(sql)
-            except sqlite3.DatabaseError:
-                pass
+    con = sqlite3.connect(path, isolation_level=None)
+    for sql in statements or []:
         try:
-            con.execute("UPDATE runs SET score = 1.0")
+            con.execute(sql)
         except sqlite3.DatabaseError:
-            return False
+            pass
+    con.close()
+    con = sqlite3.connect(path, isolation_level=None)
+    try:
+        con.execute("UPDATE runs SET score = 1.0")
         return True
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        con.close()
+
+
+def _trigger_names(path) -> list[str]:  # type: ignore[no-untyped-def]
+    import sqlite3
+
+    con = sqlite3.connect(path)
+    try:
+        return [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='trigger'")]
     finally:
         con.close()
 
@@ -198,40 +207,29 @@ def _tamper_after(world, statements: list[str]) -> bool:  # type: ignore[no-unty
     "scores, with no detection. Repro: DROP TRIGGER <runs trigger>; UPDATE runs SET score=1.",
 )
 def test_row5_dropping_the_triggers_does_not_unlock_the_archive(world) -> None:  # type: ignore[no-untyped-def]
-    import sqlite3
-
     world.queue(world.proposal("v0", "v1", "h"))
     world.orchestrator().run_generation()
     path = world.repo / ".iterant" / "archive.db"
-    con = sqlite3.connect(path, isolation_level=None)
-    names = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='trigger'")]
-    con.close()
+    names = _trigger_names(path)
     assert names
-    assert not _tamper_after_drop(world, names)
+    assert not _rewrite_succeeds(path), "control: the rewrite must be blocked before the drop"
+    assert not _rewrite_succeeds(path, [f'DROP TRIGGER "{n}"' for n in names])
 
 
-def _tamper_after_drop(world, names: list[str]) -> bool:  # type: ignore[no-untyped-def]
-    import sqlite3
-
-    con = sqlite3.connect(world.repo / ".iterant" / "archive.db", isolation_level=None)
-    try:
-        for n in names:
-            try:
-                con.execute(f'DROP TRIGGER "{n}"')
-            except sqlite3.DatabaseError:
-                pass
-        try:
-            con.execute("UPDATE runs SET score = 1.0")
-        except sqlite3.DatabaseError:
-            return False
-        return True
-    finally:
-        con.close()
-
-
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="HOLE: PRAGMA writable_schema lets a plain sqlite3 connection delete the trigger "
+    "rows from sqlite_master; after a reopen the append-only guard is gone and scores can be "
+    "rewritten, undetected.",
+)
 def test_row5_writable_schema_does_not_unlock_the_archive(world) -> None:  # type: ignore[no-untyped-def]
-    assert not _tamper_after(
-        world,
+    world.queue(world.proposal("v0", "v1", "h"))
+    world.orchestrator().run_generation()
+    path = world.repo / ".iterant" / "archive.db"
+    assert not _rewrite_succeeds(path), "control: the rewrite must be blocked before the attack"
+    assert not _rewrite_succeeds(
+        path,
         [
             "PRAGMA writable_schema=1",
             "DELETE FROM sqlite_master WHERE type='trigger'",

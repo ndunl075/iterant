@@ -1,5 +1,5 @@
 """Row 4: "Hard-code train/select answers". Stopped by the proposer being blind to select data,
-the task-ID grep, the diff auditor and holdout rotation.
+the task-ID grep and the diff auditor. (Holdout rotation: not implemented; see README.)
 
 Two halves. (a) A candidate diff that hard-codes task IDs or answers must not pass the gate.
 (b) The proposer, which writes the diffs, must never see anything but train data: not through

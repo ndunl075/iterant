@@ -47,7 +47,8 @@ is removed.
 |---|---|
 | `test_row3_non_finite_max_tokens_is_a_rejection_not_a_crash` | `max_tokens` NaN or Infinity raises inside `Proxy.admit` instead of returning a rejection |
 | `test_row3_one_huge_prompt_cannot_blow_through_the_run_cap` | the run cap reserves output tokens only; a huge prompt settles far past the cap (`iterant/proxy/core.py:180-183`) |
-| `test_row5_dropping_the_triggers_does_not_unlock_the_archive` | the append-only triggers are plain SQLite triggers; `DROP TRIGGER` then `UPDATE runs` succeeds, undetected (`iterant/contracts.py:525-530`). `PRAGMA writable_schema` does not get through (tested, passes) |
+| `test_row5_dropping_the_triggers_does_not_unlock_the_archive` | the append-only triggers are plain SQLite triggers; `DROP TRIGGER` then `UPDATE runs` succeeds, undetected (`iterant/contracts.py:525-530`). |
+| `test_row5_writable_schema_does_not_unlock_the_archive` | `PRAGMA writable_schema=1; DELETE FROM sqlite_master WHERE type='trigger'` removes the triggers; after a reopen `UPDATE runs` succeeds, undetected (same DDL, `iterant/contracts.py:525-530`) |
 
 ## Missing defenses (no test can pass; nothing to xfail)
 

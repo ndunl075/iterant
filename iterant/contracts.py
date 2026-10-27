@@ -533,7 +533,7 @@ class UnsupportedSchemaVersion(ArchiveTampered):
 # Only SQLite's own DDL for them is accepted (analyze.c): a rewritten stat table is reported.
 _SQLITE_STAT_DDL: Final = {
     "sqlite_stat1": "CREATE TABLE sqlite_stat1(tbl,idx,stat)",
-    "sqlite_stat2": "CREATE TABLE sqlite_stat2(tbl,idx,sample)",
+    "sqlite_stat2": "CREATE TABLE sqlite_stat2(tbl,idx,sampleno,sample)",
     "sqlite_stat3": "CREATE TABLE sqlite_stat3(tbl,idx,neq,nlt,ndlt,sample)",
     "sqlite_stat4": "CREATE TABLE sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)",
 }
@@ -852,12 +852,8 @@ class AcceptanceThresholds:
     noise_guard_p: float = 0.05
     noise_guard_margin: float = 0.02
     # Champion-side guard: close the batch when more than this share of the champion arm's
-    # first attempts in a stage are refusals (refusals score 0, so a refusing champion lets
-    # any candidate win). Not a calibration parameter.
-    max_champion_refusal_rate: float = 0.2
-    # Champion-side guard: close the batch when more than this share of the champion arm's
-    # first attempts in a stage are refusals (refusals score 0, so a refusing champion lets
-    # any candidate win). Not a calibration parameter.
+    # first attempts in SELECT or CONFIRM are refusals (refusals score 0, so a refusing
+    # champion lets any candidate win). Not a calibration parameter.
     max_champion_refusal_rate: float = 0.2
     max_diff_lines: int = 400  # PROPOSE kill rule
     smoke_tasks: int = 5  # SMOKE runs this many train tasks, 1 rep
@@ -872,8 +868,6 @@ class AcceptanceThresholds:
             raise ValueError("guard increases must be >= 0")
         if not 0.0 < self.noise_guard_p <= 1.0 or not 0.0 <= self.noise_guard_margin <= 1.0:
             raise ValueError("noise_guard_p must be in (0, 1] and noise_guard_margin in [0, 1]")
-        if not 0.0 <= self.max_champion_refusal_rate <= 1.0:
-            raise ValueError("max_champion_refusal_rate must be within [0, 1]")
         if not 0.0 <= self.max_champion_refusal_rate <= 1.0:
             raise ValueError("max_champion_refusal_rate must be within [0, 1]")
         counts = (

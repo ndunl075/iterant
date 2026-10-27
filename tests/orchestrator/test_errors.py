@@ -128,7 +128,7 @@ def test_refusals_never_trip_the_infra_abort(world):
 def test_a_refusing_champion_is_stopped_by_the_refusal_guard_not_the_infra_one(world):
     world.solver = solver_with(lambda a, t, n: "refuse" if a == "champ" else "")
     world.queue(world.proposal("v0", "v1", "h"))
-    with pytest.raises(InfraRateExceeded, match="champion refuses too often"):
+    with pytest.raises(InfraRateExceeded, match="refuses too often"):
         world.orchestrator(max_infra_rate=0.4).run_generation()
 
 

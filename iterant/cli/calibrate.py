@@ -454,8 +454,8 @@ def dropped_warning(result: AAResult) -> str | None:
         return None
     return (
         f"WARNING: {result.select_dropped} select and {result.confirm_dropped} confirm task(s) "
-        "had too few champion runs and were left out of the A/A resampling (usually infra "
-        "errors or refusals); the test used the remaining tasks"
+        "had too few champion runs (a slot is missing, for example after a budget stop or a "
+        "crash) and were left out of the A/A resampling; the test used the remaining tasks"
     )
 
 

@@ -176,12 +176,12 @@ def _run_locked(
     with WriterLock(project.repo):
         pass
     rt = factory(settings, project, archive_path(project.repo))
-    record_last_run(project.repo, settings.thresholds)
     try:
         try:
             rt.grader.preflight()
         except GraderPreflightError as exc:
             raise CliError(f"grader preflight failed: {exc}", EXIT_INFRA) from exc
+        record_last_run(project.repo, settings.thresholds)  # only a run that really started
         return _loop(rt, settings, args.generations)
     finally:
         rt.close()

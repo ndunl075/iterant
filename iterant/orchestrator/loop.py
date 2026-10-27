@@ -677,8 +677,13 @@ class Orchestrator:
     def _guard_champion_refusals(self, g: _Gen, split: Split) -> None:
         """Close the batch when the *champion* refuses too many tasks on its first try.
 
-        Refusals score 0, so a champion that refuses most tasks lets any candidate win.
-        Closes through the same path as the infra-rate abort."""
+        Refusals score 0, so a champion that refuses most tasks lets any candidate win. Only
+        SELECT and HOLDOUT count: SMOKE (TRAIN) never scores a candidate's refusals, so a
+        candidate could refuse there, win the scored stages, be promoted, and then have its
+        own TRAIN refusals close every later batch. First attempts, because the retry hides
+        most of a real excess (ARCHITECTURE §4). Closes through the infra-abort path."""
+        if split is Split.TRAIN:
+            return
         firsts = [
             r
             for r in self._archive.runs_for_candidate(
@@ -689,8 +694,10 @@ class Orchestrator:
         refused = sum(1 for r in firsts if r.refusal)
         if firsts and refused / len(firsts) > self._cfg.thresholds.max_champion_refusal_rate:
             raise InfraRateExceeded(
-                f"champion refuses too often ({refused} of {len(firsts)} first-attempt "
-                f"{split.value} runs were refusals); check the model or the proxy"
+                f"the current champion (gen-{g.batch.gen - 1}, {g.champ.id}) refuses too often "
+                f"({refused} of {len(firsts)} first-attempt {split.value} runs were refusals); "
+                "check the model or the proxy, or reset iterant/champion to the previous "
+                "generation"
             )
 
     def _guard_infra(self, g: _Gen, split: Split) -> None:

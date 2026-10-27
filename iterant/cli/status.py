@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -11,7 +12,14 @@ from iterant.archive import Archive, ArchiveError, ArchiveNotInitialized, archiv
 from iterant.cli.errors import EXIT_ERROR, EXIT_OK, CliError
 from iterant.cli.lock import cli_lock
 from iterant.cli.settings import thresholds_from_args
-from iterant.contracts import AcceptanceThresholds, ArchiveTampered, Batch, Candidate, open_archive
+from iterant.contracts import (
+    AcceptanceThresholds,
+    ArchiveTampered,
+    Batch,
+    Candidate,
+    Split,
+    open_archive,
+)
 from iterant.orchestrator import OrchestratorBusy
 from iterant.orchestrator.loop import CLOSED, SEED_ID
 
@@ -20,9 +28,11 @@ LAST_RUN = Path(".iterant") / "last_run.json"
 
 def record_last_run(repo: Path, thresholds: AcceptanceThresholds) -> None:
     """Remember the holdout limits ``iterant run`` used, so ``status`` can show them."""
+    target = repo / LAST_RUN
+    tmp = target.with_name(target.name + ".tmp")
     try:
-        (repo / LAST_RUN).parent.mkdir(parents=True, exist_ok=True)
-        (repo / LAST_RUN).write_text(
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(
             json.dumps(
                 {
                     "holdout_query_max": thresholds.holdout_query_max,
@@ -31,6 +41,7 @@ def record_last_run(repo: Path, thresholds: AcceptanceThresholds) -> None:
             ),
             encoding="utf-8",
         )
+        os.replace(tmp, target)  # atomic: status never reads a half-written file
     except OSError:
         pass  # status falls back to the default label
 
@@ -105,6 +116,17 @@ def render_status(
             p for g in range(1, (promo.gen if promo else 0) + 1) if (p := archive.get_promotion(g))
         ]
         holdout_queries = archive.holdout_query_count()
+        champ_firsts = (
+            [
+                r
+                for r in archive.runs_for_candidate(
+                    promo.cand if promo else SEED_ID, batch=batches[-1].id, latest_only=False
+                )
+                if r.key.attempt == 0 and r.split is not Split.TRAIN
+            ]
+            if batches
+            else []
+        )
     lines = [f"repo: {repo.resolve()}"]
     if _is_running(repo):
         lines.append("a run is in progress (the archive is locked)")
@@ -146,6 +168,12 @@ def render_status(
     lines.append(
         f"spend: ${total / 1e6:.4f} over {calls} proxy calls" + (f" ({roles})" if roles else "")
     )
+    if champ_firsts:
+        refused = sum(1 for r in champ_firsts if r.refusal)
+        lines.append(
+            f"champion refusals (latest batch, first attempts, select and holdout): "
+            f"{refused} of {len(champ_firsts)} ({refused / len(champ_firsts):.0%})"
+        )
     if batches:
         last = batches[-1]
         lines.append(f"latest batch {last.id} (generation {last.gen}, pack {last.pack_hash[:12]}):")

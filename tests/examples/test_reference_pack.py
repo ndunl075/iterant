@@ -41,7 +41,12 @@ def _generator() -> ModuleType:
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    keep = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True  # a __pycache__ inside the pack would change its hash
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = keep
     return module
 
 

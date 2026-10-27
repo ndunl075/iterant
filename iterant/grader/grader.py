@@ -22,7 +22,9 @@ unreadable pack files, sandbox create failure, a failed trusted write, a failed 
 pre-flight exec, or a backend exception while running ``run``. Everything the agent
 influences scores 0.0: an invalid output path, a failed write of its files, any non-zero
 exit (including 126/127), a timeout or kill, truncated output, a sandbox killed from inside
-(OOM, pids limit, PID 1), and a missing, oversized or malformed result.
+(OOM, pids limit, PID 1; also while writing its files), and a missing, oversized or malformed
+result. Path errors the agent causes (a file where another needs a directory, a name longer
+than 255 bytes) are caught before any sandbox exists; any other failure of a put is infra.
 A timeout is checked first; a non-zero exit scores 0.0 even if a result was printed.
 A well-formed result scores 1.0 if it equals the expected object (types included: ``1``
 is not ``true``), else 0.0.
@@ -44,6 +46,7 @@ from typing import Any, cast
 from iterant.contracts import ExecResult, Pack, SandboxBackend, Task
 from iterant.grader.outfiles import OutputRejected, check_limits
 from iterant.packs.hashing import verify
+from iterant.sandbox import SandboxLost
 
 AGENT_DIR = "/work/out"
 RUN_PATH = "/work/.grader/run.sh"
@@ -51,6 +54,8 @@ MAX_RESULT_BYTES = 64 * 1024
 MAX_RESULT_DEPTH = 32
 DEFAULT_TIMEOUT_S = 120.0  # wall-clock limit of one check; ``Grader(timeout=...)`` overrides
 PREFLIGHT_TIMEOUT_S = 30.0
+PUT_ALLOWANCE_S = 2.0  # sandbox lifetime reserved per agent file, so slow puts never expire it
+MAX_NAME_BYTES = 255  # longest file name component most filesystems accept
 
 
 @dataclass(frozen=True)
@@ -148,7 +153,18 @@ def _agent_path(rel: str) -> str | None:
     path = PurePosixPath(rel)
     if path.is_absolute() or path.as_posix() != rel or {"", ".", ".."} & set(rel.split("/")):
         return None
+    if any(len(part.encode("utf-8", "surrogatepass")) > MAX_NAME_BYTES for part in rel.split("/")):
+        return None
     return f"{AGENT_DIR}/{rel}"
+
+
+def _blocked_by_file(targets: Mapping[str, bytes]) -> bool:
+    """True if one agent file sits where another needs a directory (``a`` and ``a/b``)."""
+    return any(
+        PurePosixPath(parent).as_posix() in targets
+        for target in targets
+        for parent in PurePosixPath(target).parents
+    )
 
 
 class GraderPreflightError(RuntimeError):
@@ -224,6 +240,8 @@ class Grader:
             if target is None:
                 return done(0.0, None)
             targets[target] = data
+        if _blocked_by_file(targets):
+            return done(0.0, None)
         try:
             check_limits(out_files)
         except OutputRejected:
@@ -241,7 +259,7 @@ class Grader:
                 self._cpu,
                 self._mem,
                 self._disk,
-                self._timeout + 60.0,
+                self._timeout + 60.0 + PUT_ALLOWANCE_S * len(targets),
                 net="default-deny",
             )
         except Exception:
@@ -260,8 +278,10 @@ class Grader:
             try:
                 for path, data in targets.items():
                     sandbox.put(path, data)
-            except Exception:
-                return done(0.0, None)  # e.g. a file where another needs a directory
+            except SandboxLost:
+                return done(0.0, None)  # the agent's files killed the sandbox: its doing
+            except Exception as exc:  # any other backend failure is not the agent's doing
+                return done(None, f"sandbox error: {type(exc).__name__}")
             try:
                 result = sandbox.exec(f"cd {AGENT_DIR} && exec sh {RUN_PATH}", self._timeout)
             except Exception as exc:

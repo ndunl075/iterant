@@ -23,6 +23,7 @@ from iterant.contracts import (
 from iterant.grader import Grader, GradeResult, GraderPreflightError, interpret
 from iterant.grader.grader import DEFAULT_TIMEOUT_S, MAX_RESULT_BYTES, RUN_PATH, parse_result, same
 from iterant.packs import load_pack
+from iterant.sandbox import SandboxLost
 
 OnExec = Callable[["FakeSandbox", str, float], ExecResult]
 SYNTHETIC = Path(__file__).resolve().parents[1] / "packs" / "synthetic"
@@ -355,11 +356,11 @@ def test_default_wall_clock_limit_is_a_named_constant(tmp_path: Path) -> None:
     assert seen == [DEFAULT_TIMEOUT_S]
 
 
-def test_agent_put_failure_scores_zero_but_trusted_failures_are_infra(tmp_path: Path) -> None:
+def test_agent_put_sandbox_loss_scores_zero_but_other_failures_are_infra(tmp_path: Path) -> None:
     class PutFails(FakeSandbox):
         def put(self, path: str, data: bytes) -> None:
             if path.startswith("/work/out/"):
-                raise OSError("agent file conflict")
+                raise SandboxLost("agent files killed the sandbox")
             super().put(path, data)
 
     task = make_task(tmp_path)

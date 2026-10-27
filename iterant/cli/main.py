@@ -24,7 +24,7 @@ from iterant.cli.run import cmd_run
 from iterant.cli.runtime import RuntimeFactory, build_runtime
 from iterant.cli.settings import add_common_arguments, add_threshold_arguments
 from iterant.cli.status import cmd_status
-from iterant.contracts import ArchiveTampered, Profile, Split
+from iterant.contracts import ArchiveTampered, Profile, Split, UnsupportedSchemaVersion
 from iterant.gate import GateInfraError
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import BatchAborted, BudgetExhausted, OrchestratorBusy
@@ -155,6 +155,11 @@ def main(argv: Sequence[str] | None = None, *, factory: RuntimeFactory = build_r
         return _fail(f"{type(exc).__name__}: {exc}", EXIT_INFRA)
     except ConfigError as exc:
         return _fail(f"iterant.toml: {exc}", EXIT_USAGE)
+    except UnsupportedSchemaVersion as exc:
+        return _fail(
+            f"this archive was written by a newer Iterant (schema {exc.version}); upgrade Iterant",
+            EXIT_ERROR,
+        )
     except ArchiveTampered as exc:
         return _fail(f"archive integrity check failed: {exc}", EXIT_ERROR)
     except (PackError, ArchiveError, GitRefError) as exc:

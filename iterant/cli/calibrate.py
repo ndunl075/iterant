@@ -368,6 +368,8 @@ class AAResult:
     trials: int
     select_accepts: int
     false_accepts: int
+    select_dropped: int = 0  # tasks with too few runs for the SELECT legs
+    confirm_dropped: int = 0  # ... and for the simulated CONFIRM legs
 
     @property
     def rate(self) -> float:
@@ -378,14 +380,25 @@ class AAResult:
         return self.rate <= MAX_FALSE_ACCEPT
 
 
+def _by_task(pool: Sequence[RunResult]) -> dict[str, list[RunResult]]:
+    by_task: dict[str, list[RunResult]] = {}
+    for r in final_attempts(pool).values():
+        by_task.setdefault(r.key.task, []).append(r)
+    return by_task
+
+
+def _count_under_sampled(pool: Sequence[RunResult], per_arm: int) -> int:
+    """Tasks with fewer than ``2 * per_arm`` runs: ``_split_arms`` cannot use them."""
+    return sum(1 for runs in _by_task(pool).values() if len(runs) < 2 * per_arm)
+
+
 def _split_arms(
     pool: Sequence[RunResult], per_arm: int, n_tasks: int, rng: random.Random
 ) -> tuple[list[RunResult], list[RunResult]]:
     """Pick ``n_tasks`` tasks at random; per task, deal the champion's reps at random into two
-    arms of ``per_arm`` each."""
-    by_task: dict[str, list[RunResult]] = {}
-    for r in final_attempts(pool).values():
-        by_task.setdefault(r.key.task, []).append(r)
+    arms of ``per_arm`` each. Tasks with too few runs are skipped (``_count_under_sampled``
+    counts them so the caller can say so)."""
+    by_task = _by_task(pool)
     ids = sorted(t for t, runs in by_task.items() if len(runs) >= 2 * per_arm)
     chosen = sorted(rng.sample(ids, min(n_tasks, len(ids))))
     a: list[RunResult] = []
@@ -426,7 +439,24 @@ def run_aa(
         conf = decide_confirm(ca, cb, t, seed=seed * 1_000_003 + 2 * i + 1, n_resamples=n_resamples)
         sel_ok += sel.accepted
         both += accepted(sel, conf)
-    return AAResult(trials, sel_ok, both)
+    return AAResult(
+        trials,
+        sel_ok,
+        both,
+        _count_under_sampled(pool, t.select_reps),
+        _count_under_sampled(pool, t.holdout_reps),
+    )
+
+
+def dropped_warning(result: AAResult) -> str | None:
+    """A line for aa-test output when tasks were left out of the resampling, else None."""
+    if not (result.select_dropped or result.confirm_dropped):
+        return None
+    return (
+        f"WARNING: {result.select_dropped} select and {result.confirm_dropped} confirm task(s) "
+        "had too few champion runs and were left out of the A/A resampling (usually infra "
+        "errors or refusals); the test used the remaining tasks"
+    )
 
 
 RECORD = Path(".iterant") / "calibration.json"
@@ -436,7 +466,7 @@ _OK_STATES = {ESTIMATE: ("pass", "warn"), AA_TEST: ("pass",)}
 
 
 # Limits that do not change what a calibration measures.
-_NOT_CALIBRATION = ("holdout_query_warn", "holdout_query_max")
+_NOT_CALIBRATION = ("holdout_query_warn", "holdout_query_max", "max_champion_refusal_rate")
 
 
 def _calibration_thresholds(t: AcceptanceThresholds) -> dict[str, object]:
@@ -611,6 +641,9 @@ def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
         f"({result.rate:.1%}; limit {MAX_FALSE_ACCEPT:.0%}; 95% upper bound if none: "
         f"{min(1.0, 3 / result.trials):.1%})"
     )
+    warning = dropped_warning(result)
+    if warning:
+        print(f"  {warning}")
     degenerate = len(scored) <= 1
     passed = result.passed and not degenerate
     set_record(

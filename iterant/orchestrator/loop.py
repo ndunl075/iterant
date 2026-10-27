@@ -672,6 +672,26 @@ class Orchestrator:
                             break
                         attempt += 1
         self._guard_infra(g, split)
+        self._guard_champion_refusals(g, split)
+
+    def _guard_champion_refusals(self, g: _Gen, split: Split) -> None:
+        """Close the batch when the *champion* refuses too many tasks on its first try.
+
+        Refusals score 0, so a champion that refuses most tasks lets any candidate win.
+        Closes through the same path as the infra-rate abort."""
+        firsts = [
+            r
+            for r in self._archive.runs_for_candidate(
+                g.champ.id, split=split, batch=g.batch.id, latest_only=False
+            )
+            if r.key.attempt == 0
+        ]
+        refused = sum(1 for r in firsts if r.refusal)
+        if firsts and refused / len(firsts) > self._cfg.thresholds.max_champion_refusal_rate:
+            raise InfraRateExceeded(
+                f"champion refuses too often ({refused} of {len(firsts)} first-attempt "
+                f"{split.value} runs were refusals); check the model or the proxy"
+            )
 
     def _guard_infra(self, g: _Gen, split: Split) -> None:
         """Close the batch when the *champion* arm keeps hitting infra errors.

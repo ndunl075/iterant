@@ -27,6 +27,7 @@ from iterant.cli.lock import acquire_retrying, cli_lock
 from iterant.cli.runtime import Runtime, RuntimeFactory
 from iterant.cli.sample import make_executor, run_slots, worst_run_cost
 from iterant.cli.settings import Project, Settings, load_project, settings_from_args
+from iterant.cli.status import record_last_run
 from iterant.contracts import Profile, Split, open_archive
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import (
@@ -175,6 +176,7 @@ def _run_locked(
     with WriterLock(project.repo):
         pass
     rt = factory(settings, project, archive_path(project.repo))
+    record_last_run(project.repo, settings.thresholds)
     try:
         try:
             rt.grader.preflight()

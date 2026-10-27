@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -13,6 +14,39 @@ from iterant.cli.settings import thresholds_from_args
 from iterant.contracts import AcceptanceThresholds, ArchiveTampered, Batch, Candidate, open_archive
 from iterant.orchestrator import OrchestratorBusy
 from iterant.orchestrator.loop import CLOSED, SEED_ID
+
+LAST_RUN = Path(".iterant") / "last_run.json"
+
+
+def record_last_run(repo: Path, thresholds: AcceptanceThresholds) -> None:
+    """Remember the holdout limits ``iterant run`` used, so ``status`` can show them."""
+    try:
+        (repo / LAST_RUN).parent.mkdir(parents=True, exist_ok=True)
+        (repo / LAST_RUN).write_text(
+            json.dumps(
+                {
+                    "holdout_query_max": thresholds.holdout_query_max,
+                    "holdout_query_warn": thresholds.holdout_query_warn,
+                }
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # status falls back to the default label
+
+
+def _recorded_limits(repo: Path) -> tuple[int, int] | None:
+    try:
+        raw: object = json.loads((repo / LAST_RUN).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    mx: object = raw.get("holdout_query_max")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    warn: object = raw.get("holdout_query_warn")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    if isinstance(mx, int) and isinstance(warn, int) and not isinstance(mx, bool):
+        return warn, mx
+    return None
 
 
 def _spend(path: Path) -> tuple[int, dict[str, int], int]:
@@ -42,7 +76,14 @@ def _members(cands: list[Candidate], batch_id: int) -> list[Candidate]:
     return [c for c in cands if c.id.startswith(f"b{batch_id}-")]
 
 
-def render_status(repo: Path, thresholds: AcceptanceThresholds | None = None) -> str:
+def render_status(
+    repo: Path,
+    thresholds: AcceptanceThresholds | None = None,
+    *,
+    explicit_limit: bool = False,
+) -> str:
+    """``explicit_limit``: the caller gave ``--holdout-query-max`` itself, so ``thresholds``
+    wins over what the last run recorded."""
     path = archive_path(repo)
     try:
         archive = Archive.open_path(path, create_schema=False)
@@ -88,8 +129,16 @@ def render_status(repo: Path, thresholds: AcceptanceThresholds | None = None) ->
     )
     t = thresholds or AcceptanceThresholds()
     warn, hard = t.holdout_query_warn, t.holdout_query_max
+    recorded = _recorded_limits(repo)
+    if explicit_limit:
+        which = "from your flag"
+    elif recorded is not None:
+        warn, hard = recorded
+        which = "used by the last run"
+    else:
+        which = "default; no run recorded"
     lines.append(
-        f"holdout queries: {holdout_queries} (warns after {warn}, stops at {hard})"
+        f"holdout queries: {holdout_queries} (warns after {warn}, stops at {hard} ({which}))"
         + (": add fresh holdout tasks" if holdout_queries > warn else "")
     )
     total, by_role, calls = _spend(path)
@@ -107,5 +156,6 @@ def render_status(repo: Path, thresholds: AcceptanceThresholds | None = None) ->
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    print(render_status(Path(args.repo), thresholds_from_args(args)))
+    explicit = getattr(args, "holdout_query_max", None) is not None
+    print(render_status(Path(args.repo), thresholds_from_args(args), explicit_limit=explicit))
     return EXIT_OK

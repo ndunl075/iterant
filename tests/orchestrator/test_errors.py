@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from iterant.contracts import RunKey, Split, Stage, Status
 from iterant.orchestrator import InfraRateExceeded, OrchestratorConfig
+from tests.orchestrator.conftest import THRESHOLDS
 
 
 def champ_default(task: str) -> str:
@@ -113,11 +116,20 @@ def test_a_persistent_outage_aborts_each_new_batch_too_not_wedges_one(world):
 
 
 def test_refusals_never_trip_the_infra_abort(world):
+    # The infra-rate guard ignores refusals; with the champion-refusal guard off (rate 1.0)
+    # the champion's refusals score 0.0 (symmetric with the candidate's), so the pairs are kept.
     world.solver = solver_with(lambda a, t, n: "refuse" if a == "champ" else "")
     world.queue(world.proposal("v0", "v1", "h"))
-    res = world.orchestrator(max_infra_rate=0.4).run_generation()  # does not raise
-    # the champion's refusals score 0.0 (symmetric with the candidate's), so the pairs are kept
+    off = replace(THRESHOLDS, max_champion_refusal_rate=1.0)
+    res = world.orchestrator(max_infra_rate=0.4, thresholds=off).run_generation()  # no raise
     assert res.stopped == "done"
+
+
+def test_a_refusing_champion_is_stopped_by_the_refusal_guard_not_the_infra_one(world):
+    world.solver = solver_with(lambda a, t, n: "refuse" if a == "champ" else "")
+    world.queue(world.proposal("v0", "v1", "h"))
+    with pytest.raises(InfraRateExceeded, match="champion refuses too often"):
+        world.orchestrator(max_infra_rate=0.4).run_generation()
 
 
 def test_a_candidates_own_infra_errors_do_not_abort_the_batch(world):

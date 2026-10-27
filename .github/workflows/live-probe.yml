@@ -1,0 +1,61 @@
+name: live-probe
+on:
+  push:
+    branches: ['probe/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    env:
+      MODEL: qwen2.5:7b
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.21"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Tool versions
+        run: |
+          podman --version; podman info | head -20; df -h /; free -m; nproc
+      - name: Install Ollama and pull model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          mkdir -p logs
+          (ollama serve > logs/ollama.log 2>&1 &)
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+          ollama pull "$MODEL"
+          (python3 .github/scripts/logproxy.py logs/upstream.jsonl &)
+          sleep 2
+          ollama list
+      - name: Prepare agent repo
+        run: |
+          rm -rf "$RUNNER_TEMP/agent"
+          cp -r examples/reference-agent "$RUNNER_TEMP/agent"
+          cd "$RUNNER_TEMP/agent"
+          sed -i "s|^name = \".*\"|name = \"$MODEL\"|" iterant.toml
+          grep -n 'name =' iterant.toml
+          git init -q && git config user.email p@p && git config user.name probe
+          git add -A && git commit -qm baseline
+      - name: Iterant commands
+        run: |
+          A="$RUNNER_TEMP/agent"
+          set +e
+          run() { echo "=== $* ==="; date; "$@" 2>&1 | tee -a "logs/$LOGN.log"; rc=${PIPESTATUS[0]}; echo "EXIT $rc for $LOGN"; echo "$LOGN $rc" >> logs/exitcodes.txt; date; }
+          U=http://127.0.0.1:11435/v1
+          LOGN=estimate run uv run iterant estimate --backend podman --openai-base-url $U --llm-timeout 1200 --split select --tasks 80 --reps 2 "$A"
+          LOGN=aatest run uv run iterant aa-test --backend podman --openai-base-url $U --llm-timeout 1200 "$A"
+          LOGN=run run uv run iterant run --backend podman --openai-base-url $U --llm-timeout 1200 --generations 1 "$A"
+          LOGN=status run uv run iterant status "$A"
+          LOGN=report run uv run iterant report "$A"
+          cp -r "$A/.iterant/report" logs/report 2>/dev/null
+          cp -r "$A/.iterant" logs/iterant-dir 2>/dev/null
+          true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-probe-logs
+          path: logs/

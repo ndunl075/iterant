@@ -134,7 +134,11 @@ def test_unparseable_header_fails_closed() -> None:
 def test_hung_guest_is_lost_after_the_answer_slack(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("iterant.sandbox.firecracker.sandbox.EXEC_ANSWER_SLACK_S", 0.3)
     release = threading.Event()
-    rig = Rig(lambda sock, req, _: release.wait(10))
+
+    def script(sock: socket.socket, req: dict[str, object], _: bytes) -> None:
+        release.wait(10)
+
+    rig = Rig(script)
     start = time.monotonic()
     res = rig.sandbox.exec("sleep 100", 0.2)
     release.set()

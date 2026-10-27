@@ -134,7 +134,11 @@ def init() -> None:
         log(f"root remount failed: {e!r}")
     mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC)
     mount("sysfs", "/sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC)
-    mount("devtmpfs", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC, "mode=0755")
+    try:
+        mount("devtmpfs", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC, "mode=0755")
+    except OSError as e:
+        if e.errno != errno.EBUSY:  # the kernel may have mounted devtmpfs on /dev already
+            raise
     try:  # console for diagnostics
         fd = os.open("/dev/ttyS0", os.O_WRONLY)
         os.dup2(fd, 1)

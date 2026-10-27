@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections.abc import Callable, Sequence
@@ -562,6 +563,25 @@ def test_destroy_tolerates_rm_error_when_container_is_confirmed_gone() -> None:
     with pytest.raises(SandboxError, match="teardown incomplete") as e:
         sb.destroy()  # the sandbox container still exists: that error is real
     assert "-relay" not in str(e.value)
+
+
+def test_harmless_rm_error_is_logged_at_debug_only(caplog: pytest.LogCaptureFixture) -> None:
+    """Rootless podman's netns error after the relay is already gone prints nothing loud;
+    when the container still exists the error stays an error (see the tests around this)."""
+
+    def handler(argv: list[str]) -> RunOutput | None:
+        if argv[1] == "rm":
+            return RunOutput(125, stderr=b"rootless netns: kill network process: permission denied")
+        if argv[1:3] == ["container", "inspect"]:
+            return RunOutput(1, stderr=b"Error: no such container")
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60, net="proxy-only")
+    with caplog.at_level(logging.DEBUG, logger="iterant.sandbox.container"):
+        sb.destroy()  # everything confirmed gone: success
+    noisy = [r for r in caplog.records if r.levelno >= logging.INFO]
+    assert noisy == []
+    assert any("permission denied" in r.getMessage() for r in caplog.records)
 
 
 def test_docker_internal_network_has_no_host_gateway() -> None:

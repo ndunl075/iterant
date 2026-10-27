@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[2]
 AGENT = REPO / "examples" / "reference-agent"
 PACK = AGENT / "evals" / "reference-pack"
 # Pinned: fails if any byte of the pack changes. Update on purpose only (regenerate first).
-PINNED_HASH = "02f3baebc85ecceb2c219b0dbf8ec2b9389d1a43ad3ed5bd4253d8c6e4edb1e2"
+PINNED_HASH = "62f968ad36e1b189cfbf13161ecfd715f488146b559e9294457cb778bc0f0b85"
 
 
 def _generator() -> ModuleType:
@@ -64,7 +64,9 @@ def test_pack_loads_with_a_pinned_hash() -> None:
 
 def test_pack_size_and_splits() -> None:
     pack = load_pack(PACK)
-    assert 40 <= len(pack.tasks) <= 60
+    assert 200 <= len(pack.tasks) <= 220
+    assert len(tasks_in(pack, Split.SELECT)) >= 80
+    assert len(tasks_in(pack, Split.HOLDOUT)) >= 40
     for split in Split:
         assert tasks_in(pack, split), split
     assert not (set(tasks_in(pack, Split.TRAIN)) & set(tasks_in(pack, Split.SELECT)))

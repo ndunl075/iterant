@@ -41,7 +41,7 @@ from iterant.target.image import _Filter  # pyright: ignore[reportPrivateUsage]
 
 MAX_DIFF_LINES: Final = 400  # §3 PROPOSE kill rule, enforced again here
 MAX_DIFF_BYTES: Final = 128 * 1024
-MAX_LINE_CHARS: Final = 2000  # a one-line 600 KB dict is still one changed line
+MAX_LINE_CHARS: Final = 10_000  # per added line; the total cap bounds the rest
 ALLOWED_MODES: Final = frozenset({"100644", "100755"})
 _SYMLINK_MODES: Final = frozenset({"120000", "160000"})
 _MIN_CHECK_LINE: Final = 30  # shorter lines are too generic to count as a leak
@@ -140,12 +140,12 @@ class DiffGate:
             return _fail("diff-malformed: diff is not valid UTF-8 text")
         if size > MAX_DIFF_BYTES:
             return _fail(f"diff-size: {size} bytes, limit is {MAX_DIFF_BYTES}")
-        if any(len(line) > MAX_LINE_CHARS for line in diff.split("\n")):
-            return _fail(f"diff-size: a line is longer than {MAX_LINE_CHARS} characters")
         try:
             files = parse_diff(diff)
         except DiffError as exc:
             return _fail(f"diff-malformed: {exc}")
+        if any(len(line) > MAX_LINE_CHARS for f in files for line in f.added):
+            return _fail(f"diff-size: an added line is longer than {MAX_LINE_CHARS} characters")
         lines = changed_line_count(files)
         if lines > self._max_lines:
             return _fail(f"diff-size: {lines} changed lines, limit is {self._max_lines}")
@@ -158,7 +158,9 @@ class DiffGate:
 
         if findings := _path_findings(files, genome(root)):
             return _fail(*findings)
-        excluded = _excluder(root, self._hidden(root))
+        hidden = self._hidden(root)
+        excluded = _excluder(root, hidden)
+        uploaded = _excluder(root, hidden, containerignore=True)
         with tempfile.TemporaryDirectory(prefix="iterant-gate-", ignore_cleanup_errors=True) as tmp:
             tree = Path(tmp) / "tree"
             if error := _apply(root, tree, diff, Path(tmp), excluded):
@@ -169,7 +171,7 @@ class DiffGate:
             if changed == 0 and any(f.added or f.removed or f.renamed or f.copied for f in files):
                 return _fail("diff-apply: the diff changed nothing in the patched tree")
             if self._static is not None and (
-                findings := _static_findings(self._static, tree, excluded)
+                findings := _static_findings(self._static, tree, uploaded)
             ):
                 return _fail(*findings)
         if findings := _leak_findings(files, pack, self._pack_root):
@@ -232,19 +234,27 @@ def _path_findings(files: list[FileDiff], genome: Genome) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-def _excluder(root: Path, hidden: Sequence[str]) -> Callable[[str], bool]:
-    """Which repo-relative paths stay out of the patched tree and the sandbox upload."""
+def _excluder(
+    root: Path, hidden: Sequence[str], *, containerignore: bool = False
+) -> Callable[[str], bool]:
+    """Which repo-relative paths stay out of the patched tree (hard set) and, with
+    ``containerignore``, out of the sandbox upload too.
+
+    The hard set is the pack and protected paths, ``.env*`` files and ``.git``/``.iterant``
+    at any depth. The repo's ``.containerignore`` only trims the upload: a genome file it
+    matches must still exist for ``git apply``.
+    """
     folded = tuple(h.casefold().strip("/") for h in hidden)
-    flt = _Filter(root, hidden[0] if hidden else ".iterant")
+    flt = _Filter(root, hidden[0] if hidden else ".iterant") if containerignore else None
 
     def excluded(rel: str) -> bool:
         low = rel.casefold()
-        name = low.rsplit("/", 1)[-1]
-        if name == ".env" or name.startswith(".env."):
+        segments = low.split("/")
+        if segments[-1].startswith(".env") or any(seg in _SKIP_DIRS for seg in segments):
             return True
         if any(low == h or low.startswith(h + "/") for h in folded):
             return True
-        return flt.excluded(rel)
+        return flt is not None and flt.excluded(rel)
 
     return excluded
 
@@ -418,10 +428,15 @@ def _leak_findings(files: list[FileDiff], pack: Pack, pack_root: Path) -> list[s
         if (
             (len(whole) >= _MIN_CHECK_FILE and whole in blob)
             or lines & long_lines
-            or any(v in raw_blob for v in values)
+            or any(_token_in(v, raw_blob) for v in values)
         ):
             out.append(f"leak-check-content: copies hidden check content of task {task.id!r}")
     return out[:_MAX_PER_RULE]
+
+
+def _token_in(value: str, text: str) -> bool:
+    """``value`` appears in ``text`` as a whole token, not inside a longer word or number."""
+    return re.search(r"(?<!\w)" + re.escape(value) + r"(?!\w)", text) is not None
 
 
 def _json_strings(text: str) -> set[str]:
@@ -435,7 +450,8 @@ def _json_strings(text: str) -> set[str]:
     while stack:
         item = stack.pop()
         if isinstance(item, str):
-            if len(item) >= _MIN_CHECK_VALUE:
+            # Whitespace runs and one- or two-letter alphabets match any code.
+            if len(item.strip()) >= _MIN_CHECK_VALUE and len(set(item)) >= 3:
                 found.add(item)
         elif isinstance(item, list):
             stack.extend(item)  # pyright: ignore[reportUnknownArgumentType]

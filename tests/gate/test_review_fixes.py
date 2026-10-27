@@ -210,3 +210,78 @@ def test_row5_forged_results_reach_the_auditor(run_gate: RunGate, edit: Edit, au
     auditor.verdict = AuditVerdict(True, False, ("writes a fake result file",))
     result = run_gate(edit("agent/loop.py", "def run(task):\n    open('/out/score', 'w')\n"))
     assert result.findings[0].startswith("audit-special-casing:")
+
+
+# re-review: false positives and the .containerignore split
+
+
+def test_whitespace_only_check_value_is_not_a_leak(
+    repo: Path, run_gate: RunGate, edit: Edit
+) -> None:
+    (repo / "evals/pack/tasks/beta-9/check").write_text(
+        json.dumps({"answer": ["str", " " * 11]}), encoding="utf-8"
+    )
+    deep = "def f():\n" + " " * 16 + "return 1\n"
+    assert run_gate(edit("tools/search.py", deep)).passed
+
+
+def test_low_entropy_check_value_is_not_a_leak(repo: Path, run_gate: RunGate, edit: Edit) -> None:
+    (repo / "evals/pack/tasks/beta-9/check").write_text(
+        json.dumps(["str", "aaaaaaaaaaaa"]), encoding="utf-8"
+    )
+    assert run_gate(edit("tools/search.py", 'X = "aaaaaaaaaaaa"\n')).passed
+
+
+def test_check_value_must_match_as_a_token(repo: Path, run_gate: RunGate, edit: Edit) -> None:
+    (repo / "evals/pack/tasks/beta-9/check").write_text(
+        json.dumps(["str", "expected-output"]), encoding="utf-8"
+    )
+    assert run_gate(edit("tools/search.py", "X = 'unexpected-outputs'\n")).passed
+    assert (
+        run_gate(edit("tools/search.py", "X = 'expected-output'\n"))
+        .findings[0]
+        .startswith("leak-check-content:")
+    )
+
+
+def test_containerignore_trims_the_upload_not_the_patched_tree(
+    repo: Path,
+    target: TargetConfig,
+    pack: Pack,
+    make_gate: Make,
+    edit: Edit,
+    fake_backend: Any,
+) -> None:
+    (repo / ".containerignore").write_text("tools/\n", encoding="utf-8")
+    gate = gate_with_tests(make_gate, fake_backend)
+    result = run(
+        gate, repo, target, pack, edit("tools/search.py", "def search(q):\n    return 1\n")
+    )
+    assert result.passed, result.findings  # the diff applied to a genome file the ignore matches
+    assert not any(n.startswith("tools/") for n in tar_of(fake_backend).getnames())
+
+
+def test_env_like_files_stay_out_of_the_upload(
+    repo: Path,
+    target: TargetConfig,
+    pack: Pack,
+    make_gate: Make,
+    edit: Edit,
+    fake_backend: Any,
+) -> None:
+    for name in (".envrc", ".env", ".env.prod"):
+        (repo / name).write_text("S=1\n", encoding="utf-8")
+    gate = gate_with_tests(make_gate, fake_backend)
+    assert run(gate, repo, target, pack, edit("prompts/system.md", GOOD)).passed
+    assert not any(n.startswith(".env") for n in tar_of(fake_backend).getnames())
+
+
+def test_long_context_line_is_fine_long_added_line_is_not(
+    repo: Path, run_gate: RunGate, edit: Edit
+) -> None:
+    (repo / "prompts" / "system.md").write_text("word " * 1000 + "\nend\n", encoding="utf-8")
+    assert run_gate(edit("prompts/system.md", "word " * 1000 + "\nnew end\n")).passed
+    (repo / "prompts" / "system.md").write_text("a\n", encoding="utf-8")
+    assert (
+        run_gate(edit("prompts/system.md", "w " * 6000 + "\n")).findings[0].startswith("diff-size:")
+    )

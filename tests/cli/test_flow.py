@@ -23,9 +23,16 @@ def test_init_estimate_run_status(world, capsys: pytest.CaptureFixture[str]) -> 
     assert not (world.repo / ".iterant" / "archive.db").exists()
     assert world.exec_log and set(world.exec_log) == {"tr0", "tr1", "tr2", "tr3"}
 
+    # aa-test: required before a real run (§4)
+    assert (
+        world.cli("aa-test", str(world.repo), *world.SMALL, "--trials", "20", "--resamples", "200")
+        == 0
+    )
+    capsys.readouterr()
+
     # run: one generation, the candidate wins and is promoted
     world.queue.append(Proposal(world.diff("v0", "v1"), "h-good"))
-    assert world.cli("run", str(world.repo), *world.RUN_SMALL) == 0
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 0
     out = capsys.readouterr().out
     assert "generation 1 (batch 1): promoted b1-0" in out
     assert world.git("show", "iterant/champion:agent/prompt.txt") == "v1"
@@ -105,5 +112,6 @@ def test_aa_test_passes_on_a_stable_champion(world, capsys: pytest.CaptureFixtur
     out = capsys.readouterr().out
     assert "false accepts        0 of 20" in out
     assert "A/A test passed." in out
-    # the pool: select 10 tasks x 2 reps + holdout 6 x 2 reps
-    assert len(world.exec_log) == 10 * 2 + 6 * 2
+    # the pool: select tasks only, 2 reps per arm slot; holdout is never queried
+    assert len(world.exec_log) == 10 * 2
+    assert all(t.startswith("se") for t in world.exec_log)

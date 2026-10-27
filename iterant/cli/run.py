@@ -9,14 +9,24 @@ grader image fails before any batch is opened.
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 
 from iterant.analyst import FailureAnalyst
 from iterant.archive import archive_path, champion_sha
-from iterant.cli.errors import EXIT_BUDGET, EXIT_INFRA, EXIT_OK, EXIT_USAGE, CliError
+from iterant.cli.calibrate import calibration_problem
+from iterant.cli.errors import (
+    EXIT_BUDGET,
+    EXIT_CALIBRATION,
+    EXIT_INFRA,
+    EXIT_OK,
+    EXIT_USAGE,
+    CliError,
+)
+from iterant.cli.lock import acquire_retrying, cli_lock
 from iterant.cli.runtime import Runtime, RuntimeFactory
 from iterant.cli.sample import make_executor, run_slots, worst_run_cost
-from iterant.cli.settings import Settings, load_project, settings_from_args
+from iterant.cli.settings import Project, Settings, load_project, settings_from_args
 from iterant.contracts import Profile, Split, open_archive
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import (
@@ -81,13 +91,30 @@ def make_digest(rt: Runtime, settings: Settings, limit: int | None) -> FailureDi
             plan=[(t, 0) for t in tasks],
         )
         results = archive.runs_for_candidate(champ, split=Split.TRAIN, batch=batch)
+        content = rt.proxy.train_content()
+        have = {c.key for c in content}
+        # Train transcripts live in this process's memory only. Slots finished by an earlier
+        # process (a resumed batch) have a score but no transcript: digest only what we can read.
+        usable = [r for r in results if r.key in have]
+        missing = len(results) - len(usable)
+        note = ""
+        if missing:
+            note = (
+                f"\n[{missing} sampled train run(s) from an earlier process have no transcript "
+                "and are omitted from this digest]"
+            )
+            print(
+                f"iterant: WARNING: {missing} of {len(results)} digest runs were finished by an "
+                "earlier process and have no transcript; the failure digest omits them",
+                file=sys.stderr,
+            )
         analyst = FailureAnalyst(
             rt.analyst_client,
             model=rt.analyst_model,
             effort=rt.analyst_effort,
             redact=redact,
         )
-        return analyst.digest(results, rt.proxy.train_content())
+        return analyst.digest(usable, content) + note
 
     return digest
 
@@ -118,6 +145,27 @@ def cmd_run(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     if settings.candidates < 1:
         raise CliError("--candidates must be >= 1", EXIT_USAGE)
     project = load_project(settings.repo)
+    problem = calibration_problem(project.repo, project.pack.content_hash)
+    if problem is not None:
+        if not args.skip_calibration:
+            raise CliError(
+                f"{problem} (ARCHITECTURE §4: calibration must pass before a real run; "
+                "--skip-calibration overrides)",
+                EXIT_CALIBRATION,
+            )
+        print(f"iterant: WARNING: running without calibration ({problem})", file=sys.stderr)
+    # Hold one lock across every generation (the orchestrator's own is per generation).
+    lock = cli_lock(project.repo)
+    acquire_retrying(lock)
+    try:
+        return _run_locked(args, factory, settings, project)
+    finally:
+        lock.release()
+
+
+def _run_locked(
+    args: argparse.Namespace, factory: RuntimeFactory, settings: Settings, project: Project
+) -> int:
     # Fail fast and clearly when another run holds the archive (the orchestrator re-checks).
     with WriterLock(project.repo):
         pass

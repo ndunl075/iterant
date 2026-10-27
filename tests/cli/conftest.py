@@ -63,7 +63,8 @@ SMALL = [
     "--holdout-tasks", "6", "--holdout-reps", "1",
     "--smoke-tasks", "2",
 ]  # fmt: skip
-RUN_SMALL = [*SMALL, "--digest-tasks", "3"]
+RUN_NOSKIP = [*SMALL, "--digest-tasks", "3"]
+RUN_SMALL = [*RUN_NOSKIP, "--skip-calibration"]
 
 INIT_ARGS = [
     "--profile", "claude", "--model", HAIKU, "--max-usd-per-run", "0.10",
@@ -104,6 +105,7 @@ class FakeSandbox:
         pass
 
     def exec(self, cmd: str, timeout: float) -> ExecResult:
+        self.world.cmds.append(cmd)
         ok = ExecResult(0, "", "", False, 1.0)
         if cmd == "python3 -V":
             if self.world.preflight_fails:
@@ -215,6 +217,7 @@ def _git(repo: Path, *args: str) -> str:
 class World:
     SMALL = SMALL
     RUN_SMALL = RUN_SMALL
+    RUN_NOSKIP = RUN_NOSKIP
     INIT_ARGS = INIT_ARGS
     diff = staticmethod(diff)
 
@@ -230,6 +233,7 @@ class World:
         _git(self.repo, "commit", "-q", "-m", "seed")
         self.solver: Callable[[str, str, int], str] = default_solver
         self.exec_log: list[str] = []
+        self.cmds: list[str] = []
         self.preflight_fails = False
         self.create_fails = False
         self.queue: list[Proposal | None] = []
@@ -316,6 +320,10 @@ class World:
         )
         self.runtimes.append(rt)
         return rt
+
+    def args(self, command: str) -> list[str]:
+        """Small-pack flags for ``command`` (run also skips calibration)."""
+        return list(RUN_SMALL if command == "run" else SMALL)
 
     def cli(self, *argv: str) -> int:
         return main(list(argv), factory=self.factory)

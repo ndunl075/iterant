@@ -65,7 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     est.add_argument("--tasks", type=int, default=20, help="tasks to sample (default 20)")
     est.add_argument("--reps", type=int, default=2, help="reps per task (default 2)")
     est.add_argument(
-        "--split", choices=[s.value for s in Split], default="train", help="split to sample"
+        "--split",
+        choices=[Split.TRAIN.value, Split.SELECT.value],
+        default="train",
+        help="split to sample (holdout and test are never run for calibration)",
     )
     est.set_defaults(handler="estimate")
 
@@ -80,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--generations", type=int, default=1, help="generations to run (default 1)")
     run.add_argument("--candidates", type=int, default=1, help="candidates per generation")
     run.add_argument("--digest-tasks", type=int, default=10, help="train tasks for the digest")
+    run.add_argument(
+        "--skip-calibration",
+        action="store_true",
+        help="run without a passing `iterant aa-test` for this pack (not recommended)",
+    )
     run.set_defaults(handler="run")
 
     st = sub.add_parser("status", help="show the archive state")

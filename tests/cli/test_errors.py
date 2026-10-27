@@ -26,7 +26,7 @@ def test_busy_archive_is_exit_3(world, capsys: pytest.CaptureFixture[str], comma
     world.init()
     capsys.readouterr()
     with WriterLock(world.repo):  # another orchestrator holds the archive
-        code = world.cli(command, str(world.repo), *world.SMALL)
+        code = world.cli(command, str(world.repo), *world.args(command))
     err = _err(capsys)
     assert code == 3
     assert "another orchestrator is running" in err and "wait for it" in err
@@ -40,7 +40,7 @@ def test_preflight_failure_is_exit_5(
     world.init()
     world.preflight_fails = True
     capsys.readouterr()
-    assert world.cli(command, str(world.repo), *world.SMALL) == 5
+    assert world.cli(command, str(world.repo), *world.args(command)) == 5
     err = _err(capsys)
     assert "grader preflight failed" in err and "python3 -V" in err
     assert not world.exec_log

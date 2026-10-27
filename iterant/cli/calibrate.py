@@ -9,6 +9,7 @@ resume logic all read the real one). Both take the writer lock: not while ``run`
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import subprocess
 from collections.abc import Generator, Sequence
@@ -18,6 +19,7 @@ from pathlib import Path
 
 from iterant.archive import champion_sha, diff_sha256
 from iterant.cli.errors import EXIT_CALIBRATION, EXIT_INFRA, EXIT_OK, EXIT_USAGE, CliError
+from iterant.cli.lock import acquire_retrying, cli_lock
 from iterant.cli.runtime import Runtime, RuntimeFactory
 from iterant.cli.sample import make_executor, run_slots, worst_run_cost
 from iterant.cli.settings import Project, Settings, load_project, settings_from_args
@@ -34,7 +36,7 @@ from iterant.contracts import (
 )
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import Budget, OrchestratorConfig, Outcomes, WriterLock
-from iterant.packs import tasks_in
+from iterant.packs import tasks_in, verify
 from iterant.stats import Estimate, accepted, decide_confirm, decide_select, estimate
 from iterant.stats.pairing import final_attempts
 
@@ -97,7 +99,18 @@ def calibration_session(
     settings: Settings, project: Project, factory: RuntimeFactory
 ) -> Generator[_Session]:
     """Writer lock, runtime on the calibration archive, grader preflight, one new batch."""
+    lock = cli_lock(project.repo)
+    acquire_retrying(lock)
+    try:
+        yield from _session(settings, project, factory)
+    finally:
+        lock.release()
+
+
+def _session(settings: Settings, project: Project, factory: RuntimeFactory) -> Generator[_Session]:
     with WriterLock(project.repo):
+        # invariant 7: the pack on disk must still be the pack that was loaded
+        verify(project.pack, project.pack.content_hash, project.pack_root)
         rt = factory(settings, project, project.repo / CALIBRATION_DB)
         try:
             try:
@@ -239,6 +252,8 @@ def cmd_estimate(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     settings = settings_from_args(args)
     project = load_project(settings.repo)
     split = Split(args.split)
+    if split not in (Split.TRAIN, Split.SELECT):
+        raise CliError("only train and select tasks may be sampled for calibration", EXIT_USAGE)
     reps = _positive(args.reps, "--reps")
     n_tasks = _positive(args.tasks, "--tasks")
     pool = tasks_in(project.pack, split)
@@ -305,25 +320,59 @@ def _split_arms(
 
 
 def run_aa(
-    select_pool: Sequence[RunResult],
-    holdout_pool: Sequence[RunResult],
+    pool: Sequence[RunResult],
     t: AcceptanceThresholds,
     *,
     trials: int,
     seed: int,
     n_resamples: int,
 ) -> AAResult:
-    """Resample the champion's reps into two arms, run the §4 rule on them, count accepts."""
+    """Resample the champion's select reps into two arms, run the §4 rule on them, count accepts.
+
+    Only select tasks are ever run (holdout queries are counted in the real archive and must
+    not be spent on calibration). CONFIRM is simulated by a second, independent resample of
+    the same pool relabelled as holdout, so ``false_accepts`` is the compounded SELECT then
+    CONFIRM rate, as for a real null candidate.
+    """
     rng = random.Random(seed)
     sel_ok = both = 0
     for i in range(trials):
-        sa, sb = _split_arms(select_pool, t.select_reps, rng)
-        ha, hb = _split_arms(holdout_pool, t.holdout_reps, rng)
+        sa, sb = _split_arms(pool, t.select_reps, rng)
+        ca, cb = _split_arms(pool, t.select_reps, rng)
+        ca = [replace(r, split=Split.HOLDOUT) for r in ca]
+        cb = [replace(r, split=Split.HOLDOUT) for r in cb]
         sel = decide_select(sa, sb, t, seed=seed * 1_000_003 + 2 * i, n_resamples=n_resamples)
-        conf = decide_confirm(ha, hb, t, seed=seed * 1_000_003 + 2 * i + 1, n_resamples=n_resamples)
+        conf = decide_confirm(ca, cb, t, seed=seed * 1_000_003 + 2 * i + 1, n_resamples=n_resamples)
         sel_ok += sel.accepted
         both += accepted(sel, conf)
     return AAResult(trials, sel_ok, both)
+
+
+RECORD = Path(".iterant") / "calibration.json"
+
+
+def write_record(repo: Path, pack_hash: str, passed: bool, rate: float, trials: int) -> None:
+    (repo / RECORD).parent.mkdir(parents=True, exist_ok=True)
+    (repo / RECORD).write_text(
+        json.dumps({"pack_hash": pack_hash, "passed": passed, "rate": rate, "trials": trials}),
+        encoding="utf-8",
+    )
+
+
+def calibration_problem(repo: Path, pack_hash: str) -> str | None:
+    """Why ``run`` may not start (§4: the A/A test must pass first), or None if it may."""
+    try:
+        rec: object = json.loads((repo / RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "no A/A test has been run for this repo: run `iterant aa-test` first"
+    if not isinstance(rec, dict):
+        return "calibration record is unreadable: rerun `iterant aa-test`"
+    fields: dict[str, object] = {str(k): v for k, v in rec.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+    if fields.get("pack_hash") != pack_hash:
+        return "the pack changed since the last A/A test: rerun `iterant aa-test`"
+    if fields.get("passed") is not True:
+        return "the last A/A test failed: fix the pack or the stats, then rerun `iterant aa-test`"
+    return None
 
 
 def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
@@ -333,28 +382,16 @@ def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     resamples = _positive(args.resamples, "--resamples")
     eff = effective_thresholds(project.pack, settings.thresholds)
     sel_tasks = tasks_in(project.pack, Split.SELECT)[: eff.select_tasks]
-    hold_tasks = tasks_in(project.pack, Split.HOLDOUT)[: eff.holdout_tasks]
-    if not sel_tasks or not hold_tasks:
-        raise CliError("the A/A test needs select and holdout tasks in the pack", EXIT_USAGE)
+    if not sel_tasks:
+        raise CliError("the A/A test needs select tasks in the pack", EXIT_USAGE)
     with calibration_session(settings, project, factory) as session:
-        plan = [
-            (task, rep)
-            for tasks, per_arm in ((sel_tasks, eff.select_reps), (hold_tasks, eff.holdout_reps))
-            for task in tasks
-            for rep in range(2 * per_arm)
-        ]
-        session.run(plan)
+        session.run([(task, rep) for task in sel_tasks for rep in range(2 * eff.select_reps)])
         runs = session.runs()
-    sel_ids = {t.id for t in sel_tasks}
-    sel_pool = [r for r in runs if r.split is Split.SELECT and r.key.task in sel_ids]
-    hold_pool = [r for r in runs if r.split is Split.HOLDOUT]
-    result = run_aa(
-        sel_pool, hold_pool, eff, trials=trials, seed=settings.seed, n_resamples=resamples
-    )
+    result = run_aa(runs, eff, trials=trials, seed=settings.seed, n_resamples=resamples)
     scored = {r.score for r in runs if r.score is not None}
     print(
         f"A/A test (champion vs champion) on pack {project.pack.name} v{project.pack.version}: "
-        f"{len(runs)} champion runs, {result.trials} resampled trials"
+        f"{len(runs)} champion select runs, {result.trials} resampled trials"
     )
     print(f"  SELECT passed alone  {result.select_accepts} of {result.trials}")
     print(
@@ -362,10 +399,15 @@ def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
         f"({result.rate:.1%}; limit {MAX_FALSE_ACCEPT:.0%}; 95% upper bound if none: "
         f"{min(1.0, 3 / result.trials):.1%})"
     )
-    if len(scored) <= 1:
-        print(
-            "WARNING: every champion run scored the same, so no resample can differ: "
-            "this test cannot fail on such a pack. Use a pack where the champion sometimes fails."
+    degenerate = len(scored) <= 1
+    passed = result.passed and not degenerate
+    write_record(project.repo, project.pack.content_hash, passed, result.rate, result.trials)
+    if degenerate:
+        raise CliError(
+            "A/A test FAILED: every champion run scored the same, so no resample can differ and "
+            "the test proves nothing. Use a pack where the champion sometimes fails and "
+            "sometimes passes.",
+            EXIT_CALIBRATION,
         )
     if not result.passed:
         raise CliError(

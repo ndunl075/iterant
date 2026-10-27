@@ -32,7 +32,6 @@ def test_the_real_rule_has_few_false_accepts() -> None:
     t = AcceptanceThresholds(select_tasks=30, select_reps=1, holdout_tasks=20, holdout_reps=1)
     res = run_aa(
         _pool(Split.SELECT, 30, 2, 0.5),
-        _pool(Split.HOLDOUT, 20, 2, 0.5, seed=2),
         t,
         trials=100,
         seed=3,
@@ -56,7 +55,6 @@ def test_a_broken_rule_fails_the_test() -> None:
     )
     res = run_aa(
         _pool(Split.SELECT, 30, 2, 0.5),
-        _pool(Split.HOLDOUT, 20, 2, 0.5, seed=2),
         t,
         trials=60,
         seed=3,
@@ -67,7 +65,7 @@ def test_a_broken_rule_fails_the_test() -> None:
 
 def test_same_seed_same_result() -> None:
     t = AcceptanceThresholds(select_tasks=15, select_reps=1, holdout_tasks=10, holdout_reps=1)
-    args = (_pool(Split.SELECT, 15, 2, 0.5), _pool(Split.HOLDOUT, 10, 2, 0.5, seed=2), t)
+    args = (_pool(Split.SELECT, 15, 2, 0.5), t)
     a = run_aa(*args, trials=20, seed=9, n_resamples=100)
     b = run_aa(*args, trials=20, seed=9, n_resamples=100)
     assert a == b

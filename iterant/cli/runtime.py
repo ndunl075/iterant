@@ -8,12 +8,15 @@ container backend, grader, image builder, editing proposer, analyst client and d
 
 from __future__ import annotations
 
+import ipaddress
 import os
+import sys
 from collections.abc import Callable, Sequence
 from contextlib import closing
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from iterant.analyst import HttpMessagesClient, LLMError, MessagesClient
 from iterant.archive import Archive
@@ -108,6 +111,31 @@ def _archive_sink(db_path: Path) -> CallSink:
     return sink
 
 
+def is_loopback(host: str | None) -> bool:
+    """True for ``localhost`` and loopback IP literals."""
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def openai_key_for(url: str, send_anyway: bool) -> str | None:
+    """``OPENAI_API_KEY`` only for a loopback endpoint, or when the user opted in."""
+    key = os.environ.get("OPENAI_API_KEY")
+    if key and not (send_anyway or is_loopback(urlsplit(url).hostname)):
+        print(
+            "iterant: OPENAI_API_KEY is set but not sent: --openai-base-url is not a loopback "
+            "address (pass --send-openai-key to send it there)",
+            file=sys.stderr,
+        )
+        return None
+    return key
+
+
 def _proxy_config(settings: Settings, project: Project, db_path: Path) -> ProxyConfig:
     pack = project.pack
     splits = {t.id: t.split for t in pack.tasks}
@@ -145,7 +173,7 @@ def _proxy_config(settings: Settings, project: Project, db_path: Path) -> ProxyC
             policy=policy,
             sink=sink,
             openai_base_url=settings.openai_base_url,
-            openai_api_key=os.environ.get("OPENAI_API_KEY"),
+            openai_api_key=openai_key_for(settings.openai_base_url, settings.send_openai_key),
             split_of=split_of,
         )
     except ValueError as exc:
@@ -156,8 +184,14 @@ def _proxy_config(settings: Settings, project: Project, db_path: Path) -> ProxyC
 def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtime:
     """The real wiring. Nothing here calls a model; calls happen when commands run."""
     config = project.config
-    archive = Archive.open_path(db_path)
+    if not is_loopback(settings.proxy_bind):
+        print(
+            f"iterant: WARNING: --proxy-bind {settings.proxy_bind} is not a loopback address: "
+            "the proxy accepts connections from other machines (it still needs a valid token)",
+            file=sys.stderr,
+        )
     proxy = Proxy(_proxy_config(settings, project, db_path))
+    archive = Archive.open_path(db_path)
     server = ProxyServer(proxy, host=settings.proxy_bind).start()
     prefix = f"iterant-{slugify(project.repo.resolve().name) or 'repo'}"
     port = server.base_url.rsplit(":", 1)[1]

@@ -78,7 +78,7 @@ def test_claude_profile_needs_a_key_and_is_opt_in(world, monkeypatch: pytest.Mon
     world.init()
     project = load_project(world.repo)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    settings = _settings(world, "--profile", "claude")
+    settings = _settings(world, "--profile", "claude", "--budget-usd", "5")
     with pytest.raises(CliError, match="ANTHROPIC_API_KEY"):
         build_runtime(settings, project, world.repo / ".iterant" / "archive.db")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
@@ -109,8 +109,10 @@ def test_claude_profile_target_model_needs_a_price(world, monkeypatch: pytest.Mo
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
     db = world.repo / ".iterant" / "archive.db"
     with pytest.raises(CliError, match="--price MODEL=IN:OUT"):
-        build_runtime(_settings(world, "--profile", "claude"), project, db)
-    settings = _settings(world, "--profile", "claude", "--price", "my-model=2:10")
+        build_runtime(_settings(world, "--profile", "claude", "--budget-usd", "5"), project, db)
+    settings = _settings(
+        world, "--profile", "claude", "--budget-usd", "5", "--price", "my-model=2:10"
+    )
     build_runtime(settings, project, db).close()
 
 

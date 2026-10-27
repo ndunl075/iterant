@@ -33,6 +33,7 @@ class Settings:
     proxy_host: str | None = None  # the proxy as the sandbox relay sees it; default per backend
     digest_tasks: int = 10
     seed: int = 0
+    send_openai_key: bool = False  # forward OPENAI_API_KEY to a non-loopback endpoint
 
 
 def add_common_arguments(p: argparse.ArgumentParser) -> None:
@@ -75,6 +76,12 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--holdout-reps", type=int, help="CONFIRM reps (default 2)")
     p.add_argument("--smoke-tasks", type=int, help="SMOKE tasks (default 5)")
     p.add_argument("--delta-min", type=float, help="smallest SELECT gain to accept (default 0.05)")
+    p.add_argument(
+        "--send-openai-key",
+        action="store_true",
+        help="free profile: send OPENAI_API_KEY to a non-loopback --openai-base-url "
+        "(by default it is sent to loopback endpoints only)",
+    )
     p.add_argument("--seed", type=int, default=0, help="mixed into the bootstrap seeds")
 
 
@@ -108,9 +115,22 @@ def usd_to_micros(text: str, flag: str) -> int:
     return int(micros)
 
 
+def _digest_tasks(args: argparse.Namespace) -> int:
+    n: int = getattr(args, "digest_tasks", 10)
+    if n < 1:
+        raise CliError("--digest-tasks must be >= 1", EXIT_USAGE)
+    return n
+
+
 def settings_from_args(args: argparse.Namespace) -> Settings:
     profile = Profile(args.profile)
     budget = usd_to_micros(args.budget_usd, "--budget-usd") if args.budget_usd else None
+    if budget is None and profile is Profile.CLAUDE:
+        raise CliError(
+            "the claude profile spends real money: pass --budget-usd to cap it "
+            "(estimate, aa-test and run all spend)",
+            EXIT_USAGE,
+        )
     if budget is not None and profile is not Profile.CLAUDE:
         raise CliError(
             "--budget-usd needs --profile claude (the free profile costs $0)", EXIT_USAGE
@@ -135,8 +155,9 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
         prices=prices,
         proxy_bind=args.proxy_bind,
         proxy_host=args.proxy_host,
-        digest_tasks=getattr(args, "digest_tasks", 10),
+        digest_tasks=_digest_tasks(args),
         seed=args.seed,
+        send_openai_key=args.send_openai_key,
     )
 
 

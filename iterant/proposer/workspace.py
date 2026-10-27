@@ -30,6 +30,13 @@ def _lines(s: str) -> list[str]:
     return re.findall(r"[^\n]*\n|[^\n]+", s)
 
 
+def _present(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:  # e.g. a name that is too long
+        return False
+
+
 class ToolError(Exception):
     """A refused or failed tool call. ``str(error)`` goes back to the model."""
 
@@ -112,15 +119,15 @@ class Workspace:
         if len(data) > MAX_WRITE_BYTES:
             raise ToolError(f"content is larger than {MAX_WRITE_BYTES} bytes")
         full = self._root / norm
-        walked = self._root
-        for part in norm.split("/"):
-            walked = walked / part
-            if walked.is_symlink() or os.path.isjunction(walked):
-                raise ToolError(f"refused: {norm} passes through a symlink or junction")
-        if full.is_dir():
-            raise ToolError(f"{norm} is a directory")
         added: str | None = None
         try:
+            walked = self._root
+            for part in norm.split("/"):
+                walked = walked / part
+                if walked.is_symlink() or os.path.isjunction(walked):
+                    raise ToolError(f"refused: {norm} passes through a symlink or junction")
+            if full.is_dir():
+                raise ToolError(f"{norm} is a directory")
             norm = self._canonical(norm, full)
             if norm not in self._originals:
                 if full.exists():
@@ -134,7 +141,7 @@ class Workspace:
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_bytes(data)
         except OSError as exc:
-            if added is not None and not full.exists():
+            if added is not None and not _present(full):
                 del self._originals[added]  # nothing was written: it is not a touched file
             raise ToolError(f"cannot write {norm}: {exc.strerror or type(exc).__name__}") from exc
         return f"wrote {norm} ({len(data)} bytes)"

@@ -1,0 +1,47 @@
+exec python3 -I - <<'ITERANT_PY'
+"""Reference-pack check (number): parse-only; answer.json is read as JSON text."""
+import json
+import re
+import sys
+from decimal import ROUND_HALF_UP, Decimal
+
+MAX_BYTES = 65536
+
+
+def refuse(_name):
+    raise ValueError("non-finite number")
+
+
+def load_answer():
+    with open("answer.json", "rb") as handle:
+        raw = handle.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        raise ValueError("too large")
+    data = json.loads(raw.decode("utf-8"), parse_constant=refuse)
+    if not isinstance(data, dict) or not isinstance(data.get("answer"), str):
+        raise ValueError("need an object with a string `answer`")
+    return data["answer"]
+
+NUMBER = re.compile(r"(?<![\w.])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+
+
+def extract(text):
+    found = NUMBER.findall(text)
+    if not found:
+        raise ValueError("no number")
+    d = Decimal(found[-1].replace(",", "")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    out = f"{d:f}"
+    out = out.rstrip("0").rstrip(".") if "." in out else out
+    return {"number": out}
+
+
+def main():
+    try:
+        out = extract(load_answer())
+    except Exception:
+        sys.exit(1)
+    sys.stdout.write(json.dumps(out, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+main()
+ITERANT_PY

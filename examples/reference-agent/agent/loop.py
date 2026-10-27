@@ -4,16 +4,30 @@ The client is injected so tests can pass a fake. ``make_client`` imports the
 Anthropic SDK lazily; inside the sandbox the SDK reads ``ANTHROPIC_BASE_URL``,
 which points at the Iterant proxy. The proxy holds the real key and enforces the
 model, effort and spend caps from ``iterant.toml``.
+
+The model and effort are not chosen here: they are read from the frozen ``iterant.toml`` that
+ships in the image next to this package, the same file the proxy enforces. Asking for any other
+model would only be rejected by the proxy, and the file cannot be edited by a candidate (it is
+outside the genome).
 """
 
 import os
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from tools import SCHEMAS, run_tool
 
-MODEL = "claude-haiku-5-5"
-EFFORT = "medium"
+CONFIG = Path(__file__).resolve().parent.parent / "iterant.toml"
+
+
+def frozen_model(path: Path = CONFIG) -> tuple[str, str]:
+    """The ``(name, effort)`` of ``[target.model]`` in ``iterant.toml``."""
+    model = tomllib.loads(path.read_text(encoding="utf-8"))["target"]["model"]
+    return str(model["name"]), str(model["effort"])
+
+
+MODEL, EFFORT = frozen_model()
 MAX_TURNS = 8
 MAX_TOKENS = 2048
 PROMPT = Path(__file__).resolve().parent.parent / "prompts" / "system.md"

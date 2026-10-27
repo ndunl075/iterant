@@ -10,6 +10,7 @@ from iterant.archive import (
     AppendOnlyViolation,
     Archive,
     ArchiveProxyLog,
+    ArchiveTampered,
     ConstraintViolation,
     DuplicateRowError,
     ForeignKeyViolation,
@@ -30,6 +31,7 @@ from iterant.contracts import (
     Split,
     Stage,
     Status,
+    open_archive,
 )
 
 H = "a" * 64
@@ -377,3 +379,172 @@ def test_advance_stage_same_stage_noop_on_terminal(archive: Archive) -> None:
     archive.advance_stage("c1", Stage.GATE)  # replay: no-op
     with pytest.raises(InvalidTransition):
         archive.advance_stage("c1", Stage.SMOKE)
+
+
+def _tamper(path: Path, *statements: str) -> None:
+    con = sqlite3.connect(path, isolation_level=None)
+    for sql in statements:
+        con.execute(sql)
+    con.close()
+
+
+def _trigger_names(path: Path) -> list[str]:
+    con = sqlite3.connect(path)
+    try:
+        return [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='trigger'")]
+    finally:
+        con.close()
+
+
+def test_open_refuses_an_archive_with_a_dropped_trigger(tmp_path: Path) -> None:
+    with Archive.open(tmp_path) as a:
+        a.insert_candidate(cand())
+    path = archive_path(tmp_path)
+    _tamper(path, "DROP TRIGGER runs_no_update")
+    with pytest.raises(ArchiveTampered, match="runs_no_update"):
+        Archive.open(tmp_path)  # must not silently recreate the trigger
+    assert "runs_no_update" not in _trigger_names(path)
+    with pytest.raises(ArchiveTampered):
+        Archive.open_path(path, create_schema=False)
+    with pytest.raises(ArchiveTampered):
+        open_archive(path)
+
+
+def test_open_refuses_an_altered_trigger(tmp_path: Path) -> None:
+    with Archive.open(tmp_path):
+        pass
+    path = archive_path(tmp_path)
+    _tamper(
+        path,
+        "DROP TRIGGER runs_no_update",
+        "CREATE TRIGGER runs_no_update BEFORE UPDATE ON runs WHEN 0"
+        " BEGIN SELECT RAISE(ABORT, 'archive is append-only'); END",
+    )
+    with pytest.raises(ArchiveTampered, match="runs_no_update"):
+        Archive.open(tmp_path)
+
+
+def test_open_refuses_triggers_deleted_via_writable_schema(tmp_path: Path) -> None:
+    with Archive.open(tmp_path):
+        pass
+    path = archive_path(tmp_path)
+    _tamper(
+        path,
+        "PRAGMA writable_schema=1",
+        "DELETE FROM sqlite_master WHERE type='trigger'",
+        "PRAGMA writable_schema=0",
+    )
+    with pytest.raises(ArchiveTampered):
+        Archive.open(tmp_path)
+
+
+def test_untampered_and_new_archives_open(tmp_path: Path) -> None:
+    path = tmp_path / "fresh.db"
+    open_archive(path).close()  # no tables yet: accepted, schema is created next
+    with Archive.open(tmp_path / "r"):
+        pass
+    with Archive.open(tmp_path / "r") as a:
+        assert a.schema_version == SCHEMA_VERSION
+
+
+def _initialised(tmp_path: Path) -> Path:
+    with Archive.open(tmp_path):
+        pass
+    return archive_path(tmp_path)
+
+
+def test_open_refuses_an_extra_trigger_that_drops_inserts(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "CREATE TRIGGER runs_swallow BEFORE INSERT ON runs BEGIN SELECT RAISE(IGNORE); END",
+    )
+    with pytest.raises(ArchiveTampered, match="extra: trigger runs_swallow"):
+        Archive.open(tmp_path)
+    with pytest.raises(ArchiveTampered):
+        open_archive(path)
+
+
+def test_open_refuses_an_edited_table_definition(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "PRAGMA writable_schema=1",
+        "UPDATE sqlite_master SET sql = replace(sql, 'CHECK (gen >= 0)', '')"
+        " WHERE type = 'table' AND name = 'batches'",
+        "PRAGMA writable_schema=0",
+    )
+    with pytest.raises(ArchiveTampered, match="altered: table batches"):
+        Archive.open(tmp_path)
+
+
+def test_open_refuses_an_initialised_archive_with_every_table_dropped(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "DROP TABLE proxy_calls",
+        "DROP TABLE promotions",
+        "DROP TABLE runs",
+        "DROP TABLE candidates",
+        "DROP TABLE batches",
+    )
+    with pytest.raises(ArchiveTampered, match="missing"):
+        Archive.open(tmp_path)  # must not silently re-initialise
+    assert _trigger_names(path) == []
+
+
+def test_report_connect_refuses_a_tampered_archive(tmp_path: Path) -> None:
+    from iterant.report import model
+
+    path = _initialised(tmp_path)
+    _tamper(path, "DROP TRIGGER runs_no_update")
+    with pytest.raises(ArchiveTampered):
+        model._connect(path)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_status_cli_reports_a_tampered_archive(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from iterant.cli.main import main
+
+    path = _initialised(tmp_path)
+    _tamper(path, "DROP TRIGGER runs_no_update")
+    assert main(["status", str(tmp_path)]) == 1
+    assert "archive integrity check failed" in capsys.readouterr().err
+
+
+def test_unknown_schema_version_with_a_dropped_trigger_is_refused_everywhere(
+    tmp_path: Path,
+) -> None:
+    from iterant.report import model
+
+    path = _initialised(tmp_path)
+    _tamper(path, "DROP TRIGGER runs_no_update", "PRAGMA user_version = 99")
+    with pytest.raises(ArchiveTampered):
+        open_archive(path)
+    with pytest.raises(ArchiveTampered):
+        model._connect(path)  # pyright: ignore[reportPrivateUsage]
+    for create in (False, True):  # the archive layer reports it as a schema version error
+        with pytest.raises(SchemaVersionError):
+            Archive.open_path(path, create_schema=create)
+
+
+def test_a_trigger_named_like_an_sqlite_internal_is_refused(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "PRAGMA writable_schema=1",
+        "INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) VALUES"
+        " ('trigger', 'sqlite_t', 'runs', 0,"
+        " 'CREATE TRIGGER sqlite_t BEFORE INSERT ON runs BEGIN SELECT RAISE(IGNORE); END')",
+        "PRAGMA writable_schema=0",
+    )
+    with pytest.raises(ArchiveTampered, match="sqlite_t"):
+        Archive.open(tmp_path)
+
+
+def test_analyze_statistics_tables_are_not_tampering(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(path, "ANALYZE")
+    with Archive.open(tmp_path):
+        pass

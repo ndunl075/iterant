@@ -37,12 +37,16 @@ from iterant.contracts import (
     Split,
     Stage,
     Status,
+    UnsupportedSchemaVersion,
     open_archive,
 )
 
 ARCHIVE_RELPATH: Final = Path(".iterant") / "archive.db"
 # Stored in ``PRAGMA user_version``. Bump it and add a migration step in
-# ``_ensure_schema`` when the DDL changes.
+# ``_ensure_schema`` when the DDL changes. Also add the new version's full DDL to
+# ``contracts.SCHEMA_DDL_BY_VERSION``: every open verifies the on-disk schema against the DDL
+# for its ``user_version`` (``ArchiveTampered`` on any difference). A migration therefore keeps
+# the old version's entry (so the old schema verifies), migrates, then stamps the new version.
 SCHEMA_VERSION: Final = 1
 
 DEFAULT_BUSY_TIMEOUT: Final = 5.0
@@ -92,7 +96,8 @@ def _ensure_schema(con: sqlite3.Connection) -> None:
         )
     # All statements are IF NOT EXISTS, so re-running is harmless (idempotent, and
     # safe if two processes initialise at once).
-    con.executescript(ARCHIVE_DDL)
+    # One transaction, so a crash cannot leave a half-built schema that later looks tampered.
+    con.executescript(f"BEGIN;{ARCHIVE_DDL}COMMIT;")
     if version < SCHEMA_VERSION:
         # WAL lets the proxy's per-call connections write while the orchestrator reads.
         con.execute("PRAGMA journal_mode = WAL")
@@ -131,7 +136,10 @@ class Archive:
             _make_archive_dir(path.parent)
         elif not path.is_file():
             raise ArchiveNotInitialized(f"no archive at {path}")
-        con = open_archive(path)
+        try:
+            con = open_archive(path)
+        except UnsupportedSchemaVersion as exc:
+            raise SchemaVersionError(str(exc)) from exc
         try:
             con.execute(f"PRAGMA busy_timeout = {int(busy_timeout * 1000)}")
             if create_schema:

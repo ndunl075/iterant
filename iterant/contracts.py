@@ -12,6 +12,7 @@ Conventions
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import sqlite3
@@ -286,6 +287,23 @@ class SandboxBackend(Protocol):
 # Types only. The proposer and gate workers implement them.
 
 
+# Every character ``str.splitlines`` treats as a line boundary (plus the lone "\r" of CRLF).
+# ``gitrefs.promote`` rejects them in a commit subject, so reject them at proposal time.
+_BAD_HYPOTHESIS_CHARS: Final = frozenset(
+    [
+        chr(c) for c in range(0x20) if c != 0x09
+    ]  # C0 controls except tab: newline, CR, NUL, FS/GS/RS...
+    + ["\x7f", "\x85", "\u2028", "\u2029"]
+)
+
+
+def clean_hypothesis(s: str) -> str:
+    """Make ``s`` a valid ``Proposal.hypothesis``: control and line-break characters become
+    spaces, runs of whitespace collapse, edges are stripped; empty becomes a placeholder."""
+    s = "".join(" " if ch in _BAD_HYPOTHESIS_CHARS else ch for ch in s)
+    return " ".join(s.split()) or "unspecified change"
+
+
 @dataclass(frozen=True)
 class Proposal:
     """PROPOSE output: a unified diff against the parent plus a one-line hypothesis."""
@@ -296,8 +314,12 @@ class Proposal:
     def __post_init__(self) -> None:
         if not self.diff.strip():
             raise ValueError("diff must be non-empty (no diff is a PROPOSE kill, not a Proposal)")
-        if not self.hypothesis.strip() or "\n" in self.hypothesis.strip():
-            raise ValueError("hypothesis must be a single non-empty line")
+        hyp = self.hypothesis
+        if not hyp.strip() or hyp != hyp.strip() or any(ch in _BAD_HYPOTHESIS_CHARS for ch in hyp):
+            raise ValueError(
+                "hypothesis must be a single non-empty line with no surrounding whitespace"
+                " or control characters"
+            )
 
 
 @dataclass(frozen=True)
@@ -494,8 +516,90 @@ class ProxyCall:
             raise ValueError("token and usd_micros values must be >= 0")
 
 
+class ArchiveTampered(RuntimeError):
+    """The archive's schema, including its append-only triggers, was altered (invariant 6)."""
+
+
+class UnsupportedSchemaVersion(ArchiveTampered):
+    """``user_version`` is one this build has no reference schema for, so it cannot be checked."""
+
+
+# Planner statistics tables ``ANALYZE`` may add; the only ``sqlite_`` objects not in the DDL.
+_SQLITE_STAT_TABLES: Final = ("sqlite_stat1", "sqlite_stat2", "sqlite_stat3", "sqlite_stat4")
+
+
+@functools.cache
+def _expected_schema(version: int) -> frozenset[tuple[str, str, str, str]]:
+    """(type, name, tbl_name, sql) of every schema object, as SQLite stores it after running
+    the DDL for ``version`` in memory."""
+    con = sqlite3.connect(":memory:")
+    try:
+        con.executescript(SCHEMA_DDL_BY_VERSION[version])
+        return frozenset(_schema_objects(con))
+    finally:
+        con.close()
+
+
+def _schema_objects(con: sqlite3.Connection) -> list[tuple[str, str, str, str]]:
+    rows = con.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master"
+        " WHERE NOT (type = 'table' AND name IN (?, ?, ?, ?))",
+        _SQLITE_STAT_TABLES,
+    ).fetchall()
+    return [(str(t), str(n), str(tn), str(q)) for t, n, tn, q in rows]
+
+
+def verify_archive_schema(con: sqlite3.Connection) -> None:
+    """Raise ``ArchiveTampered`` unless the database's whole schema (every table, index and
+    trigger: type, name and SQL) equals the reference DDL for its ``user_version``.
+
+    An extra, missing or altered object is tampering: a dropped or edited append-only trigger,
+    a trigger that silently ignores inserts, a stripped CHECK constraint, or every table
+    dropped from an initialised archive. A brand-new file (``user_version`` 0, no objects) is
+    accepted: the schema is created next. A ``user_version`` newer than this build knows is
+    left to the archive layer's ``SchemaVersionError``.
+
+    Detection only: anyone who can write the file can also rewrite rows and restore the
+    original schema text (a hash chain over rows is future work).
+    """
+    row = con.execute("PRAGMA user_version").fetchone()
+    version = int(row[0])
+    found = _schema_objects(con)
+    if version == 0 and not found:
+        return
+    if version == 0:
+        version = max(SCHEMA_DDL_BY_VERSION)  # schema written, version stamp not yet (crash)
+    elif version not in SCHEMA_DDL_BY_VERSION:
+        raise UnsupportedSchemaVersion(
+            f"archive schema version {version} is not one this build knows"
+            f" ({', '.join(map(str, SCHEMA_DDL_BY_VERSION))}); refusing to open it unverified"
+        )
+    expected = _expected_schema(version)
+    got = frozenset(found)
+    if got == expected:
+        return
+    exp = {(t, n): q for t, n, _tn, q in expected}
+    act = {(t, n): q for t, n, _tn, q in got}
+    missing = sorted(f"{t} {n}" for (t, n) in exp.keys() - act.keys())
+    extra = sorted(f"{t} {n}" for (t, n) in act.keys() - exp.keys())
+    altered = sorted(f"{t} {n}" for (t, n) in exp.keys() & act.keys() if exp[(t, n)] != act[(t, n)])
+    parts = [
+        f"{label}: {', '.join(v)}"
+        for label, v in (("missing", missing), ("extra", extra), ("altered", altered))
+        if v
+    ]
+    raise ArchiveTampered(
+        "archive schema does not match the expected one ("
+        + ("; ".join(parts) or "table name or sql differs")
+        + "); refusing to open a possibly tampered archive"
+    )
+
+
 def open_archive(path: str | os.PathLike[str]) -> sqlite3.Connection:
     """Open the archive database with foreign keys enforced.
+
+    Raises ``ArchiveTampered`` if an existing archive's schema (tables, indexes,
+    append-only triggers) differs from the expected one.
 
     Every connection to the archive must come from this function: SQLite ignores
     foreign keys unless ``PRAGMA foreign_keys = ON`` is set on each connection.
@@ -506,6 +610,11 @@ def open_archive(path: str | os.PathLike[str]) -> sqlite3.Connection:
     if con.execute("PRAGMA foreign_keys").fetchone() != (1,):
         con.close()
         raise RuntimeError("could not enable SQLite foreign key enforcement")
+    try:
+        verify_archive_schema(con)
+    except BaseException:
+        con.close()
+        raise
     return con
 
 
@@ -637,6 +746,9 @@ CREATE TABLE IF NOT EXISTS proxy_calls (
 """ + _append_only("proxy_calls", "id = NEW.id")
 
 ARCHIVE_DDL: Final = BATCHES_DDL + CANDIDATES_DDL + RUNS_DDL + PROMOTIONS_DDL + PROXY_CALLS_DDL
+
+# Expected schema by ``PRAGMA user_version``; see ``iterant.archive.db.SCHEMA_VERSION``.
+SCHEMA_DDL_BY_VERSION: Final[Mapping[int, str]] = {1: ARCHIVE_DDL}
 
 # --- proxy roles and profiles (§6) -------------------------------------------
 

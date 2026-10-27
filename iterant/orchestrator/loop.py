@@ -58,6 +58,7 @@ from iterant.contracts import (
     TargetConfig,
     Task,
     TriedCandidate,
+    clean_hypothesis,
     open_archive,
 )
 from iterant.grader import GraderPreflightError
@@ -462,7 +463,7 @@ class Orchestrator:
     def _gate_phase(self, g: _Gen) -> None:
         for c in self._active(g, Stage.GATE):
             g.budget.check(self._worst(Role.AUDITOR))
-            proposal = Proposal(self._store.get(c.diff_sha), c.hypothesis)
+            proposal = Proposal(self._store.get(c.diff_sha), clean_hypothesis(c.hypothesis))
             try:
                 with tempfile.TemporaryDirectory(prefix="iterant-gate-") as tmp:
                     repo = export_commit(self._repo, g.champ_sha, Path(tmp) / "repo")

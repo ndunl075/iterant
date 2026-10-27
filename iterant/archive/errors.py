@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from iterant.contracts import ArchiveTampered as ArchiveTampered
+
 
 class ArchiveError(Exception):
     """Base class for every error this package raises on purpose."""

@@ -47,8 +47,15 @@ is removed.
 |---|---|
 | `test_row3_non_finite_max_tokens_is_a_rejection_not_a_crash` | FIXED by PR #22 (marker removed): `max_tokens` NaN or Infinity now returns a 400 rejection from `Proxy.admit` |
 | `test_row3_one_huge_prompt_cannot_blow_through_the_run_cap` | FIXED by PR #22 (marker removed): admit now reserves an input-token estimate plus `max_tokens` |
-| `test_row5_dropping_the_triggers_does_not_unlock_the_archive` | the append-only triggers are plain SQLite triggers; `DROP TRIGGER` then `UPDATE runs` succeeds, undetected (`iterant/contracts.py:525-530`). |
-| `test_row5_writable_schema_does_not_unlock_the_archive` | `PRAGMA writable_schema=1; DELETE FROM sqlite_master WHERE type='trigger'` removes the triggers; after a reopen `UPDATE runs` succeeds, undetected (same DDL, `iterant/contracts.py:525-530`) |
+
+Closed as detection (row 5, holes 3 and 4): the archive refuses to open (`ArchiveTampered`) when
+its schema (every table, index and trigger, compared with the reference DDL for its
+`user_version`) has any extra, missing or altered object, so `DROP TRIGGER`, `writable_schema`,
+an injected `RAISE(IGNORE)` trigger or dropped tables are caught on the next open
+(`test_row5_dropping_the_triggers_is_detected_on_reopen`,
+`test_row5_writable_schema_is_detected_on_reopen`). Not prevented: whoever can write the file can
+still rewrite rows and restore the original schema text; a tamper-evident hash chain over run and
+promotion rows is future work.
 
 ## Missing defenses (no test can pass; nothing to xfail)
 

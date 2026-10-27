@@ -82,7 +82,7 @@ def test_row9_a_hostile_hypothesis_cannot_steer_git(world, hypothesis: str) -> N
     """The hypothesis is candidate-written text that ends up in a commit message."""
     main_before = world.git("rev-parse", "main")
     diff = world.proposal("v0", "v1", "h").diff
-    if "\n" in hypothesis:  # multi-line text cannot even be built into a Proposal
+    if any(ord(c) < 0x20 for c in hypothesis):  # control characters never become a Proposal
         with pytest.raises(ValueError):
             Proposal(diff, hypothesis)
         return

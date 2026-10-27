@@ -9,7 +9,7 @@ from pathlib import Path
 from iterant.archive import Archive, ArchiveError, ArchiveNotInitialized, archive_path
 from iterant.cli.errors import EXIT_ERROR, EXIT_OK, CliError
 from iterant.cli.lock import cli_lock
-from iterant.contracts import AcceptanceThresholds, Batch, Candidate, open_archive
+from iterant.contracts import AcceptanceThresholds, ArchiveTampered, Batch, Candidate, open_archive
 from iterant.orchestrator import OrchestratorBusy
 from iterant.orchestrator.loop import CLOSED, SEED_ID
 
@@ -49,6 +49,8 @@ def render_status(repo: Path) -> str:
         raise CliError(
             f"no archive at {path}: nothing has run here yet (try `iterant run`)", EXIT_ERROR
         ) from None
+    except ArchiveTampered as exc:
+        raise CliError(f"archive integrity check failed: {exc}", EXIT_ERROR) from exc
     except ArchiveError as exc:
         raise CliError(f"cannot open the archive at {path}: {exc}", EXIT_ERROR) from exc
     with archive:

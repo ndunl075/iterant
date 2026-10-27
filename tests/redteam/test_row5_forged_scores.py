@@ -167,26 +167,29 @@ def test_row5_archive_rows_cannot_be_rewritten_after_the_fact(world) -> None:  #
         con.close()
 
 
-def _rewrite_succeeds(path, statements: list[str] | None = None) -> bool:  # type: ignore[no-untyped-def]
-    """Run ``statements`` on one connection, close it, then try the rewrite on a FRESH one
-    (SQLite caches the schema per connection, so only a reopen shows what is really on disk)."""
+def _rewrite_blocked(path) -> bool:  # type: ignore[no-untyped-def]
     import sqlite3
 
     con = sqlite3.connect(path, isolation_level=None)
-    for sql in statements or []:
+    try:
+        con.execute("UPDATE runs SET score = 1.0")
+        return False
+    except sqlite3.DatabaseError:
+        return True
+    finally:
+        con.close()
+
+
+def _attack(path, statements: list[str]) -> None:  # type: ignore[no-untyped-def]
+    import sqlite3
+
+    con = sqlite3.connect(path, isolation_level=None)
+    for sql in statements:
         try:
             con.execute(sql)
         except sqlite3.DatabaseError:
             pass
     con.close()
-    con = sqlite3.connect(path, isolation_level=None)
-    try:
-        con.execute("UPDATE runs SET score = 1.0")
-        return True
-    except sqlite3.DatabaseError:
-        return False
-    finally:
-        con.close()
 
 
 def _trigger_names(path) -> list[str]:  # type: ignore[no-untyped-def]
@@ -199,36 +202,33 @@ def _trigger_names(path) -> list[str]:  # type: ignore[no-untyped-def]
         con.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="HOLE: the append-only triggers (iterant/contracts.py:525-530) are ordinary SQLite "
-    "triggers; anyone who can open .iterant/archive.db can DROP TRIGGER and then rewrite "
-    "scores, with no detection. Repro: DROP TRIGGER <runs trigger>; UPDATE runs SET score=1.",
-)
-def test_row5_dropping_the_triggers_does_not_unlock_the_archive(world) -> None:  # type: ignore[no-untyped-def]
+# Hole 3 and 4 are closed as far as the host can: anyone who can write the file can always
+# defeat plain SQLite triggers, so the defense is detection. Iterant refuses to open an
+# archive whose append-only triggers are missing or altered (``ArchiveTampered``).
+
+
+def test_row5_dropping_the_triggers_is_detected_on_reopen(world) -> None:  # type: ignore[no-untyped-def]
+    from iterant.archive import Archive, ArchiveTampered
+
     world.queue(world.proposal("v0", "v1", "h"))
     world.orchestrator().run_generation()
     path = world.repo / ".iterant" / "archive.db"
     names = _trigger_names(path)
     assert names
-    assert not _rewrite_succeeds(path), "control: the rewrite must be blocked before the drop"
-    assert not _rewrite_succeeds(path, [f'DROP TRIGGER "{n}"' for n in names])
+    assert _rewrite_blocked(path), "control: the rewrite must be blocked before the drop"
+    _attack(path, [f'DROP TRIGGER "{n}"' for n in names])
+    with pytest.raises(ArchiveTampered):
+        Archive.open(world.repo)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="HOLE: PRAGMA writable_schema lets a plain sqlite3 connection delete the trigger "
-    "rows from sqlite_master; after a reopen the append-only guard is gone and scores can be "
-    "rewritten, undetected.",
-)
-def test_row5_writable_schema_does_not_unlock_the_archive(world) -> None:  # type: ignore[no-untyped-def]
+def test_row5_writable_schema_is_detected_on_reopen(world) -> None:  # type: ignore[no-untyped-def]
+    from iterant.archive import Archive, ArchiveTampered
+
     world.queue(world.proposal("v0", "v1", "h"))
     world.orchestrator().run_generation()
     path = world.repo / ".iterant" / "archive.db"
-    assert not _rewrite_succeeds(path), "control: the rewrite must be blocked before the attack"
-    assert not _rewrite_succeeds(
+    assert _rewrite_blocked(path), "control: the rewrite must be blocked before the attack"
+    _attack(
         path,
         [
             "PRAGMA writable_schema=1",
@@ -236,3 +236,5 @@ def test_row5_writable_schema_does_not_unlock_the_archive(world) -> None:  # typ
             "PRAGMA writable_schema=0",
         ],
     )
+    with pytest.raises(ArchiveTampered):
+        Archive.open(world.repo)

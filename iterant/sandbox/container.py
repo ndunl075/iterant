@@ -33,8 +33,10 @@ PROXY_ENV = "ITERANT_PROXY_URL"
 RELAY_PORT = 8080
 RELAY_GRACE_S = 30
 CONTAINER_TTL_SLACK_S = 10  # the container's own `sleep` outlives the host-side deadline
-EXEC_TTL_MARGIN_S = 5.0  # exec never runs closer than this to the ttl
 LOST_WINDOW_S = 10.0  # how long a dying container may stay listed after its exec ends
+# exec never runs closer than this to the ttl: room for the lost-window polling plus slack,
+# so a ttl teardown cannot land inside it
+EXEC_TTL_MARGIN_S = 5.0 + LOST_WINDOW_S
 _LOST_POLL_INTERVAL_S = 0.2
 # alpine/socat 1.8.1.3 (multi-arch index digest). Needs busybox `timeout` and `socat`.
 DEFAULT_RELAY_IMAGE = (
@@ -96,6 +98,14 @@ def slugify(text: str, limit: int = 40) -> str:
     return slug or "x"
 
 
+def _check_window(seconds: float) -> float:
+    """``lost_window_s`` must be finite, >= 0 and at most ``LOST_WINDOW_S`` (what
+    ``EXEC_TTL_MARGIN_S`` leaves room for)."""
+    if not math.isfinite(seconds) or not 0 <= seconds <= LOST_WINDOW_S:
+        raise ValueError(f"lost_window_s must be between 0 and {LOST_WINDOW_S}, got {seconds!r}")
+    return seconds
+
+
 def _text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
@@ -152,7 +162,7 @@ class ContainerSandbox:
     ) -> None:
         self._rt = runtime
         self._runner = runner
-        self._lost_window_s = lost_window_s
+        self._lost_window_s = _check_window(lost_window_s)
         self._name = name
         self._teardown = [list(a) for a in teardown]
         self.proxy_url = proxy_url
@@ -308,11 +318,14 @@ class ContainerSandbox:
                 # A dying container can stay listed for a moment after its exec ends.
                 # Poll until the state is decided (absent, removing, unknown) or the window ends.
                 give_up = time.monotonic() + self._lost_window_s
-                while state == "present" and time.monotonic() < give_up:
+                while state == "present" and not self._dead and time.monotonic() < give_up:
                     time.sleep(_LOST_POLL_INTERVAL_S)
                     state = self._container_state()
                 if state == "unknown":
                     raise SandboxError(f"{self._rt} cannot report on {self._name} after exec")
+            if self._dead:
+                # destroy or the ttl ran during the polling: its teardown made it vanish
+                raise SandboxError(f"sandbox {self._name} was destroyed or expired during exec")
             if state in ("absent", "removing"):
                 # PID 1 or the whole container died. destroy/ttl were ruled out above, so the
                 # command caused it; later calls raise SandboxLost.
@@ -408,7 +421,7 @@ class ContainerBackend:
         self._relay_extra = list(relay_extra_args)
         self._work_tmpfs_owner = work_tmpfs_owner
         self._network_extra = list(network_extra_args)
-        self._lost_window_s = lost_window_s
+        self._lost_window_s = _check_window(lost_window_s)
         self._proxy = _parse_proxy(proxy_url) if proxy_url is not None else None
 
     @property

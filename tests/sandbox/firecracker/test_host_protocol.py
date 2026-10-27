@@ -352,3 +352,58 @@ def test_command_longer_than_the_cap_is_refused_before_sending() -> None:
     with pytest.raises(ValueError):
         rig.sandbox.exec("x" * ((1 << 20) + 1), 5)
     assert rig.sandbox.exec("x" * (1 << 20), 5).exit_code == 3
+
+
+class ResetRig(Rig):
+    """Connections open fine, then every send/receive is reset (the agent died mid-request)."""
+
+    def _connect(self, deadline: float) -> Conn:
+        host, guest = socket.socketpair()
+        guest.close()
+
+        class ResetConn(Conn):
+            def send(self, data: bytes) -> None:
+                raise ConnectionResetError("reset")
+
+        return ResetConn(host, deadline)
+
+
+def test_reset_during_put_or_get_with_vm_running_is_lost() -> None:
+    for call in (
+        lambda sb: sb.put("/work/f", b"data"),
+        lambda sb: sb.get("/work/f"),
+    ):
+        rig = ResetRig(exec_ok)  # the VM process keeps running
+        with pytest.raises(SandboxLost):
+            call(rig.sandbox)
+        assert rig.killed == 1
+
+
+def test_reset_during_the_connect_handshake_stays_infra() -> None:
+    class HandshakeReset(Rig):
+        def _connect(self, deadline: float) -> Conn:
+            raise ConnectionResetError("reset before the agent saw anything")
+
+    rig = HandshakeReset(exec_ok)
+    with pytest.raises(SandboxError) as info:
+        rig.sandbox.exec("x", 5)
+    assert not isinstance(info.value, SandboxLost)
+    assert rig.killed == 0
+
+
+def test_destroy_during_the_exit_wait_is_an_error_not_a_lost_sandbox() -> None:
+    class DestroyingVm(FakeVm):
+        def __init__(self) -> None:
+            super().__init__()
+            self.hook: Callable[[], None] = lambda: None
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.hook()  # the ttl teardown lands while the host waits for the VM to exit
+            return super().wait(timeout)
+
+    vm = DestroyingVm()
+    rig = Rig(lambda sock, req, _: None, vm=vm)  # agent closes without answering
+    vm.hook = rig.sandbox.destroy
+    with pytest.raises(SandboxError, match="destroyed or expired") as info:
+        rig.sandbox.exec("x", 5)
+    assert not isinstance(info.value, SandboxLost)

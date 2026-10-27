@@ -36,9 +36,11 @@ CONTROL_PORT = 5000
 PROXY_VSOCK_PORT = 1025
 MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 MAX_COMMAND_CHARS = 1 << 20  # the guest runs anything over ~100 KB from a script file
-EXEC_TTL_MARGIN_S = 5.0  # exec never runs closer than this to the ttl
 EXEC_ANSWER_SLACK_S = 15.0  # the agent enforces the timeout; this much extra before "hung"
 VM_EXIT_WAIT_S = 10.0  # a guest whose agent died powers off within this long (it syncs first)
+# exec never runs closer than this to the ttl: room for the exit wait plus slack, so a ttl
+# teardown cannot land inside it
+EXEC_TTL_MARGIN_S = 5.0 + VM_EXIT_WAIT_S
 MAX_REQUEST_BYTES = 8 * 1024 * 1024  # the guest agent's request-line limit (guest.MAX_REQUEST_LINE)
 RELAY_MAX_CONNS = 64  # per sandbox: each costs two relay threads, two fds and a proxy thread
 RELAY_IDLE_S = 300.0  # no byte either way for this long ends the connection
@@ -66,13 +68,12 @@ def _require_abs(path: str) -> None:
         raise ValueError(f"sandbox path must be absolute, got {path!r}")
 
 
-def _reset_as_gone(err: BaseException) -> BaseException:
-    """A reset or broken pipe on an established agent stream means the agent went away
-    mid-request. Treat it like a clean close: lost, once the VM has had time to exit (a
-    guest that is still syncing before power-off must not read as an infra error)."""
-    if isinstance(err, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
-        return _Gone(f"connection reset by the guest: {type(err).__name__}")
-    return err
+# A reset or broken pipe on an established agent stream means the agent went away
+# mid-request. It is treated like a clean close: lost, once the VM has had time to exit (a
+# guest that is still syncing before power-off must not read as an infra error). A reset
+# during the connect handshake is not caught here: it stays an infra error, since no
+# request had reached the agent.
+_RESETS = (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)
 
 
 def _unix_socket() -> socket.socket:
@@ -264,6 +265,8 @@ class FirecrackerSandbox:
             code = self._vm.poll()  # a hung or lying guest is still running
         else:
             code = self._vm_exit_code()
+            if self._dead:  # destroy or the ttl ran during the wait: not the guest's doing
+                return SandboxError(f"sandbox {self._name} was destroyed or expired during {what}")
         if code is not None and code != 0:
             return SandboxError(f"{what} failed: the VM process died with status {code}")
         if code == 0 or isinstance(err, (_Gone, TimeoutError)):
@@ -282,8 +285,8 @@ class FirecrackerSandbox:
             try:
                 conn.send(req + data)
                 head = conn.header()
-            except OSError as e:
-                raise _reset_as_gone(e) from e
+            except _RESETS as e:
+                raise _Gone(f"guest reset the stream: {type(e).__name__}") from e
         except (OSError, _Gone, TimeoutError) as e:
             raise self._failure(f"put {path}", e) from e
         finally:
@@ -306,8 +309,8 @@ class FirecrackerSandbox:
                     data = conn.exact(_int_field(head, "size", 0, MAX_OUTPUT_BYTES))
                 else:
                     data = b""
-            except OSError as e:
-                raise _reset_as_gone(e) from e
+            except _RESETS as e:
+                raise _Gone(f"guest reset the stream: {type(e).__name__}") from e
         except (OSError, _Gone, TimeoutError) as e:
             raise self._failure(f"get {path}", e) from e
         finally:
@@ -371,8 +374,8 @@ class FirecrackerSandbox:
                 truncated = _bool_field(head, "truncated")
                 code = _int_field(head, "exit", -1 if timed_out else 0, -1 if timed_out else 255)
                 out, err = conn.exact(n_out), conn.exact(n_err)
-            except OSError as e:
-                raise _reset_as_gone(e) from e
+            except _RESETS as e:
+                raise _Gone(f"guest reset the stream: {type(e).__name__}") from e
         except (OSError, _Gone, TimeoutError) as e:
             wall = time.monotonic() - start
             failure = self._failure("exec", e)

@@ -118,6 +118,8 @@ def test_editable(repo: Path, path: str) -> None:
         ("tools/Aux.py", "device name"),
         ("prompts/nul .txt", "device name"),
         ("prompts/COM¹", "device name"),
+        ("prompts/COM0", "device name"),
+        ("prompts/lpt0.txt", "device name"),
         ("prompts/lpt².md", "device name"),
         ("prompts/CONIN$", "device name"),
         ("prompts/CONOUT$.txt", "device name"),

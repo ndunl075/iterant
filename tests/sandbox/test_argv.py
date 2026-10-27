@@ -839,3 +839,34 @@ def test_exec_is_clamped_to_the_ttl_and_times_out_instead_of_raising() -> None:
     short = make(Spy()).create("img", 1, 64, 64, 3, net="default-deny")  # ttl < margin
     res = short.exec("x", 10)
     assert res.timed_out and res.exit_code == -1 and len(seen) == 1  # never ran
+
+
+def test_destroy_during_the_lost_window_is_an_error_not_a_lost_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("iterant.sandbox.container.time.sleep", lambda s: None)
+    holder: list[Any] = []
+    seen = {"n": 0}
+
+    def handler(argv: list[str]) -> RunOutput | None:
+        if "x" in argv[-1:] and argv[1] == "exec":
+            return RunOutput(137)
+        if argv[1:3] == ["container", "inspect"]:
+            seen["n"] += 1
+            if seen["n"] == 3:
+                holder[0].destroy()  # the ttl timer / caller tears it down mid-poll
+            return RunOutput(0) if seen["n"] < 3 else RunOutput(1, stderr=b"no such container")
+        return None
+
+    sb = make(FakeRunner(handler)).create("img", 1, 64, 64, 60)
+    holder.append(sb)
+    with pytest.raises(SandboxError, match="destroyed or expired"):
+        sb.exec("x", 5)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, 10.5])
+def test_lost_window_is_validated(bad: float) -> None:
+    with pytest.raises(ValueError, match="lost_window_s"):
+        PodmanBackend(
+            PROXY, name_prefix="claude-w1-sandbox-test", runner=FakeRunner(), lost_window_s=bad
+        )

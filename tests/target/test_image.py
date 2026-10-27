@@ -264,3 +264,21 @@ def test_context_total_bytes_are_capped(tmp_path: Path) -> None:
     with pytest.raises(ImageBuildError, match="limit"):
         build_image(tmp_path, _config(), "iterant-x", runner=rec, max_bytes=500)
     assert rec.calls == []
+
+
+def test_nfd_pack_directory_name_is_still_excluded(tmp_path: Path) -> None:
+    nfd = "evals/pack/café"  # "cafe" + combining acute: NFD on disk
+    cfg = dataclasses.replace(_config(), evaluation=EvalConfig(pack="evals/café"))
+    _populate(tmp_path, ["Containerfile", "agent/loop.py", "evals/café/check"])
+    snap = ContextSnapshot()
+    build_image(tmp_path, cfg, "iterant-x", runner=snap)
+    assert snap.files == {"Containerfile", "agent/loop.py"}
+    assert nfd  # (silences unused-name linters in the literal above)
+
+
+def test_context_directory_count_is_capped(tmp_path: Path) -> None:
+    _populate(tmp_path, ["Containerfile", *[f"d{i}/f" for i in range(6)]])
+    rec = Recorder()
+    with pytest.raises(ImageBuildError, match="directories"):
+        build_image(tmp_path, _config(), "iterant-x", runner=rec, max_dirs=5)
+    assert rec.calls == []

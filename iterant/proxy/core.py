@@ -24,7 +24,7 @@ from iterant.proxy.ledger import (
     RunUsage,
     Usage,
     cost_usd_micros,
-    estimate_input_tokens,
+    estimate_input,
     input_reserve_usd_micros,
     output_reserve_usd_micros,
 )
@@ -84,6 +84,7 @@ class Proxy:
         self._lock = threading.Lock()
         self._content = _Content()
         self._healthy = True
+        self._inflight: dict[str, int] = {}  # admitted, unsettled calls per token
 
     # --- tokens -----------------------------------------------------------------
 
@@ -158,7 +159,7 @@ class Proxy:
             )
         try:
             body = obj(json.loads(body_bytes))
-        except ValueError:
+        except (ValueError, RecursionError):
             body = None
         if body is None:
             return Rejection(
@@ -180,17 +181,30 @@ class Proxy:
         )
         max_tokens = int(body["max_tokens"])
         # Reserve the worst case: a conservative input estimate plus the full output.
-        est_input = estimate_input_tokens(len(body_bytes))
+        estimate = estimate_input(len(body_bytes), body)
+        est_input = estimate.tokens
         units = (
             est_input + max_tokens
             if cap.is_token_capped
-            else input_reserve_usd_micros(self.config.prices[cap.model], est_input)
+            else input_reserve_usd_micros(self.config.prices[cap.model], est_input, estimate.cached)
             + output_reserve_usd_micros(self.config.prices[cap.model], max_tokens)
         )
+        with self._lock:
+            if self._inflight.get(token, 0) >= self.config.max_inflight_per_token:
+                return Rejection(
+                    429,
+                    "rate_limit_error",
+                    "too_many_in_flight",
+                    f"iterant proxy: at most {self.config.max_inflight_per_token} calls "
+                    "may be in flight per token",
+                )
+            self._inflight[token] = self._inflight.get(token, 0) + 1
         reservation = self.ledger.reserve(session.role, run_id, cap, units)
         if isinstance(reservation, CapExceeded):
+            self._done(token)
             return Rejection(403, "permission_error", reservation.code, reservation.message)
         if not self.sessions.take_use(token):
+            self._done(token)
             self.ledger.release(reservation)
             return Rejection(
                 401,
@@ -204,7 +218,16 @@ class Proxy:
 
     def release(self, adm: Admission) -> None:
         """The upstream call failed before any usage: nothing was spent."""
+        self._done(adm.token)
         self.ledger.release(adm.reservation)
+
+    def _done(self, token: str) -> None:
+        with self._lock:
+            left = self._inflight.get(token, 0) - 1
+            if left > 0:
+                self._inflight[token] = left
+            else:
+                self._inflight.pop(token, None)
 
     # --- settle -----------------------------------------------------------------
 
@@ -218,6 +241,7 @@ class Proxy:
         """Log one completed (or cut-off) call. ``usage`` None means the upstream never said:
         charge the whole reservation rather than let it go uncounted."""
         cap, profile = adm.cap, self.config.policy.profile
+        self._done(adm.token)
         if usage is None:
             usage = Usage(output=int(adm.body["max_tokens"]))
         # Price and log what the upstream says it ran (a fallback may differ from the cap).

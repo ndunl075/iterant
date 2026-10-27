@@ -38,8 +38,8 @@ DENIED_DIRS = (".git", ".iterant")
 _SHORT_NAME = re.compile(r"[^~]+~\d+(?:\.[^.]*)?")
 _DEVICE_NAMES = frozenset(
     {"con", "prn", "aux", "nul", "conin$", "conout$", "clock$"}
-    | {f"com{i}" for i in "123456789¹²³"}
-    | {f"lpt{i}" for i in "123456789¹²³"}
+    | {f"com{i}" for i in "0123456789¹²³"}
+    | {f"lpt{i}" for i in "0123456789¹²³"}
 )
 # Code points HFS+/APFS ignore when comparing names (".g<ZWNJ>it" is ".git" there),
 # beyond category Cf: combining grapheme joiner, Mongolian and variation selectors, fillers.

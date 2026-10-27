@@ -38,6 +38,19 @@ DEFAULT_PRICES: Mapping[str, ModelPrice] = {
     OPUS: ModelPrice(5_000_000, 25_000_000),
 }
 
+# The largest request body each of Iterant's own roles sends, and its max_tokens. The proxy
+# reserves ceil(bytes / 3) + max_tokens per call (``estimate_input``), so every per-run cap
+# below must fit one such call; tests/cli/test_profiles.py asserts it for both profiles.
+# Proposer: MAX_CONTEXT_CHARS (400k) + 20% for JSON escaping, system prompt and tool schemas.
+PROPOSER_MAX_REQUEST_BYTES = 480_000
+PROPOSER_MAX_TOKENS = 16_000
+# Analyst: one 6k-char excerpt plus the system prompt, with escaping headroom.
+ANALYST_MAX_REQUEST_BYTES = 16 * 1024
+ANALYST_MAX_TOKENS = 1024
+# Auditor: the gate refuses diffs over 128 KiB; the rest is the system prompt and policy note.
+AUDITOR_MAX_REQUEST_BYTES = 160 * 1024
+AUDITOR_MAX_TOKENS = 1024
+
 PROPOSER_EFFORT: Effort = "high"
 ANALYST_EFFORT: Effort = "medium"
 AUDITOR_EFFORT: Effort = "medium"
@@ -107,7 +120,7 @@ def build_policy(
             Role.TARGET: target_cap(target, profile, target.max_tokens_per_run * n),
             Role.PROPOSER: RoleCap(
                 *models.proposer,
-                max_tokens_per_run=32_000,
+                max_tokens_per_run=200_000,
                 max_tokens_per_gen=5_000_000 * candidates,
             ),
             Role.ANALYST: RoleCap(
@@ -141,7 +154,7 @@ def build_policy(
             Role.TARGET: target_cap(target, profile, per_gen),
             Role.PROPOSER: RoleCap(
                 *models.proposer,
-                max_usd_micros_per_run=1_000_000,
+                max_usd_micros_per_run=1_500_000,
                 max_usd_micros_per_gen=20_000_000 * candidates,
             ),
             Role.ANALYST: RoleCap(

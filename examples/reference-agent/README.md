@@ -7,8 +7,8 @@ own project: its dependencies are in `requirements.txt`, not in Iterant's.
 - `prompts/`, `tools/`: system prompt and tools (editable).
 - `kb/facts.json`, `agent/__main__.py`, `Containerfile`, `iterant.toml`: frozen.
 - `evals/reference-pack/`: the task pack (57 self-written tasks: arithmetic, facts about the
-  demo company, yes/no). `evals/reference-pack/generate.py` regenerates it. It is never copied into the
-  agent's image (`.containerignore`).
+  demo company, yes/no). `evals/reference-pack/generate.py` regenerates it. The pack directory is always
+  excluded from the agent's image and the proposer's view, whatever `.containerignore` says.
 
 Input `/task/input.json` is `{"question": "..."}`; output is `/out/answer.json`
 (`{"answer": "..."}`) plus `/out/transcript.json`. LLM traffic goes through

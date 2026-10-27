@@ -2,7 +2,7 @@
 
 This expands ARCHITECTURE.md section 9. The attacker is a **candidate**: a change the proposer (an LLM) makes to your agent's genome, which may be malicious or may just learn to game the checks. Each row below lists the defenses and the red-team test that attacks it. Tests are in [`tests/redteam/`](../tests/redteam/README.md).
 
-Status: pre-release. The red-team suite runs against the real gate, grader, orchestrator and proxy, with fakes only at the edges (sandbox runtime, model upstream, proposer, auditor). No live end-to-end run has been done.
+Status: pre-release. The red-team suite runs against the real gate, grader, orchestrator and proxy, with fakes only at the edges (sandbox runtime, model upstream, proposer, auditor). No run with a real model has been done; `iterant estimate` has run end to end in CI against a stub model on Podman.
 
 ## Trusted computing base (TCB)
 
@@ -46,7 +46,7 @@ Stated as in `tests/redteam/README.md`, which is the current list, plus notes fr
 - **Archive append-only triggers can be dropped or bypassed.** The triggers are plain SQLite triggers. `DROP TRIGGER`, or `PRAGMA writable_schema=1` with a delete from `sqlite_master`, removes them, and a later `UPDATE` on `runs` then succeeds undetected. This needs write access to the archive file, which a sandboxed candidate is not given. Documented by strict `xfail` tests in `test_row5_forged_scores.py`.
 - **No holdout rotation.** Section 9 lists it as a defense for row 4, but it is not implemented. The orchestrator always takes the first `holdout_tasks` of the holdout split in id order. The only protection is a warning after `holdout_query_warn` queries, and nothing blocks on it. Row 4 rests on the proposer's blindness, the grep and the auditor.
 - **The podman proxy is reachable from your LAN.** Loopback is unreachable from rootless Podman, so the proxy binds an address the sandbox can reach, and other machines on the network can reach it too. Requests are token-gated. `--proxy-bind` changes the address; `0.0.0.0` is an explicit opt-in that exposes every interface.
-- **The Firecracker backend is not attacked by the red-team suite and is not selectable from the CLI.** It also runs without Firecracker's jailer (deferred to the release work; see PR #18). Podman is a container, not a VM, and is for development only; the Docker backend needs `--unsafe-container` because the daemon is root-equivalent.
+- **The Firecracker backend is not attacked by the red-team suite.** It is selectable with `--backend firecracker`. It also runs without Firecracker's jailer (deferred to the release work; see PR #18). Podman is a container, not a VM, and is for development only; the Docker backend needs `--unsafe-container` because the daemon is root-equivalent.
 - **The CRUXEval code-exec policy is advisory and unenforced.** The pack sets `agent_code_exec_policy = "advisory-forbidden"` to ask the agent not to run code. Nothing can tell a script that solves the task from one that executes the function, so a candidate that runs code is neither blocked nor detected. The gate and report show the policy as unenforced. Treat a high score from a candidate with code-execution tools accordingly.
 - **Proxy cap estimates are heuristic.** The non-finite `max_tokens` crash and the output-only reservation are fixed (PR #22). Admit now reserves an input estimate (bytes/3, plus fixed amounts for images and documents) and allows at most 4 calls in flight per run token, but text denser than 3 bytes per token can still settle somewhat past a cap.
 

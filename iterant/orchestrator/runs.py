@@ -108,7 +108,8 @@ def read_out(
         kind, links, size_text, rel = parts
         if kind == "d":
             continue
-        if kind != "f" or links != "1" or not size_text.isdigit() or not rel:
+        ascii_size = size_text.isascii() and size_text.isdigit()  # int() accepts other digits
+        if kind != "f" or links != "1" or not ascii_size or not rel:
             raise OutputRejected("output contains a link or special file")
         size = int(size_text)
         if size > MAX_OUT_FILE_BYTES:

@@ -30,11 +30,19 @@ def _lines(s: str) -> list[str]:
     return re.findall(r"[^\n]*\n|[^\n]+", s)
 
 
-def _present(path: Path) -> bool:
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Temp file in the same directory, then ``os.replace``: a failure part-way leaves the
+    original file untouched and no partial content behind."""
+    tmp = path.with_name(f".{path.name}.iterant-{os.getpid()}.tmp")
     try:
-        return path.exists()
-    except OSError:  # e.g. a name that is too long
-        return False
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 class ToolError(Exception):
@@ -139,10 +147,10 @@ class Workspace:
                     self._originals[norm] = None
                 added = norm
             full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_bytes(data)
+            _write_atomic(full, data)
         except OSError as exc:
-            if added is not None and not _present(full):
-                del self._originals[added]  # nothing was written: it is not a touched file
+            if added is not None:
+                del self._originals[added]  # the write is atomic: nothing changed, not touched
             raise ToolError(f"cannot write {norm}: {exc.strerror or type(exc).__name__}") from exc
         return f"wrote {norm} ({len(data)} bytes)"
 

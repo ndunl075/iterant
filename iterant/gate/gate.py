@@ -235,9 +235,19 @@ def _path_findings(files: list[FileDiff], genome: Genome) -> list[str]:
 
 
 def _is_env_name(name: str) -> bool:
-    """Dotenv-style secret files: ``.env``, ``.env.*``, ``.envrc`` and ``*.env``; not look-alikes
-    such as ``.environment.md``. ``name`` is already case-folded."""
-    return name in (".env", ".envrc") or name.startswith(".env.") or name.endswith(".env")
+    """Dotenv-style secret files and directories. Anything starting with ``.env`` (``.env``,
+    ``.env.local``, ``.env-prod``, ``.env_local``, ``.env~``, ``.envrc.local`` ...) and anything
+    ending in ``.env`` is excluded, except look-alike words where a letter follows the prefix
+    (``.environment.md``). ``.envs`` (cookiecutter-django's directory) is listed by name.
+    ``name`` is already case-folded."""
+    if name == ".envs" or name.endswith(".env"):
+        return True
+    for prefix in (".envrc", ".env"):
+        if name.startswith(prefix):
+            rest = name[len(prefix) :]
+            if not rest or not ("a" <= rest[0] <= "z"):
+                return True
+    return False
 
 
 def _excluder(

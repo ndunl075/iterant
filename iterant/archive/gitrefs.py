@@ -20,6 +20,7 @@ from __future__ import annotations
 import atexit
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -144,6 +145,20 @@ def ensure_seed(repo: str | os.PathLike[str], base: str = "HEAD") -> str:
     return sha
 
 
+_LINE_BREAKS = frozenset("\r\n\x0b\x0c\x85\u2028\u2029")
+_TRAILER_KEY = re.compile(r"[A-Za-z-]+")
+
+
+def _check_message_parts(cand: Candidate, trailers: Sequence[str]) -> None:
+    """Refuse text that could forge a ``Candidate:`` / ``Diff-sha256:`` line in the message."""
+    if any(ch in _LINE_BREAKS for ch in cand.hypothesis):
+        raise GitRefError(f"hypothesis of candidate {cand.id} contains a line break")
+    for t in trailers:
+        key, sep, _value = t.partition(": ")
+        if not sep or not _TRAILER_KEY.fullmatch(key) or any(ch in _LINE_BREAKS for ch in t):
+            raise GitRefError(f"invalid commit trailer {t!r}: want one 'Key: value' line")
+
+
 def _commit_message(cand: Candidate, gen: int, trailers: Sequence[str] = ()) -> str:
     extra = "".join(f"{t}\n" for t in trailers)
     return (
@@ -193,6 +208,7 @@ def promote(
     root = Path(repo)
     if gen < 1:
         raise ValueError("gen must be >= 1")
+    _check_message_parts(cand, trailers)
     if diff_sha256(diff) != cand.diff_sha:
         raise GitRefError(f"diff does not match candidate {cand.id}'s diff_sha")
     done = find_promoted_commit(root, cand, gen)

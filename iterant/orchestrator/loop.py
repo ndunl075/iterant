@@ -487,12 +487,13 @@ class Orchestrator:
             return
         tasks = tasks_in(self._pack, Split.TRAIN)[: self._cfg.thresholds.smoke_tasks]
         self._run_slots(g, tasks, 1, [g.champ.id, *(c.id for c in cands)], Split.TRAIN)
-        champ_faults = self._outcomes.faults(g.batch.id, g.champ.id)
+        all_faults = self._outcomes.faults_by_cand(g.batch.id)  # one query for the phase
+        champ_faults = all_faults.get(g.champ.id, {})
         ids = {t.id for t in tasks}
         recorded = self._outcomes.recorded_by_cand(g.batch.id)  # one query for the phase
         for c in cands:
             # §3: kill on any crash or timeout the champion didn't have on the same task.
-            mine = self._outcomes.faults(g.batch.id, c.id)
+            mine = dict(all_faults.get(c.id, {}))
             # fail closed: a slot that ran but has no outcome record counts as a fault
             for task in tasks:
                 if (task.id, 0) not in recorded.get(c.id, set()):

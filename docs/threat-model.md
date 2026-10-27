@@ -2,7 +2,7 @@
 
 This expands ARCHITECTURE.md section 9. The attacker is a **candidate**: a change the proposer (an LLM) makes to your agent's genome, which may be malicious or may just learn to game the checks. Each row below lists the defenses and the red-team test that attacks it. Tests are in [`tests/redteam/`](../tests/redteam/README.md).
 
-Status: pre-release. The red-team suite runs against the real gate, grader, orchestrator and proxy, with fakes only at the edges (sandbox runtime, model upstream, proposer, auditor). No run with a real model has been done; `iterant estimate` has run end to end in CI against a stub model on Podman.
+Status: pre-release. The red-team suite runs against the real gate, grader, orchestrator and proxy, with fakes only at the edges (sandbox runtime, model upstream, proposer, auditor). No run with a real model has been done; a one-off `iterant estimate` run against a stub model on Podman completed end to end.
 
 ## Trusted computing base (TCB)
 

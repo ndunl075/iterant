@@ -6,7 +6,7 @@ Point Iterant at your AI agent and a set of tasks with automatic checks. It prop
 
 ## Status
 
-**Pre-release, v0.** The modules and the CLI are built and unit-tested against fakes. **No run with a real model has been done yet.** In CI, `iterant estimate` on the reference agent has run end to end on rootless Podman against a stub model server (image build, agent sandbox, proxy, grader, report); `aa-test`, `run` and the `claude` profile have not. Expect rough edges. The `claude` profile (paid) ships untested by us.
+**Pre-release, v0.** The modules and the CLI are built and unit-tested against fakes. **No run with a real model has been done yet.** A one-off `iterant estimate` run on the reference agent (a throwaway GitHub Actions job, not part of CI) completed end to end on rootless Podman against a stub model server: image build, agent sandbox, proxy, grader, report. `aa-test`, `run` and the `claude` profile have not been run. Expect rough edges. The `claude` profile (paid) ships untested by us.
 
 ## How it differs
 
@@ -35,7 +35,7 @@ uv sync
 cp -r examples/reference-agent ../my-agent
 (cd ../my-agent && git init && git add -A && git commit -m baseline)
 
-# 3. Start the local model server and pull the model.
+# 3. Pull the model (Ollama must be running).
 ollama pull llama3.1:8b
 
 # 4. Baseline pass rate, variance, smallest detectable gain and cost

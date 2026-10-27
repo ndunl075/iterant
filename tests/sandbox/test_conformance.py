@@ -18,21 +18,33 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 from iterant.contracts import NetMode, Sandbox, SandboxBackend
-from iterant.sandbox import ContainerSandbox, DockerBackend, PodmanBackend, SandboxLost, slugify
+from iterant.sandbox import (
+    ContainerSandbox,
+    DockerBackend,
+    FirecrackerBackend,
+    FirecrackerSandbox,
+    PodmanBackend,
+    SandboxLost,
+    slugify,
+)
+from iterant.sandbox.firecracker import kvm_usable
+from iterant.sandbox.firecracker.rootfs import find_mke2fs
 
 BACKENDS = [
     pytest.param("podman", marks=pytest.mark.podman, id="podman"),
     pytest.param("docker", marks=pytest.mark.docker, id="docker"),
+    pytest.param("firecracker", marks=pytest.mark.firecracker, id="firecracker"),
 ]
 
 TEST_IMAGE = os.environ.get("ITERANT_TEST_IMAGE", "docker.io/library/python:3.12-slim")
@@ -84,6 +96,7 @@ class Harness:
     proxy: Stub
     other: Stub  # a second host service that proxy-only sandboxes must NOT reach
     created: list[Sandbox] = field(default_factory=lambda: [])
+    sandbox_root: str = ""  # firecracker only: where its sandbox dirs live
 
     def create(
         self,
@@ -106,10 +119,23 @@ class Harness:
         return out.stdout
 
     def rid(self, sb: Sandbox) -> str:
-        return cast(ContainerSandbox, sb).resource_id
+        return cast(ContainerSandbox | FirecrackerSandbox, sb).resource_id
 
     def leftovers(self, sb: Sandbox) -> list[str]:
-        """Containers (sandbox, relay) and networks the runtime still has for this sandbox."""
+        """Containers (sandbox, relay) and networks the runtime still has for this sandbox;
+        for firecracker the VM process, its directory and the proxy relay socket."""
+        if self.runtime == "firecracker":
+            fc = cast(FirecrackerSandbox, sb)
+            sbx = Path(self.sandbox_root) / fc.resource_id
+            return [
+                name
+                for name, present in (
+                    ("vm", fc.vm_running),
+                    ("dir", sbx.exists()),
+                    ("relay", (sbx / "v.sock_1025").exists()),
+                )
+                if present
+            ]
         sel = ["--filter", f"label=iterant.sandbox.id={self.rid(sb)}"]
         return (
             self.cli("ps", "-a", "--format", "{{.Names}}", *sel).split()
@@ -143,6 +169,14 @@ class Harness:
 
 
 def _runtime_works(runtime: str) -> bool:
+    if runtime == "firecracker":
+        return (
+            kvm_usable()
+            and bool(os.environ.get("ITERANT_FIRECRACKER_BIN"))
+            and bool(os.environ.get("ITERANT_FIRECRACKER_KERNEL"))
+            and find_mke2fs() is not None
+            and (shutil.which("docker") is not None or shutil.which("podman") is not None)
+        )
     if shutil.which(runtime) is None:
         return False
     try:
@@ -159,15 +193,22 @@ def harness(request: pytest.FixtureRequest) -> Iterator[Harness]:
         pytest.skip(f"{kind} is not installed or not usable here")
     proxy, other = Stub(b"proxy-stub"), Stub(b"other-stub")
     prefix = _branch_slug()
-    if kind == "podman":
+    sandbox_root = ""
+    if kind == "firecracker":
+        alias = "127.0.0.1"
+        sandbox_root = tempfile.mkdtemp(prefix="fc-")
+        backend: SandboxBackend = FirecrackerBackend(
+            f"http://127.0.0.1:{proxy.port}/", name_prefix=prefix, sandbox_root=sandbox_root
+        )
+    elif kind == "podman":
         alias = "host.containers.internal"
-        backend: SandboxBackend = PodmanBackend(f"http://{alias}:{proxy.port}/", name_prefix=prefix)
+        backend = PodmanBackend(f"http://{alias}:{proxy.port}/", name_prefix=prefix)
     else:
         alias = "host.docker.internal"
         backend = DockerBackend(
             f"http://{alias}:{proxy.port}/", unsafe_container=True, name_prefix=prefix
         )
-    h = Harness(backend, kind, alias, proxy, other)
+    h = Harness(backend, kind, alias, proxy, other, sandbox_root=sandbox_root)
     try:
         yield h
     finally:
@@ -178,6 +219,8 @@ def harness(request: pytest.FixtureRequest) -> Iterator[Harness]:
                 pass
         proxy.close()
         other.close()
+        if sandbox_root:
+            shutil.rmtree(sandbox_root, ignore_errors=True)
 
 
 CONNECT = """
@@ -213,6 +256,16 @@ while True:
             print("unreachable", e)
             break
         time.sleep(0.5)
+"""
+
+
+VSOCK = """
+import socket, sys
+try:
+    socket.socket(40, socket.SOCK_STREAM).connect((2, int(sys.argv[1])))  # AF_VSOCK, the host
+    print("open")
+except OSError:
+    print("blocked")
 """
 
 
@@ -397,6 +450,18 @@ def test_proxy_only_reaches_only_the_proxy(harness: Harness) -> None:
     sb = harness.create(net="proxy-only")
     assert probe(sb, FETCH) == "proxy-stub"
     assert harness.proxy.hits >= 1
+    if harness.runtime == "firecracker":
+        # No network device exists; the only route out is the host vsock relay, which
+        # serves the proxy port and nothing else.
+        assert sb.exec("ls /sys/class/net", 30).stdout.split() == ["lo"]
+        for host, port in (("127.0.0.1", harness.other.port), ("127.0.0.1", harness.proxy.port),
+                           ("169.254.169.254", 80), ("1.1.1.1", 443)):  # fmt: skip
+            assert probe(sb, CONNECT, host, str(port)) == "blocked", (host, port)
+        assert probe(sb, VSOCK, str(harness.other.port)) == "blocked"
+        assert probe(sb, VSOCK, str(harness.proxy.port)) == "blocked"
+        assert harness.other.hits == 0
+        assert probe(sb, RESOLVE, "example.com") == "failed"
+        return
     addr = harness.addresses(sb)
     targets = [
         (addr["internal_gw"], harness.other.port),  # bridge gateway = the host
@@ -428,3 +493,103 @@ def test_proxy_only_reaches_only_the_proxy(harness: Harness) -> None:
     url = cast(ContainerSandbox, sb).proxy_url
     assert url is not None
     assert probe(sb, RESOLVE, url.split("/")[2].split(":")[0]) == "resolved"
+
+
+# -- firecracker-specific cases (the guest agent and the host relay have no container twin) --
+
+
+def _firecracker_only(harness: Harness) -> None:
+    if harness.runtime != "firecracker":
+        pytest.skip("firecracker-specific")
+
+
+def test_a_daemon_killing_the_agent_later_is_a_lost_sandbox(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = harness.create()
+    # The exec returns at once; a detached process then kills every process of the sandbox
+    # user, agent included. The guest powers off (Firecracker exits 0): lost, not infra.
+    res = sb.exec("(sleep 1; kill -9 -1) >/dev/null 2>&1 &", 30)
+    assert not res.sandbox_lost and res.exit_code == 0
+    time.sleep(4)
+    res = sb.exec("true", 10)
+    assert res.sandbox_lost and not res.timed_out
+    with pytest.raises(SandboxLost):
+        sb.put("/work/f", b"")
+    sb.destroy()
+
+
+def test_a_host_side_kill_is_an_infra_error_not_a_lost_sandbox(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = cast(FirecrackerSandbox, harness.create())
+    vm = cast(Any, sb)._vm  # SIGKILL the VM's process group, as a host-side kill would
+    cast(Any, os).killpg(vm.pid, 9)
+    vm.wait(timeout=10)
+    with pytest.raises(RuntimeError) as info:
+        sb.exec("true", 10)
+    assert not isinstance(info.value, SandboxLost)
+
+
+def test_background_process_holding_stdout_does_not_hang_exec(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = harness.create()
+    start = time.monotonic()
+    res = sb.exec("sleep 60 & echo started", 30)
+    assert res.stdout == "started" + chr(10) and res.exit_code == 0 and not res.timed_out
+    assert time.monotonic() - start < 10
+    assert sb.exec("echo alive", 30).stdout.strip() == "alive"
+
+
+FLOOD = """
+import socket, time
+socks = []
+start = time.time()
+for _ in range(300):
+    if time.time() - start > 20:
+        break
+    try:
+        s = socket.socket(40, socket.SOCK_STREAM)  # AF_VSOCK straight at the host proxy port
+        s.settimeout(2)
+        s.connect((2, 1025))
+        socks.append(s)
+    except OSError:
+        pass
+time.sleep(6)
+print(len(socks))
+"""
+
+
+def test_relay_flood_is_bounded_and_leaves_no_threads_behind(harness: Harness) -> None:
+    _firecracker_only(harness)
+    baseline = threading.active_count()
+    sb = harness.create(net="proxy-only")
+    sb.put("/work/flood.py", FLOOD.encode())
+    peak = [0]
+    stop = threading.Event()
+
+    def sample() -> None:
+        while not stop.is_set():
+            peak[0] = max(peak[0], threading.active_count())
+            time.sleep(0.05)
+
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
+    res = sb.exec("python3 /work/flood.py", 60)
+    stop.set()
+    sampler.join()
+    assert res.exit_code == 0 and not res.timed_out
+    # 64 relayed connections: one relay thread and one stub-server thread each, plus slack.
+    assert peak[0] - baseline <= 64 * 2 + 40, (peak[0], baseline)
+    sb.destroy()
+    deadline = time.monotonic() + 30
+    while threading.active_count() > baseline + 3 and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert threading.active_count() <= baseline + 3
+
+
+def test_long_commands_run(harness: Harness) -> None:
+    _firecracker_only(harness)
+    sb = harness.create()
+    res = sb.exec("echo " + "x" * 200_000, 60)  # past the 128 KiB argv limit
+    assert res.exit_code == 0 and res.stdout == "x" * 200_000 + "\n"
+    with pytest.raises(ValueError):
+        sb.exec("x" * ((1 << 20) + 1), 5)

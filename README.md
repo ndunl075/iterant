@@ -41,7 +41,9 @@ cp -r examples/reference-agent ../my-agent
 (cd ../my-agent && git init && git add -A && git commit -m baseline)
 
 # 3. Write iterant.toml for the free profile (overwrites the example's file).
-uv run iterant init --force --profile free --model llama3.1:8b   --genome 'prompts/**' --genome 'tools/**' --genome agent/loop.py   --image Containerfile --pack evals/reference-pack ../my-agent
+uv run iterant init --force --profile free --model llama3.1:8b \
+  --genome 'prompts/**' --genome 'tools/**' --genome agent/loop.py \
+  --image Containerfile --pack evals/reference-pack ../my-agent
 
 # 4. Add your pack at ../my-agent/evals/reference-pack, set MODEL in agent/loop.py, commit both.
 

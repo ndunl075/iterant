@@ -37,6 +37,7 @@ from iterant.contracts import (
     Split,
     Stage,
     Status,
+    UnsupportedSchemaVersion,
     open_archive,
 )
 
@@ -135,7 +136,10 @@ class Archive:
             _make_archive_dir(path.parent)
         elif not path.is_file():
             raise ArchiveNotInitialized(f"no archive at {path}")
-        con = open_archive(path)
+        try:
+            con = open_archive(path)
+        except UnsupportedSchemaVersion as exc:
+            raise SchemaVersionError(str(exc)) from exc
         try:
             con.execute(f"PRAGMA busy_timeout = {int(busy_timeout * 1000)}")
             if create_schema:

@@ -297,6 +297,13 @@ _BAD_HYPOTHESIS_CHARS: Final = frozenset(
 )
 
 
+def clean_hypothesis(s: str) -> str:
+    """Make ``s`` a valid ``Proposal.hypothesis``: control and line-break characters become
+    spaces, runs of whitespace collapse, edges are stripped; empty becomes a placeholder."""
+    s = "".join(" " if ch in _BAD_HYPOTHESIS_CHARS else ch for ch in s)
+    return " ".join(s.split()) or "unspecified change"
+
+
 @dataclass(frozen=True)
 class Proposal:
     """PROPOSE output: a unified diff against the parent plus a one-line hypothesis."""
@@ -513,6 +520,14 @@ class ArchiveTampered(RuntimeError):
     """The archive's schema, including its append-only triggers, was altered (invariant 6)."""
 
 
+class UnsupportedSchemaVersion(ArchiveTampered):
+    """``user_version`` is one this build has no reference schema for, so it cannot be checked."""
+
+
+# Planner statistics tables ``ANALYZE`` may add; the only ``sqlite_`` objects not in the DDL.
+_SQLITE_STAT_TABLES: Final = ("sqlite_stat1", "sqlite_stat2", "sqlite_stat3", "sqlite_stat4")
+
+
 @functools.cache
 def _expected_schema(version: int) -> frozenset[tuple[str, str, str, str]]:
     """(type, name, tbl_name, sql) of every schema object, as SQLite stores it after running
@@ -527,7 +542,9 @@ def _expected_schema(version: int) -> frozenset[tuple[str, str, str, str]]:
 
 def _schema_objects(con: sqlite3.Connection) -> list[tuple[str, str, str, str]]:
     rows = con.execute(
-        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+        "SELECT type, name, tbl_name, sql FROM sqlite_master"
+        " WHERE NOT (type = 'table' AND name IN (?, ?, ?, ?))",
+        _SQLITE_STAT_TABLES,
     ).fetchall()
     return [(str(t), str(n), str(tn), str(q)) for t, n, tn, q in rows]
 
@@ -553,7 +570,10 @@ def verify_archive_schema(con: sqlite3.Connection) -> None:
     if version == 0:
         version = max(SCHEMA_DDL_BY_VERSION)  # schema written, version stamp not yet (crash)
     elif version not in SCHEMA_DDL_BY_VERSION:
-        return
+        raise UnsupportedSchemaVersion(
+            f"archive schema version {version} is not one this build knows"
+            f" ({', '.join(map(str, SCHEMA_DDL_BY_VERSION))}); refusing to open it unverified"
+        )
     expected = _expected_schema(version)
     got = frozenset(found)
     if got == expected:

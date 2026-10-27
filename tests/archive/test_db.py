@@ -511,3 +511,40 @@ def test_status_cli_reports_a_tampered_archive(
     _tamper(path, "DROP TRIGGER runs_no_update")
     assert main(["status", str(tmp_path)]) == 1
     assert "archive integrity check failed" in capsys.readouterr().err
+
+
+def test_unknown_schema_version_with_a_dropped_trigger_is_refused_everywhere(
+    tmp_path: Path,
+) -> None:
+    from iterant.report import model
+
+    path = _initialised(tmp_path)
+    _tamper(path, "DROP TRIGGER runs_no_update", "PRAGMA user_version = 99")
+    with pytest.raises(ArchiveTampered):
+        open_archive(path)
+    with pytest.raises(ArchiveTampered):
+        model._connect(path)  # pyright: ignore[reportPrivateUsage]
+    for create in (False, True):  # the archive layer reports it as a schema version error
+        with pytest.raises(SchemaVersionError):
+            Archive.open_path(path, create_schema=create)
+
+
+def test_a_trigger_named_like_an_sqlite_internal_is_refused(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(
+        path,
+        "PRAGMA writable_schema=1",
+        "INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) VALUES"
+        " ('trigger', 'sqlite_t', 'runs', 0,"
+        " 'CREATE TRIGGER sqlite_t BEFORE INSERT ON runs BEGIN SELECT RAISE(IGNORE); END')",
+        "PRAGMA writable_schema=0",
+    )
+    with pytest.raises(ArchiveTampered, match="sqlite_t"):
+        Archive.open(tmp_path)
+
+
+def test_analyze_statistics_tables_are_not_tampering(tmp_path: Path) -> None:
+    path = _initialised(tmp_path)
+    _tamper(path, "ANALYZE")
+    with Archive.open(tmp_path):
+        pass

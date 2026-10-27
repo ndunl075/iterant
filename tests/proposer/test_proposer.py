@@ -274,10 +274,10 @@ def test_control_characters_in_a_hypothesis_are_replaced(repo: Path, config) -> 
         script(
             fake,
             use("write_file", path="agent/loop.py", content="z = 1\n"),
-            use("finish", hypothesis="a\x00b\x1b[31m\x1dc"),
+            use("finish", hypothesis="a\x00b\x1b[31m\x1dc\x7fd"),
         )
         proposal = make(fake, config).propose("seed", repo, "d", [])
-    assert proposal is not None and proposal.hypothesis == "a b [31m c"
+    assert proposal is not None and proposal.hypothesis == "a b [31m c d"
 
 
 def test_non_utf8_files(repo: Path, config) -> None:  # type: ignore[no-untyped-def]

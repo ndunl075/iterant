@@ -202,3 +202,16 @@ def test_grader_preflight_failure_aborts_the_batch_as_infra(world):
     assert not world.exec_log
     assert world.db().get_batch(1) is None  # no batch was opened
     assert not world.proposer.calls  # and no proposer money was spent
+
+
+def test_resume_cleans_an_archived_hypothesis_with_control_characters(world):
+    """Candidates archived before ``Proposal`` became strict must not crash a resume."""
+    from iterant.contracts import Proposal
+
+    good = world.proposal("v0", "v1", "h")
+    old = Proposal.__new__(Proposal)  # bypass validation, as an older version allowed
+    object.__setattr__(old, "diff", good.diff)
+    object.__setattr__(old, "hypothesis", "old" + chr(0x1C) + "text ")
+    world.queue(old)
+    res = world.orchestrator().run_generation()  # the gate phase rebuilds a Proposal from the row
+    assert res.stopped == "done" and res.promoted == "b1-0"

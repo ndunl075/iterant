@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from iterant.analyst.client import MessagesClient, reply_text
-from iterant.contracts import Effort, IterantConfig, Proposal, TriedCandidate
+from iterant.contracts import Effort, IterantConfig, Proposal, TriedCandidate, clean_hypothesis
 from iterant.proposer.workspace import ToolError, Workspace
 from iterant.proxy.jsonutil import Obj, arr, obj, text
 from iterant.target.genome import genome_for
@@ -100,9 +100,7 @@ def build_user_prompt(parent: str, digest: str, history: Sequence[TriedCandidate
 
 def one_line(s: str) -> str:
     # Control characters become spaces so the result passes ``Proposal``'s strict check.
-    s = "".join(" " if ord(c) < 0x20 or c == "'+B+'x7f" else c for c in s)
-    line = " ".join(s.split())
-    return line[:MAX_HYPOTHESIS_CHARS].strip() or "unspecified change"
+    return clean_hypothesis(clean_hypothesis(s)[:MAX_HYPOTHESIS_CHARS])
 
 
 class EditingProposer:

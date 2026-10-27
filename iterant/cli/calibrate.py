@@ -9,12 +9,13 @@ resume logic all read the real one). Both take the writer lock: not while ``run`
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import subprocess
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from iterant.archive import champion_sha, diff_sha256
@@ -96,21 +97,25 @@ class _Session:
 
 @contextmanager
 def calibration_session(
-    settings: Settings, project: Project, factory: RuntimeFactory
+    settings: Settings, project: Project, factory: RuntimeFactory, kind: str
 ) -> Generator[_Session]:
     """Writer lock, runtime on the calibration archive, grader preflight, one new batch."""
     lock = cli_lock(project.repo)
     acquire_retrying(lock)
     try:
-        yield from _session(settings, project, factory)
+        yield from _session(settings, project, factory, kind)
     finally:
         lock.release()
 
 
-def _session(settings: Settings, project: Project, factory: RuntimeFactory) -> Generator[_Session]:
+def _session(
+    settings: Settings, project: Project, factory: RuntimeFactory, kind: str
+) -> Generator[_Session]:
     with WriterLock(project.repo):
         # invariant 7: the pack on disk must still be the pack that was loaded
         verify(project.pack, project.pack.content_hash, project.pack_root)
+        # a newer attempt invalidates an older pass until it finishes (an abort leaves it so)
+        set_record(project.repo, kind, fingerprint(settings, project), "running", "")
         rt = factory(settings, project, project.repo / CALIBRATION_DB)
         try:
             try:
@@ -260,7 +265,7 @@ def cmd_estimate(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     if not pool:
         raise CliError(f"the pack has no {split.value} tasks to sample", EXIT_USAGE)
     tasks = pool[:n_tasks]
-    with calibration_session(settings, project, factory) as session:
+    with calibration_session(settings, project, factory, ESTIMATE) as session:
         plan = [(task, rep) for task in tasks for rep in range(reps)]
         session.run(plan)
         runs = session.runs()
@@ -268,6 +273,7 @@ def cmd_estimate(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     try:
         est = estimate(runs, eff)
     except ValueError as exc:
+        set_record(project.repo, ESTIMATE, fingerprint(settings, project), "fail", str(exc))
         raise CliError(
             f"no run was scored ({exc}): the agent or the grader is not working; "
             "check the target image, the run command and the grader image",
@@ -279,6 +285,13 @@ def cmd_estimate(args: argparse.Namespace, factory: RuntimeFactory) -> int:
         print(f"WARNING: {w}")
     if not warnings:
         print("No warnings: the pack looks usable for the configured acceptance rule.")
+    set_record(
+        project.repo,
+        ESTIMATE,
+        fingerprint(settings, project),
+        "warn" if warnings else "pass",
+        " | ".join(warnings)[:1000],
+    )
     return EXIT_OK
 
 
@@ -301,18 +314,19 @@ class AAResult:
 
 
 def _split_arms(
-    pool: Sequence[RunResult], per_arm: int, rng: random.Random
+    pool: Sequence[RunResult], per_arm: int, n_tasks: int, rng: random.Random
 ) -> tuple[list[RunResult], list[RunResult]]:
-    """Per task, deal the champion's reps at random into two arms of ``per_arm`` each."""
+    """Pick ``n_tasks`` tasks at random; per task, deal the champion's reps at random into two
+    arms of ``per_arm`` each."""
     by_task: dict[str, list[RunResult]] = {}
     for r in final_attempts(pool).values():
         by_task.setdefault(r.key.task, []).append(r)
+    ids = sorted(t for t, runs in by_task.items() if len(runs) >= 2 * per_arm)
+    chosen = sorted(rng.sample(ids, min(n_tasks, len(ids))))
     a: list[RunResult] = []
     b: list[RunResult] = []
-    for task, runs in sorted(by_task.items()):
-        if len(runs) < 2 * per_arm:
-            continue
-        runs = rng.sample(runs, len(runs))
+    for task in chosen:
+        runs = rng.sample(by_task[task], len(by_task[task]))
         for i in range(per_arm):
             a.append(replace(runs[i], key=RunKey(1, "aa-a", task, i, 0)))
             b.append(replace(runs[per_arm + i], key=RunKey(1, "aa-b", task, i, 0)))
@@ -330,15 +344,17 @@ def run_aa(
     """Resample the champion's select reps into two arms, run the §4 rule on them, count accepts.
 
     Only select tasks are ever run (holdout queries are counted in the real archive and must
-    not be spent on calibration). CONFIRM is simulated by a second, independent resample of
-    the same pool relabelled as holdout, so ``false_accepts`` is the compounded SELECT then
-    CONFIRM rate, as for a real null candidate.
+    not be spent on calibration). The SELECT leg has the select shape (``select_tasks`` tasks,
+    ``select_reps`` per arm). The CONFIRM leg has the holdout shape (``holdout_tasks`` tasks,
+    ``holdout_reps`` per arm), drawn independently from the same select pool and relabelled as
+    holdout, so ``false_accepts`` is the compounded SELECT then CONFIRM rate of a real null
+    candidate. The pool needs ``2 * max(select_reps, holdout_reps)`` reps per task.
     """
     rng = random.Random(seed)
     sel_ok = both = 0
     for i in range(trials):
-        sa, sb = _split_arms(pool, t.select_reps, rng)
-        ca, cb = _split_arms(pool, t.select_reps, rng)
+        sa, sb = _split_arms(pool, t.select_reps, t.select_tasks, rng)
+        ca, cb = _split_arms(pool, t.holdout_reps, t.holdout_tasks, rng)
         ca = [replace(r, split=Split.HOLDOUT) for r in ca]
         cb = [replace(r, split=Split.HOLDOUT) for r in cb]
         sel = decide_select(sa, sb, t, seed=seed * 1_000_003 + 2 * i, n_resamples=n_resamples)
@@ -349,30 +365,71 @@ def run_aa(
 
 
 RECORD = Path(".iterant") / "calibration.json"
+ESTIMATE = "estimate"
+AA_TEST = "aa-test"
+_OK_STATES = {ESTIMATE: ("pass", "warn"), AA_TEST: ("pass",)}
 
 
-def write_record(repo: Path, pack_hash: str, passed: bool, rate: float, trials: int) -> None:
-    (repo / RECORD).parent.mkdir(parents=True, exist_ok=True)
-    (repo / RECORD).write_text(
-        json.dumps({"pack_hash": pack_hash, "passed": passed, "rate": rate, "trials": trials}),
-        encoding="utf-8",
-    )
+def fingerprint(settings: Settings, project: Project) -> dict[str, object]:
+    """Everything a calibration result depends on. A record only counts for an identical one."""
+    cfg = json.dumps(asdict(project.config), sort_keys=True, default=str)
+    return {
+        "pack_hash": project.pack.content_hash,
+        "thresholds": json.loads(json.dumps(asdict(settings.thresholds))),
+        "profile": settings.profile.value,
+        "target_model": json.loads(json.dumps(asdict(project.config.target.model))),
+        "config_hash": hashlib.sha256(cfg.encode()).hexdigest(),
+    }
 
 
-def calibration_problem(repo: Path, pack_hash: str) -> str | None:
-    """Why ``run`` may not start (§4: the A/A test must pass first), or None if it may."""
+def _as_map(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(k): v for k, v in value.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+
+
+def _load(repo: Path) -> dict[str, object]:
     try:
-        rec: object = json.loads((repo / RECORD).read_text(encoding="utf-8"))
+        raw: object = json.loads((repo / RECORD).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return "no A/A test has been run for this repo: run `iterant aa-test` first"
-    if not isinstance(rec, dict):
-        return "calibration record is unreadable: rerun `iterant aa-test`"
-    fields: dict[str, object] = {str(k): v for k, v in rec.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
-    if fields.get("pack_hash") != pack_hash:
-        return "the pack changed since the last A/A test: rerun `iterant aa-test`"
-    if fields.get("passed") is not True:
-        return "the last A/A test failed: fix the pack or the stats, then rerun `iterant aa-test`"
-    return None
+        return {}
+    return _as_map(raw)
+
+
+def set_record(repo: Path, kind: str, fp: dict[str, object], state: str, detail: str) -> None:
+    """``state`` is running (just started: invalidates any older result), pass, warn or fail."""
+    records = _load(repo)
+    records[kind] = {"fingerprint": fp, "state": state, "detail": detail}
+    (repo / RECORD).parent.mkdir(parents=True, exist_ok=True)
+    (repo / RECORD).write_text(json.dumps(records, sort_keys=True), encoding="utf-8")
+
+
+def calibration_status(repo: Path, fp: dict[str, object]) -> tuple[list[str], list[str]]:
+    """``(problems, notes)``: why ``run`` may not start (§4: estimate and aa-test must pass for
+    exactly this pack, rule, profile, model and config), and non-blocking notes."""
+    records = _load(repo)
+    problems: list[str] = []
+    notes: list[str] = []
+    for kind in (ESTIMATE, AA_TEST):
+        fields = _as_map(records.get(kind))
+        if not fields:
+            problems.append(f"no `iterant {kind}` has been run: run it first")
+            continue
+        old = _as_map(fields.get("fingerprint"))
+        if old != fp:
+            changed = sorted(k for k in fp if old.get(k) != fp[k]) or ["record"]
+            problems.append(
+                f"`iterant {kind}` was run for something else ({', '.join(changed)} changed): "
+                "rerun it"
+            )
+            continue
+        state = fields.get("state")
+        if state not in _OK_STATES[kind]:
+            why = "did not finish" if state == "running" else "failed"
+            problems.append(f"the last `iterant {kind}` {why}: fix that, then rerun it")
+        elif state == "warn":
+            notes.append(f"`iterant estimate` warned: {fields.get('detail')}")
+    return problems, notes
 
 
 def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
@@ -382,10 +439,11 @@ def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     resamples = _positive(args.resamples, "--resamples")
     eff = effective_thresholds(project.pack, settings.thresholds)
     sel_tasks = tasks_in(project.pack, Split.SELECT)[: eff.select_tasks]
+    pool_reps = max(eff.select_reps, eff.holdout_reps)
     if not sel_tasks:
         raise CliError("the A/A test needs select tasks in the pack", EXIT_USAGE)
-    with calibration_session(settings, project, factory) as session:
-        session.run([(task, rep) for task in sel_tasks for rep in range(2 * eff.select_reps)])
+    with calibration_session(settings, project, factory, AA_TEST) as session:
+        session.run([(task, rep) for task in sel_tasks for rep in range(2 * pool_reps)])
         runs = session.runs()
     result = run_aa(runs, eff, trials=trials, seed=settings.seed, n_resamples=resamples)
     scored = {r.score for r in runs if r.score is not None}
@@ -401,7 +459,13 @@ def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     )
     degenerate = len(scored) <= 1
     passed = result.passed and not degenerate
-    write_record(project.repo, project.pack.content_hash, passed, result.rate, result.trials)
+    set_record(
+        project.repo,
+        AA_TEST,
+        fingerprint(settings, project),
+        "pass" if passed else "fail",
+        f"{result.false_accepts}/{result.trials} false accepts",
+    )
     if degenerate:
         raise CliError(
             "A/A test FAILED: every champion run scored the same, so no resample can differ and "

@@ -29,7 +29,7 @@ class Settings:
     candidates: int = 1
     budget_usd_micros: int | None = None
     prices: dict[str, ModelPrice] = field(default_factory=lambda: dict(DEFAULT_PRICES))
-    proxy_bind: str = "0.0.0.0"
+    proxy_bind: str | None = None  # None: chosen per backend (see runtime.default_proxy_bind)
     proxy_host: str | None = None  # the proxy as the sandbox relay sees it; default per backend
     digest_tasks: int = 10
     seed: int = 0
@@ -66,8 +66,9 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--proxy-bind",
-        default="0.0.0.0",  # noqa: S104 - loopback is unreachable from rootless podman (probed)
-        help="address the proxy listens on; sandboxes cannot reach a loopback-only proxy",
+        help="address the proxy listens on. Default: the host address sandboxes reach through "
+        "the container runtime (loopback is unreachable from rootless podman; 0.0.0.0 is an "
+        "explicit opt-in that exposes the proxy on every interface)",
     )
     p.add_argument(
         "--proxy-host",

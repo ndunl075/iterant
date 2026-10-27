@@ -33,6 +33,13 @@ from iterant.sandbox import PodmanBackend
 from iterant.target import ImageBuildError
 
 
+@pytest.fixture(autouse=True)
+def _loopback_default_bind(monkeypatch: pytest.MonkeyPatch) -> None:
+    from iterant.cli import runtime
+
+    monkeypatch.setattr(runtime, "default_proxy_bind", lambda backend: "127.0.0.1")
+
+
 def _settings(world, *argv: str):  # type: ignore[no-untyped-def]
     args = build_parser().parse_args(["run", str(world.repo), *argv])
     return settings_from_args(args)

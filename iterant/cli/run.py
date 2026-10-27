@@ -14,7 +14,7 @@ from collections.abc import Sequence
 
 from iterant.analyst import FailureAnalyst
 from iterant.archive import archive_path, champion_sha
-from iterant.cli.calibrate import calibration_problem
+from iterant.cli.calibrate import calibration_status, fingerprint
 from iterant.cli.errors import (
     EXIT_BUDGET,
     EXIT_CALIBRATION,
@@ -145,15 +145,18 @@ def cmd_run(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     if settings.candidates < 1:
         raise CliError("--candidates must be >= 1", EXIT_USAGE)
     project = load_project(settings.repo)
-    problem = calibration_problem(project.repo, project.pack.content_hash)
-    if problem is not None:
+    problems, notes = calibration_status(project.repo, fingerprint(settings, project))
+    if problems:
+        text = "; ".join(problems)
         if not args.skip_calibration:
             raise CliError(
-                f"{problem} (ARCHITECTURE §4: calibration must pass before a real run; "
+                f"{text} (ARCHITECTURE §4: estimate and aa-test must pass before a real run; "
                 "--skip-calibration overrides)",
                 EXIT_CALIBRATION,
             )
-        print(f"iterant: WARNING: running without calibration ({problem})", file=sys.stderr)
+        print(f"iterant: WARNING: running without calibration ({text})", file=sys.stderr)
+    for note in notes:
+        print(f"iterant: WARNING: {note}", file=sys.stderr)
     # Hold one lock across every generation (the orchestrator's own is per generation).
     lock = cli_lock(project.repo)
     acquire_retrying(lock)

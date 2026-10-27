@@ -124,7 +124,7 @@ def test_non_loopback_proxy_bind_warns(world, capsys) -> None:
     args = build_parser().parse_args(["run", str(world.repo), "--proxy-bind", "0.0.0.0"])
     rt = build_runtime(settings_from_args(args), project, world.repo / ".iterant" / "archive.db")
     rt.close()
-    assert "proxy listens on 0.0.0.0 (not loopback)" in _err(capsys)
+    assert "listens on 0.0.0.0, i.e. on every network interface" in _err(capsys)
 
 
 # 7. calibration gates a real run
@@ -136,19 +136,21 @@ def test_run_refuses_without_a_passing_aa_test(world, capsys) -> None:
     capsys.readouterr()
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
     err = _err(capsys)
-    assert "iterant aa-test" in err and "--skip-calibration" in err
+    assert "iterant estimate" in err and "iterant aa-test" in err
+    assert "--skip-calibration" in err
     assert not world.exec_log
 
 
 def test_run_allowed_after_aa_test_and_refused_when_the_pack_changes(world, capsys) -> None:
     world.init()
-    assert world.cli("aa-test", str(world.repo), *world.SMALL, "--trials", "10") == 0
+    world.calibrate()
     world.queue.append(None)
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 0
     (world.pack_root / "NOTES.txt").write_text("a new file changes the pack hash")
     capsys.readouterr()
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
-    assert "pack changed since the last A/A test" in _err(capsys)
+    err = _err(capsys)
+    assert "pack_hash" in err and "was run for something else" in err
 
 
 def test_skip_calibration_warns(world, capsys) -> None:
@@ -165,7 +167,7 @@ def test_a_failed_aa_test_blocks_run(world, monkeypatch, capsys) -> None:
     assert world.cli("aa-test", str(world.repo), *world.SMALL) == 6
     capsys.readouterr()
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
-    assert "last A/A test failed" in _err(capsys)
+    assert "the last `iterant aa-test` failed" in _err(capsys)
 
 
 def test_aa_test_fails_on_a_degenerate_pack(world, capsys) -> None:
@@ -176,7 +178,7 @@ def test_aa_test_fails_on_a_degenerate_pack(world, capsys) -> None:
     err = _err(capsys)
     assert "every champion run scored the same" in err
     record = json.loads((world.repo / ".iterant" / "calibration.json").read_text())
-    assert record["passed"] is False
+    assert record["aa-test"]["state"] == "fail"
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6  # and it blocks a run
 
 
@@ -277,3 +279,164 @@ def test_calibration_leaves_the_real_archive_byte_identical(world) -> None:
     assert world.cli("aa-test", str(world.repo), *world.SMALL, "--trials", "10") == 0
     after = {f.name: f.read_bytes() for f in files if f.exists()}
     assert after == before
+
+
+# review round 3: bind address, fingerprinted records, estimate gate, CONFIRM shape
+
+
+def test_default_bind_is_a_specific_non_loopback_address_or_a_clear_error() -> None:
+    from iterant.cli.errors import CliError
+    from iterant.cli.runtime import default_proxy_bind
+
+    try:
+        addr = default_proxy_bind("podman")
+    except CliError as exc:  # no network route on this machine
+        assert "--proxy-bind" in exc.message
+    else:
+        assert addr not in ("0.0.0.0", "::") and not is_loopback(addr)
+
+
+def test_docker_default_bind_is_the_bridge_gateway(monkeypatch) -> None:
+    import subprocess
+
+    from iterant.cli import runtime
+    from iterant.cli.errors import CliError
+
+    def fake_run(argv, **kw):  # type: ignore[no-untyped-def]
+        assert argv[:4] == ["docker", "network", "inspect", "bridge"]
+        return subprocess.CompletedProcess(argv, 0, stdout="172.17.0.1\n", stderr="")
+
+    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    assert runtime.default_proxy_bind("docker") == "172.17.0.1"
+    monkeypatch.setattr(
+        runtime.subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "")
+    )
+    with pytest.raises(CliError, match="--proxy-bind"):
+        runtime.default_proxy_bind("docker")
+
+
+def test_client_url_follows_the_bind_family() -> None:
+    from iterant.cli.runtime import client_url
+
+    assert client_url("0.0.0.0", "80") == "http://127.0.0.1:80"
+    assert client_url("::", "80") == "http://[::1]:80"
+    assert client_url("10.1.0.65", "80") == "http://10.1.0.65:80"
+    assert client_url("fe80::1", "80") == "http://[fe80::1]:80"
+
+
+def test_default_bind_is_used_and_loopback_gets_a_note(world, monkeypatch, capsys) -> None:
+    from iterant.cli import runtime
+
+    assert world.cli("init", str(world.repo), "--genome", "agent/**") == 0
+    chosen: list[str] = []
+
+    def pick(backend: str) -> str:
+        chosen.append(backend)
+        return "127.0.0.1"
+
+    monkeypatch.setattr(runtime, "default_proxy_bind", pick)
+    project = load_project(world.repo)
+    args = build_parser().parse_args(["run", str(world.repo)])
+    rt = build_runtime(settings_from_args(args), project, world.repo / ".iterant" / "archive.db")
+    rt.close()
+    assert chosen == ["podman"]
+    assert "cannot reach a loopback-only proxy" in capsys.readouterr().err
+
+
+def test_estimate_is_required_too(world, capsys) -> None:
+    world.init()
+    assert world.cli("aa-test", str(world.repo), *world.SMALL, "--trials", "10") == 0
+    capsys.readouterr()
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
+    err = _err(capsys)
+    assert "no `iterant estimate` has been run" in err
+    assert "no `iterant aa-test`" not in err
+
+
+@pytest.mark.parametrize("flags", [["--delta-min", "0.2"], ["--select-reps", "2"]])
+def test_run_refuses_when_the_rule_differs_from_the_calibrated_one(
+    world, capsys, flags: list[str]
+) -> None:
+    world.init()
+    world.calibrate()
+    capsys.readouterr()
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP, *flags) == 6
+    assert "(thresholds changed)" in _err(capsys)
+
+
+def test_run_refuses_when_profile_model_or_config_changed(world, capsys) -> None:
+    world.init()
+    world.calibrate()
+    capsys.readouterr()
+    toml = world.repo / "iterant.toml"
+    text = toml.read_text()
+    toml.write_text(text.replace("claude-haiku-5-5", "claude-opus-5-5"))
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
+    assert "(config_hash, target_model changed)" in _err(capsys)
+    toml.write_text(text.replace('genome = ["agent/**"]', 'genome = ["agent/**", "extra.txt"]'))
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
+    assert "(config_hash changed)" in _err(capsys)
+    toml.write_text(text)
+    extra = ["--profile", "claude", "--budget-usd", "5"]
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP, *extra) == 6
+    assert "(profile changed)" in _err(capsys)
+
+
+@pytest.mark.parametrize("which", ["aa-test", "estimate"])
+def test_a_newer_aborted_attempt_invalidates_an_older_pass(world, capsys, which: str) -> None:
+    world.init()
+    world.calibrate()
+    world.queue.append(None)
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 0
+    world.preflight_fails = True  # the newer attempt aborts
+    capsys.readouterr()
+    assert world.cli(which, str(world.repo), *world.SMALL) == 5
+    capsys.readouterr()
+    world.preflight_fails = False
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
+    assert f"the last `iterant {which}` did not finish" in _err(capsys)
+    # rerunning it successfully re-enables run
+    assert world.cli(which, str(world.repo), *world.SMALL) == 0
+    world.queue.append(None)
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 0
+
+
+def test_estimate_warnings_are_repeated_by_run(world, capsys) -> None:
+    world.init()
+    world.calibrate()  # the 4-task train sample always warns
+    world.queue.append(None)
+    capsys.readouterr()
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 0
+    assert "`iterant estimate` warned: " in _err(capsys)
+
+
+def test_confirm_leg_has_the_holdout_shape(monkeypatch) -> None:
+    from iterant.contracts import AcceptanceThresholds, RunKey, RunResult, Split
+
+    pool = [
+        RunResult(
+            RunKey(1, "champion", f"t{i:02d}", rep, 0),
+            Split.SELECT,
+            float(rep % 2),
+            1,
+            1,
+            1,
+            1.0,
+            False,
+            False,
+        )
+        for i in range(30)
+        for rep in range(6)
+    ]
+    t = AcceptanceThresholds(select_tasks=30, select_reps=2, holdout_tasks=12, holdout_reps=3)
+    seen: list[tuple[int, int, set[Split]]] = []
+    real = calibrate.decide_confirm
+
+    def spy(cand, champ, thresholds, **kw):  # type: ignore[no-untyped-def]
+        n = len({r.key.task for r in cand})
+        seen.append((n, len(cand) // n, {r.split for r in cand}))
+        return real(cand, champ, thresholds, **kw)
+
+    monkeypatch.setattr(calibrate, "decide_confirm", spy)
+    calibrate.run_aa(pool, t, trials=3, seed=1, n_resamples=50)
+    assert seen == [(12, 3, {Split.HOLDOUT})] * 3  # 12 tasks, 3 reps per arm, holdout-labelled

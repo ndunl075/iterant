@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import socket
+import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from contextlib import closing
@@ -181,20 +183,75 @@ def _proxy_config(settings: Settings, project: Project, db_path: Path) -> ProxyC
         raise CliError(f"{exc}{hint}", EXIT_USAGE) from exc
 
 
+WILDCARDS = ("0.0.0.0", "::")  # noqa: S104
+
+
+def default_proxy_bind(backend: str) -> str:
+    """The host address a sandbox's relay reaches the proxy on, so the proxy need not listen
+    on every interface.
+
+    podman (rootless, pasta): the relay's ``host.containers.internal`` is forwarded to the
+    host's primary address, not to loopback (checked on a podman 5.7 runner), so that is the
+    address to bind. docker: the ``docker0`` bridge gateway that ``host-gateway`` maps to.
+    """
+    if backend == "docker":
+        try:
+            out = subprocess.run(
+                ["docker", "network", "inspect", "bridge", "--format",
+                 "{{(index .IPAM.Config 0).Gateway}}"],
+                capture_output=True, text=True, check=False, timeout=30,
+            )  # fmt: skip
+        except (OSError, subprocess.TimeoutExpired):
+            out = None
+        gateway = out.stdout.strip() if out is not None and out.returncode == 0 else ""
+        if gateway:
+            return gateway
+    else:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("192.0.2.1", 9))  # no packet is sent; this only picks the route
+                addr = str(s.getsockname()[0])
+            if addr and not addr.startswith("127."):
+                return addr
+        except OSError:
+            pass
+    raise CliError(
+        "cannot work out which host address sandboxes reach the proxy on; pass --proxy-bind "
+        "ADDRESS (and --proxy-host if the sandbox needs another name for it)",
+        EXIT_USAGE,
+    )
+
+
+def client_url(bind: str, port: str) -> str:
+    """Where host-side clients (analyst, proposer, auditor) reach the proxy: a wildcard bind is
+    not connectable, so use the loopback address of the same family."""
+    if bind == "0.0.0.0":  # noqa: S104
+        return f"http://127.0.0.1:{port}"
+    if bind == "::":
+        return f"http://[::1]:{port}"
+    return f"http://[{bind}]:{port}" if ":" in bind else f"http://{bind}:{port}"
+
+
 def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtime:
     """The real wiring. Nothing here calls a model; calls happen when commands run."""
     config = project.config
-    if not is_loopback(settings.proxy_bind):
+    bind = settings.proxy_bind or default_proxy_bind(settings.backend)
+    if bind in WILDCARDS:
         print(
-            f"iterant: note: the proxy listens on {settings.proxy_bind} (not loopback) "
-            "so sandboxes "
-            "can reach it; a loopback-only proxy is unreachable from rootless podman. Every "
-            "request still needs a per-run token. Firewall the port if the host is shared.",
+            f"iterant: WARNING: the proxy listens on {bind}, i.e. on every network interface, "
+            "so other machines can reach its port (requests still need a per-run token). "
+            "Prefer the default bind address, or firewall the port.",
+            file=sys.stderr,
+        )
+    elif is_loopback(bind):
+        print(
+            f"iterant: note: --proxy-bind {bind} is loopback; sandboxes cannot reach a "
+            "loopback-only proxy through rootless podman",
             file=sys.stderr,
         )
     proxy = Proxy(_proxy_config(settings, project, db_path))
     archive = Archive.open_path(db_path)
-    server = ProxyServer(proxy, host=settings.proxy_bind).start()
+    server = ProxyServer(proxy, host=bind).start()
     prefix = f"iterant-{slugify(project.repo.resolve().name) or 'repo'}"
     port = server.base_url.rsplit(":", 1)[1]
     try:
@@ -213,10 +270,7 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
         archive.close()
         raise CliError(f"--proxy-host: {exc}", EXIT_USAGE) from exc
     models = role_models(settings.profile, config.target.model)
-    # host-side clients cannot connect to a wildcard address; the sandboxes use the relay alias
-    base = (
-        f"http://127.0.0.1:{port}" if settings.proxy_bind in ("0.0.0.0", "::") else server.base_url
-    )
+    base = client_url(bind, port)
     auditor = ProxyAuditor(
         base,
         lambda: proxy.issue_call_token(Role.AUDITOR),

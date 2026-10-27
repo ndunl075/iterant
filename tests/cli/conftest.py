@@ -325,6 +325,11 @@ class World:
         """Small-pack flags for ``command`` (run also skips calibration)."""
         return list(RUN_SMALL if command == "run" else SMALL)
 
+    def calibrate(self) -> None:
+        """A passing estimate and aa-test for the small pack (what `run` requires)."""
+        assert self.cli("estimate", str(self.repo), *SMALL) == 0
+        assert self.cli("aa-test", str(self.repo), *SMALL, "--trials", "10") == 0
+
     def cli(self, *argv: str) -> int:
         return main(list(argv), factory=self.factory)
 

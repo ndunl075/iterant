@@ -33,9 +33,9 @@ def _tracked_files() -> set[str]:
 
 def test_toml_parses() -> None:
     cfg = load_config(AGENT_DIR / "iterant.toml")
-    assert cfg.target.model.name == "claude-haiku-5-5"
+    assert cfg.target.model.name == "llama3.1:8b"  # free profile, the default
     assert cfg.target.model.effort == "medium"
-    assert cfg.target.model.max_usd_micros_per_run == 100_000
+    assert cfg.target.model.max_tokens_per_run == 200_000
     assert (AGENT_DIR / cfg.target.image).is_file()
 
 
@@ -47,11 +47,9 @@ def test_genome_matches_exactly_the_intended_files() -> None:
         assert not genome.is_editable(frozen)
 
 
-def test_loop_model_matches_toml() -> None:
-    cfg = load_config(AGENT_DIR / "iterant.toml")
+def test_loop_has_no_hardcoded_model() -> None:
     src = (AGENT_DIR / "agent" / "loop.py").read_text(encoding="utf-8")
-    assert f'MODEL = "{cfg.target.model.name}"' in src
-    assert f'EFFORT = "{cfg.target.model.effort}"' in src
+    assert "claude-" not in src and "llama" not in src
 
 
 # --- the loop against a fake client ----------------------------------------------
@@ -93,6 +91,31 @@ class FakeClient:
         return self._responses.pop(0)
 
 
+def test_model_and_effort_come_from_iterant_toml(loop: ModuleType, tmp_path: Path) -> None:
+    cfg = load_config(AGENT_DIR / "iterant.toml")
+    assert (loop.MODEL, loop.EFFORT) == (cfg.target.model.name, cfg.target.model.effort)
+    other = tmp_path / "iterant.toml"
+    other.write_text(
+        "\n".join(
+            ["[target.model]", "name = 'qwen2.5:7b'", "effort = 'high'", "max_tokens_per_run = 1"]
+        ),
+        encoding="utf-8",
+    )
+    assert loop.frozen_model(other) == ("qwen2.5:7b", "high")
+
+
+def test_loop_sends_the_frozen_model(loop: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """What the loop sends is what the proxy will accept: the model frozen in ``iterant.toml``,
+    even when the environment tries to say otherwise."""
+    cfg = load_config(AGENT_DIR / "iterant.toml")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "some-other-model")
+    client = FakeClient(_resp("end_turn", _text("ok")))
+    loop.run_task({"question": "q"}, client)
+    (call,) = client.calls
+    assert call["model"] == cfg.target.model.name
+    assert call["extra_body"] == {"output_config": {"effort": cfg.target.model.effort}}
+
+
 def test_loop_runs_tools_then_answers(loop: ModuleType) -> None:
     client = FakeClient(
         _resp("tool_use", _text("checking"), _tool("t1", "lookup_fact", key="widget_price_usd")),
@@ -104,7 +127,7 @@ def test_loop_runs_tools_then_answers(loop: ModuleType) -> None:
     assert [e["output"] for e in result.transcript if e["role"] == "tool"] == ["19.99", "59.97"]
 
     first, second, third = client.calls
-    assert first["model"] == "claude-haiku-5-5"
+    assert first["model"] == "llama3.1:8b"
     assert first["extra_body"] == {"output_config": {"effort": "medium"}}
     assert "temperature" not in first and "thinking" not in first
     assert first["messages"] == [{"role": "user", "content": "Price of 3 widgets?"}]
@@ -191,3 +214,10 @@ def test_make_client_lazy_import(loop: ModuleType, monkeypatch: pytest.MonkeyPat
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert loop.make_client() == "client"
     assert seen == {"api_key": "iterant-sandbox"}
+
+
+def test_containerfile_makes_the_agent_importable_from_any_directory() -> None:
+    """The sandbox runs the agent with its own working directory (not WORKDIR), so
+    ``python -m agent`` only works if the app directory is on PYTHONPATH."""
+    text = (AGENT_DIR / "Containerfile").read_text(encoding="utf-8")
+    assert "ENV PYTHONPATH=/app" in text

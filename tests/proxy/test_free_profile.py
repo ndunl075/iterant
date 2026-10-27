@@ -8,6 +8,7 @@ import anthropic
 
 from iterant.contracts import Profile, Role, RunKey
 from iterant.proxy import openai_completion
+from iterant.proxy.ledger import estimate_tokens
 
 
 def body(h, **extra):
@@ -150,7 +151,15 @@ def test_token_caps(make_stack, h):
     assert s.post(token, body(h))[0] == 200  # 900 spent
     status, raw = s.post(token, body(h, max_tokens=200))  # 900 + 200 > 1000
     assert status == 403 and json.loads(raw)["error"]["iterant_code"] == "cap_exceeded_run"
-    assert s.post(token, body(h, max_tokens=100))[0] == 200  # exactly fits: 1800 spent in gen
+    # 100 tokens left in the run: the input estimate plus max_tokens must fit exactly
+    fit = next(
+        m
+        for m in range(100, 0, -1)
+        if estimate_tokens(len(json.dumps(body(h, max_tokens=m)).encode())) + m <= 100
+    )
+    status, raw = s.post(token, body(h, max_tokens=fit + 1))  # one over the boundary
+    assert status == 403 and json.loads(raw)["error"]["iterant_code"] == "cap_exceeded_run"
+    assert s.post(token, body(h, max_tokens=fit))[0] == 200  # exactly fits: 1800 spent in gen
     other = s.proxy.issue_run_token(Role.TARGET, RunKey(1, "c1", "t2", 0))
     assert s.post(other, body(h))[0] == 200  # gen total 2700 > 2500 cap is reached next
     third = s.proxy.issue_run_token(Role.TARGET, RunKey(1, "c1", "t3", 0))

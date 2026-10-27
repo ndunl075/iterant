@@ -11,13 +11,18 @@ import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from iterant.contracts import IterantConfig
+from iterant.target.genome import PathRejectedError, normalize_relative
 
 BUILD_TIMEOUT_S = 1800
+MAX_CONTEXT_FILES = 100_000
+MAX_CONTEXT_DIRS = 50_000
+MAX_CONTEXT_BYTES = 2 * 1024**3
 _ENGINES = ("podman", "docker")
 _ALWAYS_EXCLUDED = (".git", ".iterant")
 _IGNORE_FILES = (".containerignore", ".dockerignore")
@@ -101,11 +106,16 @@ class _Filter:
     """Decides what stays out of the build context. Hard exclusions cannot be re-included."""
 
     def __init__(self, root: Path, pack: str) -> None:
+        try:  # "./evals/pack" and "evals/pack" must exclude the same tree
+            pack = normalize_relative(pack, what="eval.pack")
+        except PathRejectedError as exc:
+            raise ImageBuildError(str(exc)) from exc
         self._hard = tuple(p.casefold() for p in (*_ALWAYS_EXCLUDED, pack))
         self._rules = _ignore_rules(root)
 
     def excluded(self, rel: str) -> bool:
-        folded = rel.casefold()
+        # NFC first: an NFD directory name must still hit the (NFC) pack path
+        folded = unicodedata.normalize("NFC", rel).casefold()
         if any(seg in _ALWAYS_EXCLUDED for seg in folded.split("/")):  # nested repos too
             return True
         if any(folded == h or folded.startswith(h + "/") for h in self._hard):
@@ -117,8 +127,18 @@ class _Filter:
         return hit
 
 
-def _copy_context(root: Path, dest: Path, flt: _Filter) -> None:
-    """Copy ``root`` into ``dest`` minus excluded paths. Symlinks and junctions are skipped."""
+def _copy_context(
+    root: Path,
+    dest: Path,
+    flt: _Filter,
+    max_files: int = MAX_CONTEXT_FILES,
+    max_bytes: int = MAX_CONTEXT_BYTES,
+    max_dirs: int = MAX_CONTEXT_DIRS,
+) -> None:
+    """Copy ``root`` into ``dest`` minus excluded paths. Symlinks and junctions are skipped.
+    More than ``max_files`` files, ``max_dirs`` directories or ``max_bytes`` bytes raises
+    ``ImageBuildError``."""
+    n_files = n_bytes = n_dirs = 0
     for cur, dirs, files in os.walk(root):
         rel_dir = Path(cur).relative_to(root).as_posix()
         prefix = "" if rel_dir == "." else rel_dir + "/"
@@ -129,11 +149,20 @@ def _copy_context(root: Path, dest: Path, flt: _Filter) -> None:
             and not os.path.islink(os.path.join(cur, d))
             and not os.path.isjunction(os.path.join(cur, d))
         ]
+        n_dirs += len(dirs)
+        if n_dirs > max_dirs:
+            raise ImageBuildError(f"build context over its limit ({max_dirs} directories)")
         (dest / rel_dir).mkdir(parents=True, exist_ok=True)
         for name in files:
             src = os.path.join(cur, name)
             if flt.excluded(prefix + name) or os.path.islink(src):
                 continue
+            n_files += 1
+            n_bytes += os.lstat(src).st_size
+            if n_files > max_files or n_bytes > max_bytes:
+                raise ImageBuildError(
+                    f"build context over its limit ({max_files} files, {max_bytes} bytes)"
+                )
             shutil.copyfile(src, dest / rel_dir / name)
 
 
@@ -152,6 +181,9 @@ def build_image(
     *,
     engine: str = "podman",
     runner: Runner | None = None,
+    max_files: int = MAX_CONTEXT_FILES,
+    max_bytes: int = MAX_CONTEXT_BYTES,
+    max_dirs: int = MAX_CONTEXT_DIRS,
 ) -> Image:
     """Build ``config.target.image`` tagged ``tag`` from a filtered copy of ``root``.
 
@@ -162,7 +194,9 @@ def build_image(
 
     ``tag`` is lowercase and should carry the caller's prefix (a branch slug in
     tests, so parallel workers never collide). Raises ``ImageBuildError`` on any
-    failure; the build's stderr tail is in the message.
+    failure; the build's stderr tail is in the message. A context of more than
+    ``max_files`` files, ``max_dirs`` directories or ``max_bytes`` bytes is refused before the
+    build.
     """
     if engine not in _ENGINES:
         raise ImageBuildError(f"engine must be one of {_ENGINES}, got {engine!r}")
@@ -185,7 +219,7 @@ def build_image(
     run = runner or subprocess_runner
     context = Path(tempfile.mkdtemp(prefix="iterant-ctx-"))
     try:
-        _copy_context(repo, context, flt)
+        _copy_context(repo, context, flt, max_files, max_bytes, max_dirs)
         built = run(build_argv(engine, context / rel_file, tag, context))
     finally:
         shutil.rmtree(context, ignore_errors=True)

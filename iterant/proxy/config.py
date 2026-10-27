@@ -120,6 +120,7 @@ class ProxyConfig:
     token_ttl_s: float = 3600.0
     max_body_bytes: int = 8 * 1024 * 1024
     max_concurrent: int = 64  # requests in flight; more get a 503
+    max_inflight_per_token: int = 4  # calls in flight on one token; more get a 429
     socket_timeout_s: float = 30.0  # client socket timeout per read/write
     request_deadline_s: float = 30.0  # total time to receive a request's headers and body
     max_rejections: int = 1000  # refused requests remembered in memory (oldest dropped)
@@ -138,6 +139,8 @@ class ProxyConfig:
                 raise ValueError(f"no price for model(s): {', '.join(missing)}")
         elif not self.openai_base_url:
             raise ValueError("free profile needs openai_base_url")
+        if self.max_inflight_per_token < 1:
+            raise ValueError("max_inflight_per_token must be >= 1")
         object.__setattr__(self, "prices", MappingProxyType(dict(self.prices)))
 
     @property

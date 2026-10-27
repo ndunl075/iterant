@@ -45,14 +45,17 @@ is removed.
 
 | Test | Hole |
 |---|---|
-| `test_row3_non_finite_max_tokens_is_a_rejection_not_a_crash` | `max_tokens` NaN or Infinity raises inside `Proxy.admit` instead of returning a rejection |
-| `test_row3_one_huge_prompt_cannot_blow_through_the_run_cap` | the run cap reserves output tokens only; a huge prompt settles far past the cap (`iterant/proxy/core.py:180-183`) |
+| `test_row3_non_finite_max_tokens_is_a_rejection_not_a_crash` | FIXED by PR #22 (marker removed): `max_tokens` NaN or Infinity now returns a 400 rejection from `Proxy.admit` |
+| `test_row3_one_huge_prompt_cannot_blow_through_the_run_cap` | FIXED by PR #22 (marker removed): admit now reserves an input-token estimate plus `max_tokens` |
 
-Closed as detection (rows 5, holes 3 and 4): the archive refuses to open (`ArchiveTampered`) when
-its append-only triggers are missing or altered, so `DROP TRIGGER` and `writable_schema` attacks
-are caught on the next open (`test_row5_dropping_the_triggers_is_detected_on_reopen`,
+Closed as detection (row 5, holes 3 and 4): the archive refuses to open (`ArchiveTampered`) when
+its schema (every table, index and trigger, compared with the reference DDL for its
+`user_version`) has any extra, missing or altered object, so `DROP TRIGGER`, `writable_schema`,
+an injected `RAISE(IGNORE)` trigger or dropped tables are caught on the next open
+(`test_row5_dropping_the_triggers_is_detected_on_reopen`,
 `test_row5_writable_schema_is_detected_on_reopen`). Not prevented: whoever can write the file can
-still rewrite rows and restore the original trigger SQL, so a tamper-evident over run and promotion rows is future work.
+still rewrite rows and restore the original schema text; a tamper-evident hash chain over run and
+promotion rows is future work.
 
 ## Missing defenses (no test can pass; nothing to xfail)
 

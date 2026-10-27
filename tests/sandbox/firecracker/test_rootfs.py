@@ -89,6 +89,17 @@ def test_cache_key_covers_the_format_version(monkeypatch: pytest.MonkeyPatch) ->
     assert rootfs.guest_digest() != a
 
 
+def test_cache_key_covers_rootfs_own_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = rootfs.guest_digest()
+    edited = tmp_path / "rootfs.py"
+    (tmp_path / "guest.py").write_bytes(rootfs.guest_source().encode())
+    edited.write_bytes(Path(rootfs.__file__).read_bytes() + b"\n# format change\n")
+    monkeypatch.setattr(rootfs, "__file__", str(edited))
+    assert rootfs.guest_digest() != a
+
+
 @posix_only
 def test_remove_tree_handles_mode_000_directories(tmp_path: Path) -> None:
     tree = tmp_path / "t"

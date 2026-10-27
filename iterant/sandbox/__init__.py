@@ -10,12 +10,15 @@ from iterant.sandbox.container import (
     UnsafeContainerError,
     slugify,
 )
+from iterant.sandbox.firecracker import FirecrackerBackend, FirecrackerSandbox
 from iterant.sandbox.runner import Runner, RunOutput, subprocess_runner
 
 __all__ = [
     "ContainerBackend",
     "ContainerSandbox",
     "DockerBackend",
+    "FirecrackerBackend",
+    "FirecrackerSandbox",
     "PodmanBackend",
     "RunOutput",
     "Runner",

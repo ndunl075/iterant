@@ -276,6 +276,13 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
     if firecracker:
         require_firecracker_host()
         image_engine("firecracker")  # fail early if no container engine is installed
+        if settings.proxy_host is not None and not is_loopback(settings.proxy_host):
+            raise CliError(
+                f"--proxy-host {settings.proxy_host!r}: the firecracker relay runs on this host "
+                "and connects to the proxy from here, so the proxy host must be a loopback "
+                "address (127.0.0.1 or localhost)",
+                EXIT_USAGE,
+            )
     defaulted = settings.proxy_bind is None
     bind = settings.proxy_bind or default_proxy_bind(settings.backend)
     if bind in WILDCARDS:
@@ -326,19 +333,20 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
         else:
             host = settings.proxy_host or "host.containers.internal"
             backend = PodmanBackend(f"http://{host}:{port}/", name_prefix=prefix)
-    except ValueError as exc:
+    except BaseException as exc:  # whatever went wrong, nothing started here may leak
         server.stop()
         archive.close()
-        raise CliError(f"--proxy-host: {exc}", EXIT_USAGE) from exc
-    except SandboxError as exc:  # firecracker: pinned binary or kernel missing or modified
-        server.stop()
-        archive.close()
-        raise CliError(
-            f"firecracker backend unavailable: {exc}. Fetch the pinned assets with "
-            "iterant/sandbox/firecracker/fetch-assets.sh and set ITERANT_FIRECRACKER_BIN and "
-            "ITERANT_FIRECRACKER_KERNEL, or use --backend podman.",
-            EXIT_USAGE,
-        ) from exc
+        if isinstance(exc, SandboxError) and firecracker:  # pinned binary/kernel missing
+            raise CliError(
+                f"firecracker backend unavailable: {exc}. Fetch the pinned assets with "
+                "iterant/sandbox/firecracker/fetch-assets.sh and set ITERANT_FIRECRACKER_BIN "
+                "and ITERANT_FIRECRACKER_KERNEL, or use --backend podman.",
+                EXIT_USAGE,
+            ) from exc
+        if isinstance(exc, ValueError):
+            label = "firecracker backend" if firecracker else "--proxy-host"
+            raise CliError(f"{label}: {exc}", EXIT_USAGE) from exc
+        raise
     models = role_models(settings.profile, config.target.model)
     base = client_url(bind, port)
     auditor = ProxyAuditor(

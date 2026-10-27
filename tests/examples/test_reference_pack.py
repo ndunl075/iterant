@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -22,20 +24,20 @@ import pytest
 from iterant.contracts import ExecResult, NetMode, Sandbox, Split
 from iterant.grader import Grader
 from iterant.grader.grader import AGENT_DIR
+from iterant.orchestrator.workspace import proposer_view
 from iterant.packs import PackError, compute_content_hash, load_pack, tasks_in, verify
 from iterant.packs.hashing import PackHashMismatch
+from iterant.target.image import _Filter  # pyright: ignore[reportPrivateUsage]
 
 REPO = Path(__file__).resolve().parents[2]
 AGENT = REPO / "examples" / "reference-agent"
 PACK = AGENT / "evals" / "reference-pack"
 # Pinned: fails if any byte of the pack changes. Update on purpose only (regenerate first).
-PINNED_HASH = "29c9086eff6c1c47f753e75a3f7a0b3733bc1b84adb8d5adab91407712799c09"
+PINNED_HASH = "02f3baebc85ecceb2c219b0dbf8ec2b9389d1a43ad3ed5bd4253d8c6e4edb1e2"
 
 
 def _generator() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "reference_pack_generate", PACK.parent / "generate.py"
-    )
+    spec = importlib.util.spec_from_file_location("reference_pack_generate", PACK / "generate.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -81,12 +83,42 @@ def test_generator_facts_match_the_agents_knowledge_base() -> None:
     assert _generator().FACTS == kb
 
 
-def test_pack_is_never_in_the_agent_image_context() -> None:
-    ignored = (AGENT / ".containerignore").read_text(encoding="utf-8").split()
-    assert "evals" in ignored
+def _repo_copy(tmp_path: Path, extra_ignore: str = "") -> Path:
+    """A plain copy of the reference agent repo (what an exported commit looks like)."""
+    copy = tmp_path / "repo"
+    shutil.copytree(AGENT, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    if extra_ignore:
+        with (copy / ".containerignore").open("a", encoding="utf-8") as handle:
+            handle.write(os.linesep + extra_ignore + os.linesep)
+    return copy
 
 
-def test_pack_points_at_by_iterant_toml() -> None:
+@pytest.mark.parametrize("extra", ["", "!evals", "!evals/**", "!evals/reference-pack/generate.py"])
+def test_generator_and_checks_are_hard_excluded_from_images(tmp_path: Path, extra: str) -> None:
+    """The generator holds every answer; it sits inside the pack, which is excluded by a rule
+    no ``.containerignore`` can lift."""
+    copy = _repo_copy(tmp_path, extra)
+    flt = _Filter(copy, "evals/reference-pack")
+    for rel in (
+        "evals/reference-pack/generate.py",
+        "evals/reference-pack/pack.toml",
+        "evals/reference-pack/tasks/arith-easy-01/check",
+        "evals/reference-pack",
+    ):
+        assert flt.excluded(rel), rel
+    assert not flt.excluded("agent/loop.py") and not flt.excluded("iterant.toml")
+
+
+def test_proposer_view_has_no_pack_files(tmp_path: Path) -> None:
+    copy = _repo_copy(tmp_path, "!evals/**")
+    view = proposer_view(copy, "evals/reference-pack", tmp_path / "view")
+    names = {p.relative_to(view).as_posix() for p in view.rglob("*") if p.is_file()}
+    assert "agent/loop.py" in names and "kb/facts.json" in names
+    assert not [n for n in names if n.startswith("evals/") or n.endswith("generate.py")]
+    assert not [n for n in names if n.endswith("/check") or n == "check"]
+
+
+def test_iterant_toml_points_at_the_pack() -> None:
     cfg = tomllib.loads((AGENT / "iterant.toml").read_text(encoding="utf-8"))
     assert cfg["eval"]["pack"] == "evals/reference-pack"
     load_pack(AGENT / cfg["eval"]["pack"])
@@ -202,6 +234,15 @@ def _grade(grader: Grader, task_id: str, answer: str | None, *, raw: bytes | Non
         ("fact-09", "$19.99", "29.99"),
         ("yes-no-01", "Yes, it is.", "No."),
         ("yes-no-06", "No, 91 = 7 * 13.", "Yes."),
+        # verbose but correct answers
+        ("yes-no-05", "Yes, 97 has no divisors other than 1 and itself.", "No."),
+        ("yes-no-05", "Answer: yes", "Answer: no"),
+        ("yes-no-06", "No. 91 is 7 times 13, so there is a divisor: it is not prime.", "Yes."),
+        ("arith-easy-01", "Answer: 43", "Answer: 44"),
+        ("arith-easy-01", "Final answer: 43 (17 + 26)", "Final answer: 17"),
+        ("arith-easy-01", "**43**", "**44**"),
+        ("arith-medium-04", "3 items at 19.99 plus 5 shipping gives a total of 64.97.", "5"),
+        ("fact-math-02", "Answer: 50 employees", "Answer: 8 employees"),
     ],
 )
 def test_known_good_and_bad_answers(grader: Grader, task: str, good: str, bad: str) -> None:

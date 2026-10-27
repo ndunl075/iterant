@@ -26,10 +26,10 @@ VERDICT = re.compile(r"\b(yes|no)\b", re.IGNORECASE)
 
 
 def extract(text):
-    found = VERDICT.findall(text)
+    found = VERDICT.search(text)  # the first yes/no is the verdict; later words are explanation
     if not found:
         raise ValueError("no verdict")
-    return {"verdict": found[-1].lower()}
+    return {"verdict": found.group(1).lower()}
 
 
 def main():

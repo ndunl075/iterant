@@ -1,11 +1,13 @@
 """Regenerate ``evals/reference-pack`` (see below).
 
-Run: ``uv run python examples/reference-agent/evals/generate.py``.
+Run: ``uv run python examples/reference-agent/evals/reference-pack/generate.py``.
 
 The tasks are written here, by hand, for Iterant (Apache-2.0). Every expected value is computed
 from an arithmetic expression or from the reference agent's knowledge base, never typed in.
-Output is deterministic. Regenerating changes the pack hash: do it when authoring, never on a
-pack that a batch has pinned.
+This file lives inside the pack, so it is covered by the pack hash and by the hard exclusion
+of the pack directory from every sandbox image and from the proposer's view: the answers it
+computes can never reach the agent. Output is deterministic. Regenerating changes the pack
+hash: do it when authoring, never on a pack that a batch has pinned.
 
 Grading is parse-only (ARCHITECTURE.md invariant 8). The agent writes ``/out/answer.json``
 (``{"answer": "<text>"}``). The task's ``run`` script, executed by the grader in a sandbox,
@@ -25,7 +27,7 @@ from pathlib import Path
 
 from iterant.packs.loader import split_pack
 
-ROOT = Path(__file__).resolve().parent / "reference-pack"
+ROOT = Path(__file__).resolve().parent  # this file lives inside the pack
 GRADER_DIGEST = "a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704"
 GRADER_IMAGE = "docker.io/library/python@sha256:" + GRADER_DIGEST
 HEREDOC = "ITERANT_PY"
@@ -194,11 +196,18 @@ NUMBER_BODY = """
 NUMBER = re.compile(r"(?<![\\w.])-?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?")
 
 
+MARKER = re.compile(r"\\b(?:final\\s+)?answer\\s*(?:is\\s*)?[:=]", re.IGNORECASE)
+
+
 def extract(text):
-    found = NUMBER.findall(text)
+    # After an explicit "Answer:" marker the first number is the answer; otherwise the last
+    # number is (a sentence that ends with the result, as the question asks).
+    marker = MARKER.search(text)
+    after = NUMBER.findall(text[marker.end() :]) if marker else []
+    found = [after[0]] if after else NUMBER.findall(text)[-1:]
     if not found:
         raise ValueError("no number")
-    d = Decimal(found[-1].replace(",", "")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    d = Decimal(found[0].replace(",", "")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     out = f"{d:f}"
     out = out.rstrip("0").rstrip(".") if "." in out else out
     return {"number": out}
@@ -209,10 +218,10 @@ VERDICT = re.compile(r"\\b(yes|no)\\b", re.IGNORECASE)
 
 
 def extract(text):
-    found = VERDICT.findall(text)
+    found = VERDICT.search(text)  # the first yes/no is the verdict; later words are explanation
     if not found:
         raise ValueError("no verdict")
-    return {"verdict": found[-1].lower()}
+    return {"verdict": found.group(1).lower()}
 """
 
 FACT_BODY = """
@@ -309,9 +318,16 @@ def tasks() -> list[tuple[str, list[str], str, str, object]]:
 
 def main(root: Path = ROOT) -> None:
     """Write the pack to ``root`` (replacing what is there)."""
-    if root.exists():
-        shutil.rmtree(root)
+    for stale in ("tasks", "pack.toml", "README.md", "splits.json"):
+        path = root / stale
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
     (root / "tasks").mkdir(parents=True)
+    me = root / "generate.py"
+    if not me.exists() or not me.samefile(Path(__file__)):
+        shutil.copyfile(Path(__file__), me)
     (root / "pack.toml").write_bytes(
         f'name = "reference-qa"\nversion = "1"\ngrader_image = "{GRADER_IMAGE}"\n'.encode()
     )
@@ -319,7 +335,7 @@ def main(root: Path = ROOT) -> None:
         b"# reference-qa\n\n"
         b"Small question-answering pack for the reference agent (arithmetic, the demo\n"
         b"company's facts, yes/no). Written for Iterant and licensed Apache-2.0 like the rest\n"
-        b"of the repo. Regenerate with `examples/reference-agent/evals/generate.py`.\n\n"
+        b"of the repo. Regenerate with `generate.py` in this directory.\n\n"
         b"The agent writes `/out/answer.json`. Each task's `run` script (executed by the\n"
         b"grader sandbox) reads it as strict JSON text and extracts one canonical value with\n"
         b"regular expressions; nothing the agent wrote is executed. The hidden `check` holds\n"

@@ -66,21 +66,94 @@ def test_no_kvm_fails_clearly_before_anything_starts(world, monkeypatch) -> None
     assert FakeFirecracker.built == []
 
 
-def test_missing_assets_fail_clearly_and_free_the_proxy(world, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+def _spy_cleanup(monkeypatch) -> dict[str, int]:  # type: ignore[no-untyped-def]
+    """Count proxy-server stops and archive closes made by ``build_runtime``."""
+    seen = {"stopped": 0, "closed": 0, "started": 0}
+    real_server = runtime.ProxyServer
+
+    class SpyServer(real_server):  # type: ignore[misc, valid-type]
+        def start(self):  # type: ignore[no-untyped-def]
+            seen["started"] += 1
+            return super().start()
+
+        def stop(self) -> None:
+            seen["stopped"] += 1
+            super().stop()
+
+    real_open = runtime.Archive.open_path
+
+    def spy_open(*a: Any, **k: Any):  # type: ignore[no-untyped-def]
+        archive = real_open(*a, **k)
+        close = archive.close
+
+        def counted() -> None:
+            seen["closed"] += 1
+            close()
+
+        archive.close = counted  # type: ignore[method-assign]
+        return archive
+
+    monkeypatch.setattr(runtime, "ProxyServer", SpyServer)
+    monkeypatch.setattr(runtime.Archive, "open_path", staticmethod(spy_open))
+    return seen
+
+
+def _fake_host(world, monkeypatch, backend: type) -> None:  # type: ignore[no-untyped-def]
     world.cli("init", str(world.repo), "--genome", "agent/**")
     monkeypatch.setattr(runtime, "kvm_usable", lambda: True)
     monkeypatch.setattr(runtime, "image_engine", lambda _b: "podman")
-    for var in ("ITERANT_FIRECRACKER_BIN", "ITERANT_FIRECRACKER_KERNEL"):
-        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(runtime, "FirecrackerBackend", backend)
 
+
+def test_missing_assets_fail_clearly_and_free_the_proxy(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     class MissingAssets:
         def __init__(self, *_a: Any, **_k: Any) -> None:
             raise SandboxError("firecracker not found (set ITERANT_FIRECRACKER_BIN)")
 
-    monkeypatch.setattr(runtime, "FirecrackerBackend", MissingAssets)
+    _fake_host(world, monkeypatch, MissingAssets)
+    seen = _spy_cleanup(monkeypatch)
     with pytest.raises(CliError, match=r"firecracker backend unavailable.*fetch-assets.sh") as info:
         _build(world, _settings(world))
     assert info.value.code == 2
+    assert seen == {"started": 1, "stopped": 1, "closed": 1}
+
+
+def test_constructor_value_error_is_not_blamed_on_proxy_host(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Bad:
+        def __init__(self, *_a: Any, **_k: Any) -> None:
+            raise ValueError("name_prefix must match [a-z0-9][a-z0-9-]*")
+
+    _fake_host(world, monkeypatch, Bad)
+    seen = _spy_cleanup(monkeypatch)
+    with pytest.raises(CliError, match="firecracker backend: name_prefix") as info:
+        _build(world, _settings(world))
+    assert "--proxy-host" not in info.value.message
+    assert seen == {"started": 1, "stopped": 1, "closed": 1}
+
+
+def test_any_exception_during_construction_frees_the_proxy(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Boom:
+        def __init__(self, *_a: Any, **_k: Any) -> None:
+            raise RuntimeError("unexpected")
+
+    _fake_host(world, monkeypatch, Boom)
+    seen = _spy_cleanup(monkeypatch)
+    with pytest.raises(RuntimeError, match="unexpected"):
+        _build(world, _settings(world))
+    assert seen == {"started": 1, "stopped": 1, "closed": 1}
+
+
+def test_non_loopback_proxy_host_is_rejected_before_anything_starts(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _fake_host(world, monkeypatch, FakeFirecracker)
+    seen = _spy_cleanup(monkeypatch)
+    FakeFirecracker.built.clear()
+    for host in ("10.0.0.5", "host.containers.internal"):
+        with pytest.raises(CliError, match="loopback") as info:
+            _build(world, _settings(world, "--proxy-host", host))
+        assert info.value.code == 2
+    assert seen["started"] == 0 and FakeFirecracker.built == []
+    rt = _build(world, _settings(world, "--proxy-host", "localhost"))  # loopback is fine
+    rt.close()
 
 
 def test_real_backend_refuses_without_assets(world, monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]

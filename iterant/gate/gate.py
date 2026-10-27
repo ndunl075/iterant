@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import filecmp
 import io
+import json
 import os
 import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
@@ -36,13 +37,16 @@ from iterant.contracts import (
 from iterant.gate.audit import AuditorError, AuditParseError, AuditVerdict
 from iterant.gate.diff import DiffError, FileDiff, changed_line_count, parse_diff
 from iterant.target.genome import Genome
+from iterant.target.image import _Filter  # pyright: ignore[reportPrivateUsage]
 
 MAX_DIFF_LINES: Final = 400  # §3 PROPOSE kill rule, enforced again here
-MAX_DIFF_BYTES: Final = 1024 * 1024
+MAX_DIFF_BYTES: Final = 128 * 1024
+MAX_LINE_CHARS: Final = 2000  # a one-line 600 KB dict is still one changed line
 ALLOWED_MODES: Final = frozenset({"100644", "100755"})
 _SYMLINK_MODES: Final = frozenset({"120000", "160000"})
 _MIN_CHECK_LINE: Final = 30  # shorter lines are too generic to count as a leak
 _MIN_CHECK_FILE: Final = 20
+_MIN_CHECK_VALUE: Final = 8  # decoded JSON string values shorter than this are too generic
 _MAX_PER_RULE: Final = 5
 _APPLY_TIMEOUT_S: Final = 60
 _SKIP_DIRS: Final = (".git", ".iterant")
@@ -89,7 +93,21 @@ class DiffGate:
 
     ``pack_root`` is the pack directory on the trusted host (for hidden-check content).
     ``protected`` adds repo paths that are never editable, beyond ``iterant.toml`` and the
-    target image; pass the ``[eval] pack`` path here.
+    target image; pass the ``[eval] pack`` path here. Protected paths, the pack directory,
+    ``.env*`` files, ``.git``/``.iterant`` at any depth and the repo's ``.containerignore``
+    entries are also left out of the tree uploaded to the lint/test sandbox, so the hidden
+    checks and local secrets never enter it.
+
+    Limits, by design: the leak grep is textual, so a task id or check path assembled from
+    pieces (``"alpha" + "-17"``, ``tasks/*/check``) gets past it. The auditor prompt names
+    those evasions and is the backstop. Hidden-check content is matched as whole files,
+    long lines and decoded JSON string values of 8+ characters; shorter expected values
+    are too generic to grep for.
+
+    Threat-model rows (§9) that are not gate stages: reading hidden checks (2) is stopped by
+    the grader-only mount, and the gate adds the check-path grep; forged logs or success (5)
+    are stopped by scoring only from the grader and proxy, and the gate adds the auditor,
+    which is told to flag tampering with logs or scores.
     """
 
     def __init__(
@@ -116,8 +134,14 @@ class DiffGate:
         pack: Pack,
     ) -> GateReport:
         diff = proposal.diff if proposal.diff.endswith("\n") else proposal.diff + "\n"
-        if len(diff.encode("utf-8", "replace")) > MAX_DIFF_BYTES:
-            return _fail(f"diff-size: diff is larger than {MAX_DIFF_BYTES} bytes")
+        try:
+            size = len(diff.encode("utf-8"))
+        except UnicodeEncodeError:
+            return _fail("diff-malformed: diff is not valid UTF-8 text")
+        if size > MAX_DIFF_BYTES:
+            return _fail(f"diff-size: {size} bytes, limit is {MAX_DIFF_BYTES}")
+        if any(len(line) > MAX_LINE_CHARS for line in diff.split("\n")):
+            return _fail(f"diff-size: a line is longer than {MAX_LINE_CHARS} characters")
         try:
             files = parse_diff(diff)
         except DiffError as exc:
@@ -134,17 +158,32 @@ class DiffGate:
 
         if findings := _path_findings(files, genome(root)):
             return _fail(*findings)
+        excluded = _excluder(root, self._hidden(root))
         with tempfile.TemporaryDirectory(prefix="iterant-gate-", ignore_cleanup_errors=True) as tmp:
             tree = Path(tmp) / "tree"
-            if error := _apply(root, tree, diff, Path(tmp)):
+            if error := _apply(root, tree, diff, Path(tmp), excluded):
                 return _fail(f"diff-apply: {error}")
-            if findings := _tree_findings(root, tree, genome(root), genome(tree)):
+            findings, changed = _tree_findings(root, tree, genome(root), genome(tree), excluded)
+            if findings:
                 return _fail(*findings)
-            if self._static is not None and (findings := _static_findings(self._static, tree)):
+            if changed == 0 and any(f.added or f.removed or f.renamed or f.copied for f in files):
+                return _fail("diff-apply: the diff changed nothing in the patched tree")
+            if self._static is not None and (
+                findings := _static_findings(self._static, tree, excluded)
+            ):
                 return _fail(*findings)
         if findings := _leak_findings(files, pack, self._pack_root):
             return _fail(*findings)
         return self._audit(proposal.diff, pack)
+
+    def _hidden(self, root: Path) -> tuple[str, ...]:
+        """Repo-relative paths kept out of the sandbox tree: protected paths and the pack."""
+        hidden = list(self._protected)
+        try:
+            hidden.append(self._pack_root.resolve().relative_to(root.resolve()).as_posix())
+        except ValueError:
+            pass
+        return tuple(h for h in hidden if h and h != ".")
 
     def _audit(self, diff: str, pack: Pack) -> GateReport:
         try:
@@ -193,12 +232,44 @@ def _path_findings(files: list[FileDiff], genome: Genome) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-def _apply(repo: Path, tree: Path, diff: str, scratch: Path) -> str:
+def _excluder(root: Path, hidden: Sequence[str]) -> Callable[[str], bool]:
+    """Which repo-relative paths stay out of the patched tree and the sandbox upload."""
+    folded = tuple(h.casefold().strip("/") for h in hidden)
+    flt = _Filter(root, hidden[0] if hidden else ".iterant")
+
+    def excluded(rel: str) -> bool:
+        low = rel.casefold()
+        name = low.rsplit("/", 1)[-1]
+        if name == ".env" or name.startswith(".env."):
+            return True
+        if any(low == h or low.startswith(h + "/") for h in folded):
+            return True
+        return flt.excluded(rel)
+
+    return excluded
+
+
+def _apply(
+    repo: Path, tree: Path, diff: str, scratch: Path, excluded: Callable[[str], bool]
+) -> str:
     """Copy ``repo`` to ``tree`` and apply ``diff``. Returns an error text, or '' on success."""
-    shutil.copytree(repo, tree, symlinks=True, ignore=shutil.ignore_patterns(*_SKIP_DIRS))
+
+    def ignore(directory: str, names: list[str]) -> list[str]:
+        rel = Path(os.path.relpath(directory, repo)).as_posix()
+        prefix = "" if rel == "." else rel + "/"
+        return [n for n in names if excluded(prefix + n)]
+
+    shutil.copytree(repo, tree, symlinks=True, ignore=ignore)
     patch = scratch / "candidate.patch"
     patch.write_bytes(diff.encode("utf-8"))
-    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+    env = {
+        **os.environ,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        # Without a ceiling, a scratch dir inside some repo makes git apply that repo's
+        # root-relative paths, skip ours and exit 0.
+        "GIT_CEILING_DIRECTORIES": str(scratch),
+    }
     try:
         done = subprocess.run(  # noqa: S603
             ["git", "apply", "-p1", "--whitespace=nowarn", str(patch)],  # noqa: S607
@@ -216,26 +287,33 @@ def _apply(repo: Path, tree: Path, diff: str, scratch: Path) -> str:
     return "" if done.returncode == 0 else (done.stderr.strip() or "git apply failed")[-500:]
 
 
-def _entries(root: Path) -> dict[str, str]:
-    """Every entry under ``root`` as ``{posix path: 'file' | 'dir' | 'other'}``."""
+def _entries(root: Path, excluded: Callable[[str], bool]) -> dict[str, str]:
+    """Every kept entry under ``root`` as ``{posix path: 'file' | 'dir' | 'other'}``."""
     found: dict[str, str] = {}
     for base, dirs, names in os.walk(root, followlinks=False):
         rel_base = Path(base).relative_to(root)
-        dirs[:] = [d for d in dirs if not (rel_base == Path() and d in _SKIP_DIRS)]
+        dirs[:] = [d for d in dirs if not excluded((rel_base / d).as_posix())]
         for d in dirs:
             p = Path(base, d)
             found[(rel_base / d).as_posix()] = "other" if p.is_symlink() else "dir"
         for n in names:
+            rel = (rel_base / n).as_posix()
+            if excluded(rel):
+                continue
             p = Path(base, n)
-            kind = "file" if p.is_file() and not p.is_symlink() else "other"
-            found[(rel_base / n).as_posix()] = kind
+            found[rel] = "file" if p.is_file() and not p.is_symlink() else "other"
     return found
 
 
-def _tree_findings(before: Path, after: Path, old: Genome, new: Genome) -> list[str]:
-    """Check the files that really differ once the diff is applied (§1.1)."""
-    a, b = _entries(before), _entries(after)
+def _tree_findings(
+    before: Path, after: Path, old: Genome, new: Genome, excluded: Callable[[str], bool]
+) -> tuple[list[str], int]:
+    """Check the files that really differ once the diff is applied (§1.1).
+
+    Returns the findings and how many paths differ."""
+    a, b = _entries(before, excluded), _entries(after, excluded)
     out: list[str] = []
+    changed = 0
     for path in sorted(set(a) | set(b)):
         ka, kb = a.get(path), b.get(path)
         if ka == kb == "dir":
@@ -244,19 +322,22 @@ def _tree_findings(before: Path, after: Path, old: Genome, new: Genome) -> list[
             continue
         if ka == kb == "other" and os.readlink(before / path) == os.readlink(after / path):
             continue
+        changed += 1
         if kb == "other":
             out.append(f"path-symlink: {path}: result is a symlink or special file")
             continue
         genome = new if kb is not None else old
         if not (decision := genome.check(path)).ok:
             out.append(f"path-allowlist: {path}: {decision.reason} (after applying the diff)")
-    return out
+    return out, changed
 
 
 # --- stage 2: the target's own lint and tests ---------------------------------
 
 
-def _static_findings(static: StaticChecks, tree: Path) -> list[str]:
+def _static_findings(
+    static: StaticChecks, tree: Path, excluded: Callable[[str], bool]
+) -> list[str]:
     commands = [("target-lint", static.lint), ("target-tests", static.test)]
     if not any(cmd for _, cmd in commands):
         return []
@@ -264,7 +345,7 @@ def _static_findings(static: StaticChecks, tree: Path) -> list[str]:
         static.image, 1.0, 2048, 4096, static.timeout_s * 3, "default-deny"
     )
     try:
-        sandbox.put("/tmp/iterant-gate.tar", _tar(tree))
+        sandbox.put("/tmp/iterant-gate.tar", _tar(tree, excluded))
         unpack = sandbox.exec("mkdir -p /work && tar -xf /tmp/iterant-gate.tar -C /work", 120)
         if unpack.exit_code != 0 or unpack.sandbox_lost:
             raise GateInfraError(
@@ -284,17 +365,18 @@ def _static_findings(static: StaticChecks, tree: Path) -> list[str]:
                     if res.truncated
                     else f"exited {res.exit_code}"
                 )
-                tail = (res.stderr or res.stdout).strip()[-300:]
-                return [f"{rule}: `{cmd}` {how}. {tail}".strip()]
+                # Sandbox output is deliberately not echoed: findings flow back toward the
+                # proposer, and the output is candidate-influenced text.
+                return [f"{rule}: `{cmd}` {how}"]
         return []
     finally:
         sandbox.destroy()
 
 
-def _tar(tree: Path) -> bytes:
+def _tar(tree: Path, excluded: Callable[[str], bool]) -> bytes:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
-        for path, kind in sorted(_entries(tree).items()):
+        for path, kind in sorted(_entries(tree, excluded).items()):
             if kind == "file":
                 info = tar.gettarinfo(str(tree / path), arcname=path)
                 info.uid = info.gid = 0
@@ -326,14 +408,40 @@ def _leak_findings(files: list[FileDiff], pack: Pack, pack_root: Path) -> list[s
     if out:
         return out[:_MAX_PER_RULE]
     lines = {_norm(line) for line in added}
-    blob = _norm("\n".join(added))
+    raw_blob = "\n".join(added)
+    blob = _norm(raw_blob)
     for task in pack.tasks:
         content = (pack_root / str(task.check)).read_text(encoding="utf-8", errors="replace")
         whole = _norm(content)
         long_lines = {s for s in map(_norm, content.splitlines()) if len(s) >= _MIN_CHECK_LINE}
-        if (len(whole) >= _MIN_CHECK_FILE and whole in blob) or lines & long_lines:
+        values = _json_strings(content)
+        if (
+            (len(whole) >= _MIN_CHECK_FILE and whole in blob)
+            or lines & long_lines
+            or any(v in raw_blob for v in values)
+        ):
             out.append(f"leak-check-content: copies hidden check content of task {task.id!r}")
     return out[:_MAX_PER_RULE]
+
+
+def _json_strings(text: str) -> set[str]:
+    """String values (not keys) of ``text`` parsed as JSON, 8+ characters; empty if not JSON."""
+    try:
+        data: object = json.loads(text)
+    except ValueError:
+        return set()
+    found: set[str] = set()
+    stack: list[object] = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            if len(item) >= _MIN_CHECK_VALUE:
+                found.add(item)
+        elif isinstance(item, list):
+            stack.extend(item)  # pyright: ignore[reportUnknownArgumentType]
+        elif isinstance(item, dict):
+            stack.extend(item.values())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    return found
 
 
 _WORDS: dict[str, re.Pattern[str]] = {}

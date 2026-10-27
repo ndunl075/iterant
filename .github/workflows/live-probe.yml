@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
-      MODEL: qwen2.5:1.5b
+      MODEL: qwen2.5:3b
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

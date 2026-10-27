@@ -542,9 +542,13 @@ def test_background_process_holding_stdout_does_not_hang_exec(harness: Harness) 
 FLOOD = """
 import socket, time
 socks = []
+start = time.time()
 for _ in range(300):
+    if time.time() - start > 20:
+        break
     try:
         s = socket.socket(40, socket.SOCK_STREAM)  # AF_VSOCK straight at the host proxy port
+        s.settimeout(2)
         s.connect((2, 1025))
         socks.append(s)
     except OSError:

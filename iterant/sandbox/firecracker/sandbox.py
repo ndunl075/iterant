@@ -545,17 +545,21 @@ def kill_process_group(proc: subprocess.Popen[bytes]) -> None:
         raise SandboxError(f"VM process {proc.pid} did not exit after SIGKILL") from e
 
 
-def _rm_error(func: Callable[[str], object], path: str, exc: BaseException) -> None:
-    # A directory without write/search permission blocks its own removal: open it up, retry.
-    parent = os.path.dirname(path)
-    for p in (parent, path):
+def _open_dirs(root: Path) -> None:
+    """Give every directory under ``root`` owner rwx, so it can be listed and emptied."""
+    stack = [root]
+    while stack:
+        d = stack.pop()
         try:
-            os.chmod(p, 0o700)
+            if d.is_symlink() or not d.is_dir():
+                continue
+            os.chmod(d, 0o700)
+            stack.extend(Path(e.path) for e in os.scandir(d))
         except OSError:
             pass
-    func(path)
 
 
 def remove_tree(path: str) -> None:
     """Remove a tree, including directories and files with mode 000."""
-    shutil.rmtree(path, onexc=_rm_error)
+    _open_dirs(Path(path))
+    shutil.rmtree(path)

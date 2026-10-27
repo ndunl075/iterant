@@ -186,8 +186,10 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
     config = project.config
     if not is_loopback(settings.proxy_bind):
         print(
-            f"iterant: WARNING: --proxy-bind {settings.proxy_bind} is not a loopback address: "
-            "the proxy accepts connections from other machines (it still needs a valid token)",
+            f"iterant: note: the proxy listens on {settings.proxy_bind} (not loopback) "
+            "so sandboxes "
+            "can reach it; a loopback-only proxy is unreachable from rootless podman. Every "
+            "request still needs a per-run token. Firewall the port if the host is shared.",
             file=sys.stderr,
         )
     proxy = Proxy(_proxy_config(settings, project, db_path))
@@ -211,7 +213,10 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
         archive.close()
         raise CliError(f"--proxy-host: {exc}", EXIT_USAGE) from exc
     models = role_models(settings.profile, config.target.model)
-    base = server.base_url
+    # host-side clients cannot connect to a wildcard address; the sandboxes use the relay alias
+    base = (
+        f"http://127.0.0.1:{port}" if settings.proxy_bind in ("0.0.0.0", "::") else server.base_url
+    )
     auditor = ProxyAuditor(
         base,
         lambda: proxy.issue_call_token(Role.AUDITOR),

@@ -124,7 +124,7 @@ def test_non_loopback_proxy_bind_warns(world, capsys) -> None:
     args = build_parser().parse_args(["run", str(world.repo), "--proxy-bind", "0.0.0.0"])
     rt = build_runtime(settings_from_args(args), project, world.repo / ".iterant" / "archive.db")
     rt.close()
-    assert "--proxy-bind 0.0.0.0 is not a loopback address" in _err(capsys)
+    assert "proxy listens on 0.0.0.0 (not loopback)" in _err(capsys)
 
 
 # 7. calibration gates a real run

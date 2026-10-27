@@ -2,19 +2,27 @@
 
 Units follow the cap: tokens (``free``, input + output) or micro-USD (``claude``).
 A request is admitted only if what is already spent, plus what other in-flight
-requests may still spend, plus this request's worst-case *output*, fits both caps.
-Input tokens are only known after the call, so one call's input can overshoot a cap by
-at most that call; the next request is then rejected.
+requests may still spend, plus this request's worst-case input estimate and *output*, fits
+both caps.
+Input is reserved from a size estimate at admit (``estimate_input``) and replaced by
+actual usage at settle. The estimate is a heuristic, not a bound: text that tokenises
+denser than 3 bytes per token is under-reserved, and the call then overshoots a cap by its
+shortfall. The proxy limits in-flight calls per token, so such an overshoot stays bounded
+by that many calls; the next request is refused once the spend is recorded.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Hashable
 from dataclasses import dataclass
+from typing import Any, cast
 
 from iterant.contracts import Role, RoleCap, RunKey
 from iterant.proxy.config import MICROS_PER_MTOK, ModelPrice
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,63 @@ def cost_usd_micros(price: ModelPrice, usage: Usage) -> int:
 
 def output_reserve_usd_micros(price: ModelPrice, max_tokens: int) -> int:
     return -(-max_tokens * price.output_per_mtok // MICROS_PER_MTOK)
+
+
+IMAGE_TOKENS_UPPER = 1600  # per image block: the largest an image is billed, whatever its bytes
+DOCUMENT_TOKENS_FLOOR = 3000  # per base64 document block, on top of one token per base64 char
+
+
+def estimate_tokens(n_bytes: int) -> int:
+    """Tokens for ``n_bytes`` of text at 3 bytes per token, rounded up (never below 1).
+
+    Typical tokenisers average 3.5-4+ bytes per token on English and code, so this
+    over-counts them; dense text (CJK, long digit or hash runs) can approach 1 byte per
+    token and be under-counted. It is an estimate, not a proof."""
+    return max(-(-n_bytes // 3), 1)
+
+
+@dataclass(frozen=True)
+class InputEstimate:
+    tokens: int
+    cached: bool  # the request asks for prompt caching, so input may be billed at write rates
+
+
+def estimate_input(request_bytes: int, body: dict[str, Any] | None = None) -> InputEstimate:
+    """Input-token reservation for one request: ``estimate_tokens`` of the whole body, plus
+    ``IMAGE_TOKENS_UPPER`` per image block (a tiny file can claim a huge picture) and, per
+    base64 document block, ``DOCUMENT_TOKENS_FLOOR`` plus one token per base64 character.
+    ``cached`` is set when any ``cache_control`` key appears anywhere in the parsed body."""
+    tokens = estimate_tokens(request_bytes)
+    cached = False
+    stack: list[object] = [body] if body is not None else []
+    seen = 0
+    while stack and seen < 1_000_000:
+        seen += 1
+        node = stack.pop()
+        if isinstance(node, dict):
+            d = cast("dict[str, Any]", node)
+            if "cache_control" in d:
+                cached = True
+            kind = d.get("type")
+            if kind == "image":
+                tokens += IMAGE_TOKENS_UPPER
+            elif kind == "document":
+                src = d.get("source")
+                data: object = (
+                    cast("dict[str, Any]", src).get("data") if isinstance(src, dict) else None
+                )
+                tokens += DOCUMENT_TOKENS_FLOOR + (len(data) if isinstance(data, str) else 0)
+            stack.extend(d.values())
+        elif isinstance(node, list):
+            stack.extend(cast("list[object]", node))
+    return InputEstimate(tokens, cached)
+
+
+def input_reserve_usd_micros(price: ModelPrice, input_tokens: int, cached: bool = False) -> int:
+    """Worst-case input cost. With prompt caching on, input may be billed as cache writes,
+    so use the dearer of the write price and 2x input (the 1 h ttl multiplier)."""
+    rate = max(price.cache_write, 2 * price.input_per_mtok) if cached else price.input_per_mtok
+    return -(-input_tokens * rate // MICROS_PER_MTOK)
 
 
 @dataclass(frozen=True)
@@ -170,10 +235,15 @@ class Ledger:
 
     def _drop_hold(self, r: Reservation) -> None:
         gkey = (r.gen, r.role)
-        self._run_held[r.run_id] = self._run_held.get(r.run_id, 0) - r.units
-        self._gen_held[gkey] = self._gen_held.get(gkey, 0) - r.units
-        if self._run_held[r.run_id] <= 0:
-            del self._run_held[r.run_id]
+        run_left = self._run_held.get(r.run_id, 0) - r.units
+        gen_left = self._gen_held.get(gkey, 0) - r.units
+        if run_left < 0 or gen_left < 0:  # a double release would let spend past the caps
+            log.error("ledger hold went negative (%s, %s): clamped to 0", run_left, gen_left)
+        self._gen_held[gkey] = max(gen_left, 0)
+        if run_left > 0:
+            self._run_held[r.run_id] = run_left
+        else:
+            self._run_held.pop(r.run_id, None)
 
 
 __all__ = [
@@ -183,5 +253,8 @@ __all__ = [
     "RunUsage",
     "Usage",
     "cost_usd_micros",
+    "estimate_input",
+    "estimate_tokens",
+    "input_reserve_usd_micros",
     "output_reserve_usd_micros",
 ]

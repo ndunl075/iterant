@@ -24,7 +24,7 @@ from typing import IO, Any
 from iterant.contracts import Profile
 from iterant.proxy.core import Admission, LedgerError, Proxy
 from iterant.proxy.jsonutil import Obj, obj
-from iterant.proxy.ledger import Usage
+from iterant.proxy.ledger import Usage, estimate_tokens
 from iterant.proxy.rules import NO_FALLBACK_ROLES, Rejection
 from iterant.proxy.sse import StreamAccumulator, sse_event, usage_of
 from iterant.proxy.translate import (
@@ -121,7 +121,7 @@ def _cutoff_usage(adm: Admission, seen: Usage | None, est_in: int) -> Usage:
     plus the most the call could still have produced. Never zero input."""
     base = seen if seen is not None and seen.in_total > 0 else Usage(input=est_in)
     if base.in_total == 0:
-        base = Usage(input=max(adm.request_bytes // 4, 1))
+        base = Usage(input=estimate_tokens(adm.request_bytes))
     out = max(int(adm.body["max_tokens"]), base.output)
     return Usage(base.input, out, base.cache_write, base.cache_read)
 
@@ -253,7 +253,12 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
                     error_body("not_found_error", "iterant proxy serves POST /v1/messages only"),
                 )
                 return
-            adm = proxy.admit(token, raw, self.headers.get("anthropic-beta", ""))
+            try:
+                adm = proxy.admit(token, raw, self.headers.get("anthropic-beta", ""))
+            except Exception as exc:  # a bug in admit must be a reply, never a dropped socket
+                log.error("unexpected %s while admitting", type(exc).__name__)
+                self._try_send(500, error_body("api_error", "iterant proxy: internal error"))
+                return
             if isinstance(adm, Rejection):
                 self._reject(adm)
                 return
@@ -388,7 +393,7 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
             if up.status != 200:
                 self._relay_error(up, translate=True)
                 return False
-            est_in = max(adm.request_bytes // 4, 1)
+            est_in = estimate_tokens(adm.request_bytes)
             model = adm.cap.model
             if adm.stream:
                 return self._relay_openai_stream(
@@ -403,7 +408,7 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
             message = from_openai_response(resp, model)
             usage, refusal = usage_of(message)
             if "usage" not in resp:  # upstream gave no counts: estimate, never charge zero
-                usage = Usage(input=est_in, output=max(len(raw) // 4, 1))
+                usage = Usage(input=est_in, output=estimate_tokens(len(raw)))
             proxy.settle(adm, usage, refusal, message)
             self._send(200, json.dumps(message).encode())
             return True

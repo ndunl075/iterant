@@ -80,6 +80,7 @@ from iterant.packs.hashing import verify
 from iterant.proxy import Proxy
 from iterant.stats import Decision, decide_confirm, decide_select
 
+PACK_HASH_TRAILER = "Iterant-Pack-Hash"
 SEED_ID = "seed"
 CLOSED = "closed"
 
@@ -488,12 +489,13 @@ class Orchestrator:
         self._run_slots(g, tasks, 1, [g.champ.id, *(c.id for c in cands)], Split.TRAIN)
         champ_faults = self._outcomes.faults(g.batch.id, g.champ.id)
         ids = {t.id for t in tasks}
+        recorded = self._outcomes.recorded_by_cand(g.batch.id)  # one query for the phase
         for c in cands:
             # §3: kill on any crash or timeout the champion didn't have on the same task.
             mine = self._outcomes.faults(g.batch.id, c.id)
             # fail closed: a slot that ran but has no outcome record counts as a fault
             for task in tasks:
-                if (task.id, 0) not in self._outcomes.recorded(g.batch.id, c.id):
+                if (task.id, 0) not in recorded.get(c.id, set()):
                     mine[(task.id, 0)] = "no-record"
             new = sorted(
                 f"{task}: {fault}"
@@ -575,7 +577,14 @@ class Orchestrator:
             commit = find_promoted_commit(self._repo, winner, gen)
             if commit is None:
                 diff = self._store.get(winner.diff_sha).encode("utf-8")
-                promote(self._repo, winner, diff, gen, g.champ_sha)
+                promote(
+                    self._repo,
+                    winner,
+                    diff,
+                    gen,
+                    g.champ_sha,
+                    [f"{PACK_HASH_TRAILER}: {g.batch.pack_hash}"],
+                )
         except GitRefError as exc:
             raise BatchAborted(f"cannot promote {winner.id}: {exc}") from exc
         self._archive.record_promotion(

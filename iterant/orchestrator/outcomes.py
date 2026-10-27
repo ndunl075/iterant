@@ -51,6 +51,17 @@ class Outcomes:
             ).fetchall()
         return {(str(r[0]), int(r[1])) for r in rows}
 
+    def recorded_by_cand(self, batch: int) -> dict[str, set[tuple[str, int]]]:
+        """``recorded`` for every candidate of ``batch`` in one query."""
+        with closing(self._connect()) as con:
+            rows = con.execute(
+                "SELECT DISTINCT cand, task, rep FROM outcomes WHERE batch = ?", (batch,)
+            ).fetchall()
+        out: dict[str, set[tuple[str, int]]] = {}
+        for cand, task, rep in rows:
+            out.setdefault(str(cand), set()).add((str(task), int(rep)))
+        return out
+
     def faults(self, batch: int, cand: str) -> dict[tuple[str, int], str]:
         """``{(task, rep): fault}`` for the final attempt of each slot that had a fault."""
         with closing(self._connect()) as con:

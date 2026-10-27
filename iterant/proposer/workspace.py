@@ -115,21 +115,28 @@ class Workspace:
         walked = self._root
         for part in norm.split("/"):
             walked = walked / part
-            if walked.is_symlink():
-                raise ToolError(f"refused: {norm} passes through a symlink")
+            if walked.is_symlink() or os.path.isjunction(walked):
+                raise ToolError(f"refused: {norm} passes through a symlink or junction")
         if full.is_dir():
             raise ToolError(f"{norm} is a directory")
-        norm = self._canonical(norm, full)
-        if norm not in self._originals:
-            if full.exists():
-                try:
-                    self._originals[norm] = full.read_bytes().decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise ToolError(f"{norm} is not UTF-8 text; it cannot be edited") from exc
-            else:
-                self._originals[norm] = None
-        full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_bytes(data)
+        added: str | None = None
+        try:
+            norm = self._canonical(norm, full)
+            if norm not in self._originals:
+                if full.exists():
+                    try:
+                        self._originals[norm] = full.read_bytes().decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise ToolError(f"{norm} is not UTF-8 text; it cannot be edited") from exc
+                else:
+                    self._originals[norm] = None
+                added = norm
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_bytes(data)
+        except OSError as exc:
+            if added is not None and not full.exists():
+                del self._originals[added]  # nothing was written: it is not a touched file
+            raise ToolError(f"cannot write {norm}: {exc.strerror or type(exc).__name__}") from exc
         return f"wrote {norm} ({len(data)} bytes)"
 
     def _canonical(self, norm: str, full: Path) -> str:

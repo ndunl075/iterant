@@ -144,10 +144,24 @@ def _connect(db: Path) -> sqlite3.Connection:
     if not db.is_file():
         raise ArchiveNotInitialized(f"no archive at {db}")
     wal = db.with_name(db.name + "-wal")
-    flags = "mode=ro" if wal.exists() else "mode=ro&immutable=1"
-    con = sqlite3.connect(f"{db.resolve().as_uri()}?{flags}", uri=True, isolation_level=None)
-    con.execute("BEGIN")  # one read transaction: a consistent snapshot
-    return con
+    uri = db.resolve().as_uri()
+    # a writer can appear between the exists() check and the open: if the immutable open then
+    # reads a torn database, retry once as a plain read-only open
+    plans = ["mode=ro"] if wal.exists() else ["mode=ro&immutable=1", "mode=ro"]
+    last = len(plans) - 1
+    for i, flags in enumerate(plans):
+        con: sqlite3.Connection | None = None
+        try:
+            con = sqlite3.connect(f"{uri}?{flags}", uri=True, isolation_level=None)
+            con.execute("BEGIN")  # one read transaction: a consistent snapshot
+            con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            return con
+        except sqlite3.DatabaseError:
+            if con is not None:
+                con.close()
+            if i == last:
+                raise
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _candidate(row: Any) -> Candidate:

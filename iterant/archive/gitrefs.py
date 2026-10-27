@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
@@ -143,10 +144,11 @@ def ensure_seed(repo: str | os.PathLike[str], base: str = "HEAD") -> str:
     return sha
 
 
-def _commit_message(cand: Candidate, gen: int) -> str:
+def _commit_message(cand: Candidate, gen: int, trailers: Sequence[str] = ()) -> str:
+    extra = "".join(f"{t}\n" for t in trailers)
     return (
         f"iterant gen {gen}: {cand.hypothesis}\n\n"
-        f"Candidate: {cand.id}\nDiff-sha256: {cand.diff_sha}\n"
+        f"Candidate: {cand.id}\nDiff-sha256: {cand.diff_sha}\n{extra}"
     )
 
 
@@ -172,6 +174,7 @@ def promote(
     diff: bytes,
     gen: int,
     expected_parent: str,
+    trailers: Sequence[str] = (),
 ) -> str:
     """Commit ``diff`` on top of ``iterant/champion`` and tag the result ``iterant/gen-<gen>``.
 
@@ -184,7 +187,8 @@ def promote(
     and diff, and its parent is ``expected_parent``, that commit is returned
     unchanged (crash-retry). Any other existing tag raises. Also raises if the
     diff doesn't apply, or the champion branch is checked out somewhere (moving it
-    would desync that working tree).
+    would desync that working tree). ``trailers`` are extra ``Key: value`` lines appended to the
+    commit message (e.g. ``Iterant-Pack-Hash: <hash>``).
     """
     root = Path(repo)
     if gen < 1:
@@ -217,7 +221,7 @@ def promote(
             err = applied.stderr.decode(errors="replace").strip()
             raise GitRefError(f"diff for candidate {cand.id} does not apply: {err}")
         tree = _git(root, "write-tree", env=env).stdout.decode().strip()
-        message = _commit_message(cand, gen)
+        message = _commit_message(cand, gen, trailers)
         new = (
             _git(
                 root, "commit-tree", tree, "-p", parent, "-F", "-", input=message.encode(), env=env

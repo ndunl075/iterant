@@ -51,6 +51,17 @@ class Outcomes:
             ).fetchall()
         return {(str(r[0]), int(r[1])) for r in rows}
 
+    def recorded_by_cand(self, batch: int) -> dict[str, set[tuple[str, int]]]:
+        """``recorded`` for every candidate of ``batch`` in one query."""
+        with closing(self._connect()) as con:
+            rows = con.execute(
+                "SELECT DISTINCT cand, task, rep FROM outcomes WHERE batch = ?", (batch,)
+            ).fetchall()
+        out: dict[str, set[tuple[str, int]]] = {}
+        for cand, task, rep in rows:
+            out.setdefault(str(cand), set()).add((str(task), int(rep)))
+        return out
+
     def faults(self, batch: int, cand: str) -> dict[tuple[str, int], str]:
         """``{(task, rep): fault}`` for the final attempt of each slot that had a fault."""
         with closing(self._connect()) as con:
@@ -62,3 +73,18 @@ class Outcomes:
                 (batch, cand),
             ).fetchall()
         return {(str(r[0]), int(r[1])): str(r[2]) for r in rows}
+
+    def faults_by_cand(self, batch: int) -> dict[str, dict[tuple[str, int], str]]:
+        """``faults`` for every candidate of ``batch`` in one query."""
+        with closing(self._connect()) as con:
+            rows = con.execute(
+                "SELECT cand, task, rep, fault FROM outcomes o WHERE batch = ?"
+                " AND fault != ''"
+                " AND attempt = (SELECT MAX(attempt) FROM outcomes WHERE batch = o.batch"
+                " AND cand = o.cand AND task = o.task AND rep = o.rep)",
+                (batch,),
+            ).fetchall()
+        out: dict[str, dict[tuple[str, int], str]] = {}
+        for cand, task, rep, fault in rows:
+            out.setdefault(str(cand), {})[(str(task), int(rep))] = str(fault)
+        return out

@@ -20,9 +20,11 @@ from __future__ import annotations
 import atexit
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
@@ -143,10 +145,25 @@ def ensure_seed(repo: str | os.PathLike[str], base: str = "HEAD") -> str:
     return sha
 
 
-def _commit_message(cand: Candidate, gen: int) -> str:
+_LINE_BREAKS = frozenset("\r\n\x0b\x0c\x85\u2028\u2029")
+_TRAILER_KEY = re.compile(r"[A-Za-z-]+")
+
+
+def _check_message_parts(cand: Candidate, trailers: Sequence[str]) -> None:
+    """Refuse text that could forge a ``Candidate:`` / ``Diff-sha256:`` line in the message."""
+    if any(ch in _LINE_BREAKS for ch in cand.hypothesis):
+        raise GitRefError(f"hypothesis of candidate {cand.id} contains a line break")
+    for t in trailers:
+        key, sep, _value = t.partition(": ")
+        if not sep or not _TRAILER_KEY.fullmatch(key) or any(ch in _LINE_BREAKS for ch in t):
+            raise GitRefError(f"invalid commit trailer {t!r}: want one 'Key: value' line")
+
+
+def _commit_message(cand: Candidate, gen: int, trailers: Sequence[str] = ()) -> str:
+    extra = "".join(f"{t}\n" for t in trailers)
     return (
         f"iterant gen {gen}: {cand.hypothesis}\n\n"
-        f"Candidate: {cand.id}\nDiff-sha256: {cand.diff_sha}\n"
+        f"Candidate: {cand.id}\nDiff-sha256: {cand.diff_sha}\n{extra}"
     )
 
 
@@ -172,6 +189,7 @@ def promote(
     diff: bytes,
     gen: int,
     expected_parent: str,
+    trailers: Sequence[str] = (),
 ) -> str:
     """Commit ``diff`` on top of ``iterant/champion`` and tag the result ``iterant/gen-<gen>``.
 
@@ -184,11 +202,13 @@ def promote(
     and diff, and its parent is ``expected_parent``, that commit is returned
     unchanged (crash-retry). Any other existing tag raises. Also raises if the
     diff doesn't apply, or the champion branch is checked out somewhere (moving it
-    would desync that working tree).
+    would desync that working tree). ``trailers`` are extra ``Key: value`` lines appended to the
+    commit message (e.g. ``Iterant-Pack-Hash: <hash>``).
     """
     root = Path(repo)
     if gen < 1:
         raise ValueError("gen must be >= 1")
+    _check_message_parts(cand, trailers)
     if diff_sha256(diff) != cand.diff_sha:
         raise GitRefError(f"diff does not match candidate {cand.id}'s diff_sha")
     done = find_promoted_commit(root, cand, gen)
@@ -217,7 +237,7 @@ def promote(
             err = applied.stderr.decode(errors="replace").strip()
             raise GitRefError(f"diff for candidate {cand.id} does not apply: {err}")
         tree = _git(root, "write-tree", env=env).stdout.decode().strip()
-        message = _commit_message(cand, gen)
+        message = _commit_message(cand, gen, trailers)
         new = (
             _git(
                 root, "commit-tree", tree, "-p", parent, "-F", "-", input=message.encode(), env=env

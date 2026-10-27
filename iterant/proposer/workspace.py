@@ -15,6 +15,7 @@ from __future__ import annotations
 import difflib
 import os
 import re
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -28,6 +29,23 @@ MAX_LISTED = 500
 def _lines(s: str) -> list[str]:
     """Split after each LF only, as git does; ``str.splitlines`` also breaks on FF, CR, U+2028."""
     return re.findall(r"[^\n]*\n|[^\n]+", s)
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Temp file in the same directory, then ``os.replace``: a failure part-way leaves the
+    original file untouched and no partial content behind."""
+    tmp = path.with_name(f".{path.name}.iterant-{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(data)
+        if path.exists():
+            shutil.copymode(path, tmp)  # keep the exec bit: no mode change in the diff
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 class ToolError(Exception):
@@ -112,24 +130,31 @@ class Workspace:
         if len(data) > MAX_WRITE_BYTES:
             raise ToolError(f"content is larger than {MAX_WRITE_BYTES} bytes")
         full = self._root / norm
-        walked = self._root
-        for part in norm.split("/"):
-            walked = walked / part
-            if walked.is_symlink():
-                raise ToolError(f"refused: {norm} passes through a symlink")
-        if full.is_dir():
-            raise ToolError(f"{norm} is a directory")
-        norm = self._canonical(norm, full)
-        if norm not in self._originals:
-            if full.exists():
-                try:
-                    self._originals[norm] = full.read_bytes().decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise ToolError(f"{norm} is not UTF-8 text; it cannot be edited") from exc
-            else:
-                self._originals[norm] = None
-        full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_bytes(data)
+        added: str | None = None
+        try:
+            walked = self._root
+            for part in norm.split("/"):
+                walked = walked / part
+                if walked.is_symlink() or os.path.isjunction(walked):
+                    raise ToolError(f"refused: {norm} passes through a symlink or junction")
+            if full.is_dir():
+                raise ToolError(f"{norm} is a directory")
+            norm = self._canonical(norm, full)
+            if norm not in self._originals:
+                if full.exists():
+                    try:
+                        self._originals[norm] = full.read_bytes().decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise ToolError(f"{norm} is not UTF-8 text; it cannot be edited") from exc
+                else:
+                    self._originals[norm] = None
+                added = norm
+            full.parent.mkdir(parents=True, exist_ok=True)
+            _write_atomic(full, data)
+        except OSError as exc:
+            if added is not None:
+                del self._originals[added]  # the write is atomic: nothing changed, not touched
+            raise ToolError(f"cannot write {norm}: {exc.strerror or type(exc).__name__}") from exc
         return f"wrote {norm} ({len(data)} bytes)"
 
     def _canonical(self, norm: str, full: Path) -> str:

@@ -140,14 +140,32 @@ def _connect(db: Path) -> sqlite3.Connection:
     """Open read-only. A WAL archive with no ``-wal`` file has no live writer, and a plain
     read-only open would create ``-wal``/``-shm`` beside it, so that case opens ``immutable``
     (no files, no locks). With a ``-wal`` present (a writer may be live) the open is a normal
-    read-only one, which only reads the existing shared-memory file."""
+    read-only one, which only reads the existing shared-memory file. If the ``immutable`` open
+    fails (a writer appeared in between), the plain ``mode=ro`` fallback may create ``-wal`` and
+    ``-shm`` files beside the archive; if both opens fail, the first error is chained."""
     if not db.is_file():
         raise ArchiveNotInitialized(f"no archive at {db}")
     wal = db.with_name(db.name + "-wal")
-    flags = "mode=ro" if wal.exists() else "mode=ro&immutable=1"
-    con = sqlite3.connect(f"{db.resolve().as_uri()}?{flags}", uri=True, isolation_level=None)
-    con.execute("BEGIN")  # one read transaction: a consistent snapshot
-    return con
+    uri = db.resolve().as_uri()
+    # a writer can appear between the exists() check and the open: if the immutable open then
+    # reads a torn database, retry once as a plain read-only open
+    plans = ["mode=ro"] if wal.exists() else ["mode=ro&immutable=1", "mode=ro"]
+    first: sqlite3.DatabaseError | None = None
+    for flags in plans:
+        con: sqlite3.Connection | None = None
+        try:
+            con = sqlite3.connect(f"{uri}?{flags}", uri=True, isolation_level=None)
+            con.execute("BEGIN")  # one read transaction: a consistent snapshot
+            con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            return con
+        except sqlite3.DatabaseError as exc:
+            if con is not None:
+                con.close()
+            if first is not None:
+                raise exc from first
+            first = exc
+    assert first is not None
+    raise first
 
 
 def _candidate(row: Any) -> Candidate:

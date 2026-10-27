@@ -85,9 +85,10 @@ def render_status(repo: Path) -> str:
         if real
         else f"batches: {len(batches)}; candidates: 0"
     )
-    warn = AcceptanceThresholds().holdout_query_warn
+    defaults = AcceptanceThresholds()
+    warn, hard = defaults.holdout_query_warn, defaults.holdout_query_max
     lines.append(
-        f"holdout queries: {holdout_queries} (warns after {warn})"
+        f"holdout queries: {holdout_queries} (warns after {warn}, stops at {hard})"
         + (": add fresh holdout tasks" if holdout_queries > warn else "")
     )
     total, by_role, calls = _spend(path)

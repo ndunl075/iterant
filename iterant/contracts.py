@@ -815,16 +815,16 @@ class ProxyPolicy:
 
 @dataclass(frozen=True)
 class AcceptanceThresholds:
-    """§3/§4 defaults. Deltas are score fractions; ``max_*_increase`` are relative
-    (0.15 = +15%).
+    """§3/§4 defaults (the ``balanced`` preset, see ``iterant.stats.presets``). Deltas are
+    score fractions; ``max_*_increase`` are relative (0.15 = +15%).
 
     Exact comparisons: SELECT passes when ``delta >= delta_min`` and
     ``p < select_p``; CONFIRM passes when ``delta > 0`` and ``p < holdout_p``.
     """
 
     delta_min: float = 0.05
-    select_p: float = 0.05
-    holdout_p: float = 0.2
+    select_p: float = 0.10
+    holdout_p: float = 0.5
     max_cost_increase: float = 0.15
     max_wall_increase: float = 0.25
     select_tasks: int = 80
@@ -832,6 +832,12 @@ class AcceptanceThresholds:
     holdout_tasks: int = 40
     holdout_reps: int = 2
     holdout_query_warn: int = 20  # warn and ask for fresh holdout tasks after this many
+    holdout_query_max: int = 60  # CONFIRM refuses to run past this many holdout queries
+    # Refusal / infra guard: veto only when the candidate's first-attempt rate is higher than
+    # the champion's by more than ``noise_guard_margin`` AND a one-sided conditional binomial
+    # test gives p < ``noise_guard_p`` (see ``iterant.stats.acceptance``).
+    noise_guard_p: float = 0.05
+    noise_guard_margin: float = 0.02
     max_diff_lines: int = 400  # PROPOSE kill rule
     smoke_tasks: int = 5  # SMOKE runs this many train tasks, 1 rep
 
@@ -843,14 +849,19 @@ class AcceptanceThresholds:
                 raise ValueError("p thresholds must be within (0, 1]")
         if self.max_cost_increase < 0 or self.max_wall_increase < 0:
             raise ValueError("guard increases must be >= 0")
+        if not 0.0 < self.noise_guard_p <= 1.0 or not 0.0 <= self.noise_guard_margin <= 1.0:
+            raise ValueError("noise_guard_p must be in (0, 1] and noise_guard_margin in [0, 1]")
         counts = (
             self.select_tasks,
             self.select_reps,
             self.holdout_tasks,
             self.holdout_reps,
             self.holdout_query_warn,
+            self.holdout_query_max,
             self.max_diff_lines,
             self.smoke_tasks,
         )
         if min(counts) < 1:
             raise ValueError("task, rep and limit counts must be >= 1")
+        if self.holdout_query_max < self.holdout_query_warn:
+            raise ValueError("holdout_query_max must be >= holdout_query_warn")

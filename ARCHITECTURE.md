@@ -72,9 +72,20 @@ v0 picks parents greedily (champion only). In v1, parents are sampled from the a
 ## 4. "Improvement" (acceptance rule)
 
 Accept only if **all** of these hold:
-- **SELECT:** paired per-task gain Δ ≥ δ_min (default 5 pts), and a one-sided paired bootstrap gives p < 0.05.
-- **CONFIRM:** holdout Δ > 0 and p < 0.2. The two stages compound to a ~1% false accept per null candidate.
-- **Guards:** cost per task ≤ +15%, wall time ≤ +25%, refusal and infra-error rate no worse. Every threshold is configurable.
+- **SELECT:** paired per-task gain Δ ≥ δ_min and a one-sided paired sign-flip test gives p < `select_p`.
+- **CONFIRM:** holdout Δ > 0 and p < `holdout_p`. The two stages compound to a few percent false accept per null candidate.
+- **Guards:** cost per task ≤ +15%, wall time ≤ +25%, and refusal and infra-error rates not clearly worse (below). Every threshold is configurable.
+
+δ_min (default 5 pts) is reported as the "minimum gain worth keeping". At the default sizes it is nearly redundant with the p-value, so no preset changes it.
+
+**Presets** (`--preset`, on `estimate`, `aa-test` and `run`; defined in `iterant/stats/presets.py`, the one place). Explicit threshold flags override the preset. The calibration fingerprint covers the preset name and every effective threshold.
+
+| Preset | `select_p` | `holdout_p` | `holdout_tasks` | Use |
+|---|---|---|---|---|
+| `balanced` (default) | 0.10 | 0.5 | 40 | Real gains of ~8 pts or more are accepted about half the time or better at the default sizes; A/A false accept stays under 5%. |
+| `strict` | 0.05 | 0.2 | 80 | The original p-values (~1% false accept per null candidate); needs a bigger holdout and more tasks to accept real gains. |
+
+**Refusal and infra guards are noise-tolerant.** They use each arm's *first-attempt* rates (the final rate after the §6 retry is about r², which hides a real excess). The candidate is vetoed only when both hold: a one-sided conditional binomial test (the candidate's events out of both arms' events, under H0 weighted by the arms' run counts) gives p < `noise_guard_p` (0.05), and its rate exceeds the champion's by more than `noise_guard_margin` (2 pts). At equal rates the veto rate stays under about 10%; a 2% → 7% refusal candidate is still rejected most of the time.
 
 Calibration gates (`iterant estimate` and `iterant aa-test`; both must pass before a real run):
 - **A/A test.** Resample a pool of champion reps: false accepts ≤ 5%. If it fails, the stats or the pack are broken; stop.
@@ -89,7 +100,9 @@ Calibration gates (`iterant estimate` and `iterant aa-test`; both must pass befo
 
   Defaults are `select` 80 × k=2 and `holdout` 40 × k=2. If the pack is too small for the gain the user wants, `estimate` says so up front.
 
-Overfitting control: every holdout query is logged. After 20 queries, Iterant warns and asks for fresh holdout tasks. `test` is touched only for reports.
+`estimate` also prints the estimated chance of accepting a true gain of +3, +5, +8 and +12 pts under the active preset (a closed-form model of the full rule at the measured discordance; `iterant/stats/power.py`) and the A/A false-accept estimate. If +8 would be accepted less than 30% of the time, it warns that the pack is too small and says how many more tasks or reps reach 50%.
+
+Overfitting control: every holdout query is logged. After 20 queries (`holdout_query_warn`), Iterant warns and asks for fresh holdout tasks. After 60 (`holdout_query_max`) it is a hard stop: CONFIRM refuses to run and the generation stops with a message to refresh or rotate the holdout (nothing is rejected; the batch resumes once the limit is raised or the holdout refreshed). The count covers the whole archive. `test` is touched only for reports.
 
 Sampling params are gone from the API, so runs are inherently noisy. Repeats and paired stats are mandatory, not optional.
 

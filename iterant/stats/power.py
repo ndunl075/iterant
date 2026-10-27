@@ -16,7 +16,10 @@ and ~1,000.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from statistics import NormalDist
+
+from iterant.contracts import AcceptanceThresholds
 
 _N = NormalDist()
 
@@ -73,3 +76,74 @@ def tasks_needed(
         raise ValueError("gain must be in (0, discordance]")
     z2 = (_N.inv_cdf(1 - alpha) + _N.inv_cdf(target_power)) ** 2
     return math.ceil(z2 * (discordance - gain**2) / (reps * gain**2))
+
+
+def rule_power(gain: float, discordance: float, t: AcceptanceThresholds) -> float:
+    """Chance the full rule (SELECT then CONFIRM, on independent task draws) accepts a true
+    ``gain``; at ``gain=0`` it is the A/A false-accept rate.
+
+    SELECT needs the mean gain to reach ``delta_min`` and the one-sided test at ``select_p``;
+    CONFIRM needs it positive and the test at ``holdout_p``. Normal approximations with the
+    ``power()`` variance model (the sign-flip test is a little conservative, so this is a
+    slight overstatement). Ignores the cost, wall and refusal guards, which an
+    equal-behaviour candidate rarely trips."""
+    if not 0.0 <= gain < 1.0 or not 0.0 < discordance <= 1.0:
+        raise ValueError("gain must be in [0, 1) and discordance in (0, 1]")
+    prob = 1.0
+    for n, k, p, floor in (
+        (t.select_tasks, t.select_reps, t.select_p, t.delta_min),
+        (t.holdout_tasks, t.holdout_reps, t.holdout_p, 0.0),
+    ):
+        se0 = math.sqrt(discordance / (n * k))
+        se_g = math.sqrt(max(discordance - gain**2, 1e-12) / (n * k))
+        crit = max(floor, _N.inv_cdf(1 - p) * se0, 0.0)
+        prob *= 1.0 - _N.cdf((crit - gain) / se_g)
+    return prob
+
+
+def _scaled(t: AcceptanceThresholds, tasks: int, reps: int) -> AcceptanceThresholds:
+    """``t`` with the select size set and the holdout scaled in proportion."""
+    return replace(
+        t,
+        select_tasks=max(1, tasks),
+        holdout_tasks=max(1, round(tasks * t.holdout_tasks / t.select_tasks)),
+        select_reps=reps,
+        holdout_reps=max(1, round(reps * t.holdout_reps / t.select_reps)),
+    )
+
+
+def rule_tasks_needed(
+    gain: float,
+    discordance: float,
+    t: AcceptanceThresholds,
+    target: float = 0.5,
+    limit: int = 100_000,
+) -> int | None:
+    """Fewest select tasks (holdout scaled in proportion, reps as in ``t``) at which
+    ``rule_power`` reaches ``target``; ``None`` when ``limit`` tasks are not enough."""
+    if rule_power(gain, discordance, _scaled(t, limit, t.select_reps)) < target:
+        return None
+    lo, hi = 1, limit
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if rule_power(gain, discordance, _scaled(t, mid, t.select_reps)) >= target:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+def rule_reps_needed(
+    gain: float,
+    discordance: float,
+    t: AcceptanceThresholds,
+    target: float = 0.5,
+    limit: int = 20,
+) -> int | None:
+    """Fewest SELECT reps per task (holdout reps scaled in proportion, tasks as in ``t``) at
+    which ``rule_power`` reaches ``target``; ``None`` when ``limit`` reps are not enough.
+    Assumes disagreement is run noise (see the module note)."""
+    for reps in range(1, limit + 1):
+        if rule_power(gain, discordance, _scaled(t, t.select_tasks, reps)) >= target:
+            return reps
+    return None

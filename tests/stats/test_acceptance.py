@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from iterant.contracts import AcceptanceThresholds, RunResult, Split
 from iterant.stats import Reason, accepted, decide_confirm, decide_select
+from iterant.stats.acceptance import _binom_sf, noise_veto  # pyright: ignore[reportPrivateUsage]
 
 MakeRun = Callable[..., RunResult]
 
@@ -54,14 +55,15 @@ def test_p_threshold_is_strict(mk: MakeRun) -> None:
 
 
 def test_confirm_needs_positive_delta_and_p_below_holdout_p(mk: MakeRun) -> None:
+    strict = AcceptanceThresholds(holdout_p=0.2)
     cand, champ = arms(mk, [0.1, 0.0, 0.1, 0.0] * 10, Split.HOLDOUT)
-    d = decide_confirm(cand, champ, seed=0)
+    d = decide_confirm(cand, champ, strict, seed=0)
     assert d.accepted and d.stage is Split.HOLDOUT
     cand, champ = arms(mk, [0.0] * 20, Split.HOLDOUT)
-    d = decide_confirm(cand, champ, seed=0)
+    d = decide_confirm(cand, champ, strict, seed=0)
     assert not d.accepted and Reason.NOT_POSITIVE in d.reasons
     cand, champ = arms(mk, [-0.1, 0.1] * 10 + [0.01], Split.HOLDOUT)
-    assert Reason.P_TOO_HIGH in decide_confirm(cand, champ, seed=0).reasons
+    assert Reason.P_TOO_HIGH in decide_confirm(cand, champ, strict, seed=0).reasons
 
 
 def test_wrong_split_is_an_error_not_a_verdict(mk: MakeRun) -> None:
@@ -96,26 +98,72 @@ def test_zero_cost_champion_allows_only_zero_cost(mk: MakeRun) -> None:
     assert Reason.COST_GUARD in decide_select(cand, champ, seed=0).reasons
 
 
-def test_refusal_and_infra_rates_no_worse(mk: MakeRun) -> None:
-    gains = [0.2, 0.1] * 20
-    cand, champ = arms(mk, gains)
-    cand.append(mk("x", None, refusal=True))  # dropped from pairing but still counted
-    champ.append(mk("x", 0.5, cand="h"))
-    d = decide_select(cand, champ, seed=0)
-    assert d.reasons == (Reason.REFUSAL_GUARD,) and d.n_dropped == 1
+def _first_try_failures(
+    mk: MakeRun, runs: list[RunResult], idx: range, *, cand: str, refusal: bool
+) -> None:
+    """Make the first try of tasks ``idx`` refuse / infra-error, with a clean retry (same score)."""
+    for i in idx:
+        old = runs[i]
+        runs[i] = mk(old.key.task, None, cand=cand, refusal=refusal, infra=not refusal)
+        runs.append(mk(old.key.task, old.score, cand=cand, attempt=1))
 
-    cand, champ = arms(mk, gains)
-    cand.append(mk("x", None, infra=True))
-    champ.append(mk("x", 0.5, cand="h"))
+
+def test_refusal_guard_vetoes_a_clear_first_try_excess_even_when_retries_succeed(
+    mk: MakeRun,
+) -> None:
+    # 6 of 40 first tries refused (15%) vs none: p = 0.5**6 = 0.016, excess 15 pts. The
+    # retries all succeed, so the *final* rates are equal: only first attempts show it.
+    cand, champ = arms(mk, [0.2, 0.1] * 20)
+    _first_try_failures(mk, cand, range(6), cand="c", refusal=True)
+    d = decide_select(cand, champ, seed=0)
+    assert d.reasons == (Reason.REFUSAL_GUARD,) and d.n_dropped == 0
+    assert "first-try refusal rate 15.0%" in d.detail[0]
+
+
+def test_infra_guard_vetoes_a_clear_first_try_excess(mk: MakeRun) -> None:
+    cand, champ = arms(mk, [0.2, 0.1] * 20)
+    _first_try_failures(mk, cand, range(6), cand="c", refusal=False)
     assert decide_select(cand, champ, seed=0).reasons == (Reason.INFRA_GUARD,)
 
-    # equal rates are fine
-    cand.append(mk("y", 0.5))
-    champ.append(mk("y", None, cand="h", infra=True))
-    champ.append(mk("z", 0.5, cand="h"))
-    cand.append(mk("z", 0.5))
-    # candidate: 1 infra of 43 finals, champion: 1 of 43 -> equal
+
+def test_one_extra_refusal_is_noise_not_a_veto(mk: MakeRun) -> None:
+    # 1 of 41 vs 0 of 41: excess 2.4 pts, but p ~ 0.5: not significant
+    cand, champ = arms(mk, [0.2, 0.1] * 20)
+    cand.append(mk("x", None, refusal=True))  # refused twice would drop it; once is enough
+    champ.append(mk("x", 0.5, cand="h"))
+    d = decide_select(cand, champ, seed=0)
+    assert d.n_dropped == 1 and Reason.REFUSAL_GUARD not in d.reasons
+    assert Reason.TOO_MANY_DROPPED not in d.reasons and d.accepted
+
+
+def test_equal_first_try_rates_are_fine(mk: MakeRun) -> None:
+    cand, champ = arms(mk, [0.2, 0.1] * 20)
+    _first_try_failures(mk, cand, range(6), cand="c", refusal=True)
+    _first_try_failures(mk, champ, range(6), cand="h", refusal=True)
     assert decide_select(cand, champ, seed=0).accepted
+
+
+def test_noise_veto_needs_both_significance_and_margin() -> None:
+    t = AcceptanceThresholds()
+    # significant but only 2.0 pts worse (70 vs 50 of 1000): the margin is "more than 2 pts"
+    veto, p, excess = noise_veto(70, 1000, 50, 1000, t)
+    assert p < 0.05 and abs(excess - 0.02) < 1e-12 and not veto
+    assert noise_veto(71, 1000, 50, 1000, t)[0]
+    # large excess but not significant (2 of 10 vs 0 of 10): p = 0.25
+    veto, p, excess = noise_veto(2, 10, 0, 10, t)
+    assert excess == 0.2 and p == 0.25 and not veto
+    # the fields are thresholds: a stricter margin / p turns the veto off, a looser one on
+    assert not noise_veto(71, 1000, 50, 1000, AcceptanceThresholds(noise_guard_margin=0.05))[0]
+    assert not noise_veto(6, 40, 0, 40, AcceptanceThresholds(noise_guard_p=0.01))[0]
+    assert noise_veto(6, 40, 0, 40, AcceptanceThresholds(noise_guard_p=0.02))[0]
+    # a better-than-champion or empty arm never vetoes
+    assert not noise_veto(0, 40, 9, 40, t)[0] and not noise_veto(0, 0, 0, 40, t)[0]
+
+
+def test_binomial_tail_is_exact() -> None:
+    assert abs(_binom_sf(6, 6, 0.5) - 0.5**6) < 1e-15
+    assert abs(_binom_sf(1, 3, 0.5) - 0.875) < 1e-15
+    assert _binom_sf(0, 5, 0.3) == 1.0 and _binom_sf(6, 5, 0.3) == 0.0
 
 
 def test_all_reasons_reported_and_empty_pairing(mk: MakeRun) -> None:
@@ -164,7 +212,7 @@ def test_too_many_dropped_tasks_rejects(mk: MakeRun) -> None:
         champ.append(mk(f"x{i}", 0.5, cand="h"))
     d = decide_select(cand, champ, seed=0)
     assert Reason.TOO_MANY_DROPPED in d.reasons and d.n_dropped == 5
-    # 4 of 44 (9.1%) passes this check (the refusal guard still fires)
+    # 4 of 44 (9.1%) passes this check
     d = decide_select(cand[:-1], champ[:-1], seed=0)
     assert Reason.TOO_MANY_DROPPED not in d.reasons
 

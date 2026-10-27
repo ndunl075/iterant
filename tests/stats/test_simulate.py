@@ -8,6 +8,7 @@ import pytest
 
 from iterant.contracts import AcceptanceThresholds
 from iterant.stats.acceptance import Reason
+from iterant.stats.presets import PRESETS
 from iterant.stats.simulate import (
     SimConfig,
     analytic_power_at,
@@ -19,24 +20,38 @@ from iterant.stats.simulate import (
 )
 
 # p-test only: delta_min ~ 0 so SELECT power is comparable with power().
-_P_ONLY = AcceptanceThresholds(delta_min=0.0001)
+_P_ONLY = AcceptanceThresholds(delta_min=0.0001, select_p=0.05, holdout_p=0.2)
 # The sign-flip test on these discrete scores has a true size of about 3 to 4% at nominal 5%
 # (measured A/A SELECT-alone rate, independent of the resample count), so power() is
 # compared at this size. Without it the empirical rate sits ~8 pts below power().
 _SIZE = 0.035
+_AA_TRIALS = 400
 _R = 100  # resamples: far fewer than production's 10,000, to keep CI fast
 
 
-def test_aa_false_accept_rate_at_most_2_percent() -> None:
-    s = run_trials(SimConfig(), seed=11, trials=300, n_resamples=_R)
-    assert s.accept.rate <= 0.02, f"A/A false accept {s.accept.rate:.3f}"
-    assert s.select_pass.rate <= 0.06, f"A/A SELECT alone {s.select_pass.rate:.3f}"
+BALANCED = PRESETS["balanced"]
+STRICT = PRESETS["strict"]
+
+
+@pytest.mark.parametrize(("name", "preset"), [("balanced", BALANCED), ("strict", STRICT)])
+def test_aa_false_accept_is_at_most_5_percent_for_both_presets(
+    name: str, preset: AcceptanceThresholds
+) -> None:
+    """Full rule (SELECT then CONFIRM), identical arms. Fixed seed, CI-sized trial count."""
+    s = run_trials(SimConfig(thresholds=preset), seed=11, trials=_AA_TRIALS, n_resamples=_R)
+    assert s.accept.rate <= 0.05, f"{name}: A/A false accept {s.accept.rate:.3f}"
+    assert s.select_pass.rate <= 0.09, f"{name}: A/A SELECT alone {s.select_pass.rate:.3f}"
+
+
+def test_balanced_power_at_plus_8_is_at_least_50_percent_at_default_sizes() -> None:
+    s = run_trials(SimConfig(gain=0.08, thresholds=BALANCED), seed=21, trials=200, n_resamples=_R)
+    assert s.accept.rate >= 0.5, f"balanced power at +8: {s.accept.rate:.3f}"
 
 
 def test_aa_with_task_effects_dropped_runs_and_coupling() -> None:
     cfg = SimConfig(task_effect_sd=0.1, refusal_rate=0.02, infra_rate=0.02, arm_coupling=0.5)
     s = run_trials(cfg, seed=3, trials=100, n_resamples=_R)
-    assert s.accept.rate <= 0.02
+    assert s.accept.rate <= 0.05
 
 
 def test_power_monotone_in_gain() -> None:
@@ -141,14 +156,33 @@ def test_slower_candidate_is_rejected() -> None:
         assert d.reasons == (Reason.WALL_GUARD,)
 
 
-def test_guards_veto_equal_rate_candidate_often() -> None:
-    """Characterises the rule (see PR "Rule observations"): at equal nonzero rates the
-    refusal / infra guards fire on sampling noise alone, so a no-worse candidate is
-    vetoed a lot."""
-    s = run_trials(
-        SimConfig(gain=0.12, refusal_rate=0.05, infra_rate=0.05), seed=6, trials=100, n_resamples=_R
+def test_noise_veto_stays_low_at_equal_nonzero_rates() -> None:
+    """Replaces the old zero-tolerance behaviour, where equal 5% rates vetoed a good
+    candidate over a quarter of the time on sampling noise alone. One guard at a time it
+    stays under 10%; with refusal and infra both at 5% the two one-sided tests add up
+    (measured ~10.6% at 600 trials), so that case gets a looser bound."""
+    for rates, bound in (
+        (SimConfig(gain=0.12, refusal_rate=0.05), 0.10),
+        (SimConfig(gain=0.12, infra_rate=0.05), 0.10),
+        (SimConfig(gain=0.12, refusal_rate=0.05, infra_rate=0.05), 0.16),
+    ):
+        s = run_trials(rates, seed=6, trials=300, n_resamples=_R)
+        assert s.guard_veto.rate <= bound, f"noise veto rate {s.guard_veto.rate:.3f}"
+
+
+def test_candidate_with_2_to_7_percent_refusals_is_still_mostly_rejected() -> None:
+    cfg = SimConfig(gain=0.2, refusal_rate=0.02, candidate_refusal_rate=0.07)
+    s = run_trials(cfg, seed=8, trials=100, n_resamples=_R, select_only=True)
+    assert s.accept.rate <= 0.4, f"2%->7% refusals accepted {s.accept.rate:.3f} of the time"
+    # without the extra refusals the same gain is accepted almost always
+    ok = run_trials(
+        replace(cfg, candidate_refusal_rate=0.02),
+        seed=8,
+        trials=100,
+        n_resamples=_R,
+        select_only=True,
     )
-    assert s.guard_veto.low > 0.2
+    assert ok.accept.rate >= 0.8
 
 
 def test_same_seed_same_results() -> None:

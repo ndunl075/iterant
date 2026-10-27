@@ -62,7 +62,7 @@ promotion rows is future work.
 - **Holdout rotation (§9 row 4) is not implemented.** The orchestrator always takes the first
   `holdout_tasks` of the holdout split, in id order (`iterant/orchestrator/loop.py:527`:
   `tasks_in(self._pack, Split.HOLDOUT)[: t.holdout_tasks]`). The only defense is the query-count
-  warning after `holdout_query_warn` queries (`loop.py:530-533`), which nothing blocks on.
+  warning after `holdout_query_warn` queries and a hard stop at `holdout_query_max` (`_check_holdout_limit` in `loop.py`), which only caps how often the same holdout is reused.
   Row 4 is therefore covered by the proposer's blindness, the grep and the auditor only.
 
 ## Open questions

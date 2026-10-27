@@ -86,6 +86,11 @@ SEED_ID = "seed"
 CLOSED = "closed"
 
 
+class HoldoutLimitReached(BatchAborted):
+    """The holdout has been queried ``holdout_query_max`` times: CONFIRM will not run. The batch
+    stays resumable (nothing is rejected)."""
+
+
 @dataclass(frozen=True)
 class CandidateOutcome:
     id: str
@@ -528,6 +533,7 @@ class Orchestrator:
         cands = self._with_images(g, self._active(g, Stage.CONFIRM))
         if not cands:
             return
+        self._check_holdout_limit(g, t.holdout_query_max)
         tasks = tasks_in(self._pack, Split.HOLDOUT)[: t.holdout_tasks]
         arms = [g.champ.id, *(c.id for c in cands)]
         self._run_slots(g, tasks, t.holdout_reps, arms, Split.HOLDOUT)
@@ -538,6 +544,24 @@ class Orchestrator:
             )
         for c in cands:
             self._judge(g, c, Split.HOLDOUT, Stage.CONFIRM, Stage.PROMOTE)
+
+    def _check_holdout_limit(self, g: _Gen, limit: int) -> None:
+        """Hard stop: refuse a CONFIRM that would be holdout query number ``limit + 1``.
+
+        A batch that already ran holdout tasks is counted in ``holdout_query_count`` and may
+        finish (resume). Nothing is recorded against the candidates, so after the user
+        refreshes the holdout (or raises the limit) the next generation resumes this batch."""
+        used = self._archive.holdout_query_count()
+        started = any(
+            r.split is Split.HOLDOUT for r in self._archive.latest_runs(g.batch.id).values()
+        )
+        if not started and used >= limit:
+            raise HoldoutLimitReached(
+                f"the holdout has been queried {used} times (limit {limit}): further "
+                "CONFIRM runs would overfit it. Refresh or rotate the holdout (add fresh "
+                "holdout tasks, or move some select tasks into it) and start from a fresh "
+                "archive or raise --holdout-query-max, then rerun"
+            )
 
     def _decide(self, batch_id: int, champ_id: str, cid: str, split: Split) -> Decision:
         runs = {

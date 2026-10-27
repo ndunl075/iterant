@@ -65,7 +65,7 @@ def test_known_gain_detection_rate_matches_power() -> None:
     # Independent Bernoulli runs: P(runs differ) = 0.1*0.8 + 0.2*0.9 = 0.26.
     n, reps, gain, disc = 40, 2, 0.10, 0.26
     expected = power(n, gain, disc, reps, alpha=0.05)
-    t = AcceptanceThresholds(select_tasks=n, select_reps=reps, delta_min=0.0001)
+    t = AcceptanceThresholds(select_tasks=n, select_reps=reps, delta_min=0.0001, select_p=0.05)
     rng = random.Random(777)
     trials, hits = 300, 0
     for i in range(trials):

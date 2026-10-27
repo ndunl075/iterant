@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
 from iterant.contracts import AcceptanceThresholds, RunResult, Split
-from iterant.stats.pairing import Pairing, final_attempts, pair_runs
+from iterant.stats.pairing import Pairing, pair_runs
 from iterant.stats.signflip import DEFAULT_RESAMPLES, paired_signflip
 
 # Guards compare sums of ints and means of floats; this absorbs float rounding at an
@@ -46,9 +47,45 @@ class Decision:
     detail: tuple[str, ...]
 
 
-def _rate(runs: Sequence[RunResult], attr: str) -> float:
-    finals = list(final_attempts(runs).values())
-    return sum(getattr(r, attr) for r in finals) / len(finals) if finals else 0.0
+def _first_try_events(runs: Sequence[RunResult], attr: str) -> tuple[int, int]:
+    """``(events, runs)`` over every first attempt (retries excluded: a retried run's final
+    outcome is about the rate squared, which hides a real excess)."""
+    firsts = [r for r in runs if r.key.attempt == 0]
+    return sum(bool(getattr(r, attr)) for r in firsts), len(firsts)
+
+
+def _binom_sf(k: int, n: int, p: float) -> float:
+    """``P(X >= k)`` for ``X ~ Binomial(n, p)``, summed in log space (exact)."""
+    if k <= 0:
+        return 1.0
+    if k > n or p <= 0.0:
+        return 0.0
+    if p >= 1.0:
+        return 1.0
+    lp, lq = math.log(p), math.log1p(-p)
+    logs = [
+        math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) + i * lp + (n - i) * lq
+        for i in range(k, n + 1)
+    ]
+    top = max(logs)
+    return min(1.0, math.exp(top) * math.fsum(math.exp(x - top) for x in logs))
+
+
+def noise_veto(
+    cand_events: int, cand_runs: int, champ_events: int, champ_runs: int, t: AcceptanceThresholds
+) -> tuple[bool, float, float]:
+    """``(veto, p, excess)`` for one rate (refusal or infra error), first attempts only.
+
+    ``p`` is the one-sided conditional binomial test: of all events in both arms, the
+    candidate's share under H0 is its share of the runs. ``excess`` is the candidate's rate
+    minus the champion's. Veto only when ``p < noise_guard_p`` and the excess is more than
+    ``noise_guard_margin``."""
+    if cand_runs == 0 or champ_runs == 0:
+        return False, 1.0, 0.0
+    total = cand_events + champ_events
+    p = _binom_sf(cand_events, total, cand_runs / (cand_runs + champ_runs))
+    excess = cand_events / cand_runs - champ_events / champ_runs
+    return (p < t.noise_guard_p and excess > t.noise_guard_margin + _EPS), p, excess
 
 
 def _guards(
@@ -58,8 +95,9 @@ def _guards(
     t: AcceptanceThresholds,
 ) -> list[tuple[Reason, str]]:
     """Cost and wall time count every attempt (retries included) of the kept tasks,
-    per final run, so a refused first try that cost money still counts; refusal and
-    infra-error rates use every final run, including dropped tasks."""
+    per final run, so a refused first try that cost money still counts. Refusal and
+    infra-error use every first attempt, including dropped tasks, and veto only a
+    statistically clear and materially larger rate (``noise_veto``)."""
     out: list[tuple[Reason, str]] = []
     n_c, n_h = len(pairing.candidate_runs) or 1, len(pairing.champion_runs) or 1
     c_cost = sum(r.usd_micros for r in pairing.candidate_attempts) / n_c
@@ -86,9 +124,17 @@ def _guards(
         (Reason.REFUSAL_GUARD, "refusal", "refusal"),
         (Reason.INFRA_GUARD, "infra_err", "infra-error"),
     ):
-        c_rate, h_rate = _rate(candidate, attr), _rate(champion, attr)
-        if c_rate > h_rate + _EPS:
-            out.append((reason, f"{label} rate {c_rate:.1%} worse than champion {h_rate:.1%}"))
+        k_c, m_c = _first_try_events(candidate, attr)
+        k_h, m_h = _first_try_events(champion, attr)
+        veto, p, excess = noise_veto(k_c, m_c, k_h, m_h, t)
+        if veto:
+            out.append(
+                (
+                    reason,
+                    f"first-try {label} rate {k_c / m_c:.1%} worse than champion "
+                    f"{k_h / m_h:.1%} (+{excess * 100:.1f} pts, p={p:.3f})",
+                )
+            )
     return out
 
 

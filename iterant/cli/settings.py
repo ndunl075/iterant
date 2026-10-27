@@ -12,6 +12,7 @@ from iterant.cli.profiles import DEFAULT_PRICES, parse_price
 from iterant.contracts import AcceptanceThresholds, IterantConfig, Pack, Profile
 from iterant.packs import PackError, load_pack
 from iterant.proxy import ModelPrice
+from iterant.stats import DEFAULT_PRESET, PRESETS, preset_thresholds
 from iterant.target import ConfigError, load_config
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/v1"
@@ -26,6 +27,7 @@ class Settings:
     unsafe_container: bool = False
     openai_base_url: str = DEFAULT_OLLAMA_URL
     thresholds: AcceptanceThresholds = field(default_factory=AcceptanceThresholds)
+    preset: str = DEFAULT_PRESET
     candidates: int = 1
     budget_usd_micros: int | None = None
     prices: dict[str, ModelPrice] = field(default_factory=lambda: dict(DEFAULT_PRICES))
@@ -94,29 +96,56 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
 
 def add_threshold_arguments(p: argparse.ArgumentParser) -> None:
     """The acceptance-rule knobs (§4)."""
+    p.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        default=DEFAULT_PRESET,
+        help="acceptance preset (default balanced: select p 0.10, holdout p 0.5; strict: "
+        "p 0.05 / 0.2 with 80 holdout tasks). The flags below override the preset",
+    )
     p.add_argument("--select-tasks", type=int, help="SELECT tasks (default 80)")
     p.add_argument("--select-reps", type=int, help="SELECT reps (default 2)")
-    p.add_argument("--holdout-tasks", type=int, help="CONFIRM tasks (default 40)")
+    p.add_argument("--holdout-tasks", type=int, help="CONFIRM tasks (default 40; strict 80)")
     p.add_argument("--holdout-reps", type=int, help="CONFIRM reps (default 2)")
     p.add_argument("--smoke-tasks", type=int, help="SMOKE tasks (default 5)")
-    p.add_argument("--delta-min", type=float, help="smallest SELECT gain to accept (default 0.05)")
+    p.add_argument(
+        "--delta-min",
+        type=float,
+        help="minimum gain worth keeping: smallest SELECT gain to accept (default 0.05)",
+    )
+    p.add_argument("--select-p", type=float, help="SELECT p-value limit (preset default)")
+    p.add_argument("--holdout-p", type=float, help="CONFIRM p-value limit (preset default)")
+    p.add_argument(
+        "--holdout-query-max",
+        type=int,
+        help="stop CONFIRM after this many holdout queries (default 60)",
+    )
+
+
+_OVERRIDES = (
+    "select_tasks",
+    "select_reps",
+    "holdout_tasks",
+    "holdout_reps",
+    "smoke_tasks",
+    "delta_min",
+    "select_p",
+    "holdout_p",
+    "holdout_query_max",
+)
+
+
+def preset_from_args(args: argparse.Namespace) -> str:
+    return str(getattr(args, "preset", None) or DEFAULT_PRESET)
 
 
 def thresholds_from_args(args: argparse.Namespace) -> AcceptanceThresholds:
+    """The preset's thresholds, with every explicitly given flag replacing the preset's value."""
     chosen = {
-        name: getattr(args, name)
-        for name in (
-            "select_tasks",
-            "select_reps",
-            "holdout_tasks",
-            "holdout_reps",
-            "smoke_tasks",
-            "delta_min",
-        )
-        if getattr(args, name, None) is not None
+        name: getattr(args, name) for name in _OVERRIDES if getattr(args, name, None) is not None
     }
     try:
-        return AcceptanceThresholds(**chosen)
+        return preset_thresholds(preset_from_args(args), **chosen)
     except ValueError as exc:
         raise CliError(str(exc), EXIT_USAGE) from exc
 
@@ -167,6 +196,7 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
         unsafe_container=args.unsafe_container,
         openai_base_url=args.openai_base_url,
         thresholds=thresholds_from_args(args),
+        preset=preset_from_args(args),
         candidates=getattr(args, "candidates", 1),
         budget_usd_micros=budget,
         prices=prices,

@@ -214,3 +214,10 @@ def test_make_client_lazy_import(loop: ModuleType, monkeypatch: pytest.MonkeyPat
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert loop.make_client() == "client"
     assert seen == {"api_key": "iterant-sandbox"}
+
+
+def test_containerfile_makes_the_agent_importable_from_any_directory() -> None:
+    """The sandbox runs the agent with its own working directory (not WORKDIR), so
+    ``python -m agent`` only works if the app directory is on PYTHONPATH."""
+    text = (AGENT_DIR / "Containerfile").read_text(encoding="utf-8")
+    assert "ENV PYTHONPATH=/app" in text

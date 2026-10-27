@@ -23,6 +23,7 @@ every candidate of the batch is paired against the very same champion runs (§3)
 from __future__ import annotations
 
 import hashlib
+import re
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -84,6 +85,23 @@ from iterant.stats import Decision, decide_confirm, decide_select
 PACK_HASH_TRAILER = "Iterant-Pack-Hash"
 SEED_ID = "seed"
 CLOSED = "closed"
+
+
+_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")
+_ABS_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|(?<![\w.:<-])/)\S*")
+
+
+def proposer_failure_note(exc: BaseException) -> str:
+    """One clean line for a failed proposer. The note is fed back to the proposer through the
+    history, so URLs and absolute paths (host temp dirs, the proxy address) are removed."""
+    raw = str(exc).strip()
+    reason = ""
+    if raw:
+        raw = clean_hypothesis(raw)  # control characters and line breaks become spaces
+        reason = _ABS_PATH.sub("<path>", _URL.sub("<url>", raw))[:200]
+    return clean_hypothesis(
+        f"proposer failed: {type(exc).__name__}" + (f": {reason}" if reason else "")
+    )
 
 
 class HoldoutLimitReached(BatchAborted):
@@ -439,7 +457,7 @@ class Orchestrator:
             try:
                 proposal = self._proposer.propose(g.champ.id, work, g.digest, self._history())
             except Exception as exc:
-                msg = f"proposer failed: {type(exc).__name__}"
+                msg = proposer_failure_note(exc)
                 self._add(g, cid, "", msg, Stage.PROPOSE, Status.ERROR)
                 return
         if proposal is None:

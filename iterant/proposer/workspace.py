@@ -16,7 +16,7 @@ import difflib
 import os
 import re
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 from iterant.target.genome import DENIED_DIRS, Genome, PathRejectedError, normalize_relative
@@ -24,6 +24,9 @@ from iterant.target.genome import DENIED_DIRS, Genome, PathRejectedError, normal
 MAX_READ_BYTES = 64 * 1024
 MAX_WRITE_BYTES = 256 * 1024
 MAX_LISTED = 500
+MAX_EDITABLE_SHOWN = 40  # editable paths named in the prompt and in refusal messages
+MAX_EDITABLE_CHARS = 2_000  # cap on the size of that listing
+MAX_EDITABLE_SCAN = 20_000  # files looked at while searching for editable ones
 
 
 def _lines(s: str) -> list[str]:
@@ -74,23 +77,20 @@ class Workspace:
     def _readable(self, path: str) -> Path:
         norm = self._norm(path)
         if self._is_hidden(norm.split("/")):
-            raise ToolError("refused: this path is not available to the proposer")
+            raise ToolError("refused: this path is not available to the proposer; call list_files")
         full = self._root / norm
         try:
             real = Path(os.path.realpath(full)).relative_to(Path(os.path.realpath(self._root)))
         except ValueError as exc:
             raise ToolError("refused: path resolves outside the repo") from exc
         if self._is_hidden(real.parts) or any(p.casefold() in DENIED_DIRS for p in real.parts):
-            raise ToolError("refused: this path is not available to the proposer")
+            raise ToolError("refused: this path is not available to the proposer; call list_files")
         return full
 
     # --- tools --------------------------------------------------------------------
 
-    def list_files(self, prefix: str = "") -> str:
-        base = self._readable(prefix) if prefix else self._root
-        if not base.is_dir():
-            raise ToolError(f"not a directory: {prefix}")
-        found: list[str] = []
+    def _walk(self, base: Path) -> Iterator[str]:
+        """Visible files under ``base`` as repo-relative paths, in sorted order."""
         for dirpath, dirnames, filenames in os.walk(base):
             rel_dir = Path(dirpath).relative_to(self._root).parts
             dirnames[:] = sorted(
@@ -102,17 +102,47 @@ class Workspace:
             )
             for name in sorted(filenames):
                 if not self._is_hidden((*rel_dir, name)):
-                    found.append("/".join((*rel_dir, name)))
+                    yield "/".join((*rel_dir, name))
+
+    def list_files(self, prefix: str = "") -> str:
+        base = self._readable(prefix) if prefix else self._root
+        if not base.is_dir():
+            raise ToolError(f"not a directory: {prefix}")
+        found: list[str] = []
+        for rel in self._walk(base):
+            found.append(rel)
             if len(found) > MAX_LISTED:
                 break
         shown = found[:MAX_LISTED]
         tail = "\n(list truncated)" if len(found) > MAX_LISTED else ""
         return "\n".join(shown) + tail if shown else "(no files)"
 
+    def editable_files(self) -> list[str]:
+        """Existing files the genome allows editing (capped by count and listing size), so the
+        model can be told what it may write. Hidden paths and the pack never appear."""
+        out: list[str] = []
+        chars = 0
+        for scanned, rel in enumerate(self._walk(self._root)):
+            if scanned >= MAX_EDITABLE_SCAN:
+                break
+            if not self._genome.check(rel).ok:
+                continue
+            chars += len(rel) + 1
+            if len(out) >= MAX_EDITABLE_SHOWN or chars > MAX_EDITABLE_CHARS:
+                break
+            out.append(rel)
+        return out
+
+    def editable_hint(self) -> str:
+        files = self.editable_files()
+        if not files:
+            return "call list_files"
+        return "editable files: " + ", ".join(files)
+
     def read(self, path: str) -> str:
         full = self._readable(path)
         if not full.is_file():
-            raise ToolError(f"no such file: {path}")
+            raise ToolError(f"no such file: {path} ({self.editable_hint()})")
         data = full.read_bytes()
         if len(data) > MAX_READ_BYTES:
             raise ToolError(f"file is larger than {MAX_READ_BYTES} bytes")
@@ -125,7 +155,9 @@ class Workspace:
         norm = self._norm(path)
         decision = self._genome.check(norm)
         if not decision.ok:
-            raise ToolError(f"refused: {norm} is not editable ({decision.reason})")
+            raise ToolError(
+                f"refused: {norm} is not editable ({decision.reason}); {self.editable_hint()}"
+            )
         data = content.encode("utf-8")
         if len(data) > MAX_WRITE_BYTES:
             raise ToolError(f"content is larger than {MAX_WRITE_BYTES} bytes")

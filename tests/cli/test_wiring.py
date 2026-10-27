@@ -182,3 +182,27 @@ def test_cli_namespace_defaults() -> None:
     ns: argparse.Namespace = build_parser().parse_args(["estimate"])
     assert (ns.profile, ns.backend, ns.reps, ns.split) == ("free", "podman", 2, "train")
     assert main(["status", "--help"]) == 0
+
+
+def test_llm_timeout_defaults_by_profile_and_flag(world) -> None:
+    from iterant.cli.settings import llm_timeout_for
+
+    assert llm_timeout_for(_settings(world)) == 600.0
+    assert llm_timeout_for(_settings(world, "--profile", "claude", "--budget-usd", "5")) == 300.0
+    assert llm_timeout_for(_settings(world, "--llm-timeout", "42")) == 42.0
+    with pytest.raises(CliError):
+        _settings(world, "--llm-timeout", "0")
+
+
+def test_llm_timeout_reaches_proposer_analyst_and_auditor(world) -> None:
+    assert world.cli("init", str(world.repo), "--genome", "agent/**", "--model", "tiny:1b") == 0
+    project = load_project(world.repo)
+    rt = build_runtime(
+        _settings(world, "--llm-timeout", "77"), project, world.repo / ".iterant" / "archive.db"
+    )
+    try:
+        assert rt.proposer._client._timeout == 77.0  # type: ignore[attr-defined]  # pyright: ignore
+        assert rt.analyst_client._timeout == 77.0  # type: ignore[union-attr]  # pyright: ignore
+        assert rt.gate._auditor.timeout_s == 77.0  # type: ignore[attr-defined]  # pyright: ignore
+    finally:
+        rt.close()

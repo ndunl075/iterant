@@ -154,3 +154,18 @@ def test_diff_store_roundtrips_and_detects_corruption(tmp_path):
 
 def test_diff_store_knows_the_empty_diff(tmp_path):
     assert DiffStore(tmp_path).get(hashlib.sha256(b"").hexdigest()) == ""
+
+
+def test_proposer_failure_note_is_clean() -> None:
+    from iterant.orchestrator.loop import proposer_failure_note
+
+    exc = RuntimeError(
+        "bad\x00thing\x1b[31m at C:\\Users\\me\\AppData\\Temp\\iterant-propose-x\\work "
+        "and /tmp/iterant-propose-y/work via http://127.0.0.1:5555/v1/messages\nnext"
+    )
+    note = proposer_failure_note(exc)
+    assert note.startswith("proposer failed: RuntimeError: bad")
+    assert "\x00" not in note and "\x1b" not in note and "\n" not in note
+    for leaked in ("C:\\", "AppData", "/tmp", "127.0.0.1", "http://"):
+        assert leaked not in note
+    assert proposer_failure_note(ValueError("")) == "proposer failed: ValueError"

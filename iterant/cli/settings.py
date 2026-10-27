@@ -36,6 +36,7 @@ class Settings:
     digest_tasks: int = 10
     seed: int = 0
     send_openai_key: bool = False  # forward OPENAI_API_KEY to a non-loopback endpoint
+    llm_timeout: float | None = None  # seconds per proposer/analyst/auditor call; None: by profile
 
 
 def add_common_arguments(p: argparse.ArgumentParser) -> None:
@@ -92,6 +93,14 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
         "(by default it is sent to loopback endpoints only)",
     )
     p.add_argument("--seed", type=int, default=0, help="mixed into the bootstrap seeds")
+    p.add_argument(
+        "--llm-timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="timeout of one proposer, analyst or auditor model call "
+        "(default 600 for the free profile, 300 for claude)",
+    )
 
 
 def add_threshold_arguments(p: argparse.ArgumentParser) -> None:
@@ -163,11 +172,29 @@ def usd_to_micros(text: str, flag: str) -> int:
     return int(micros)
 
 
+FREE_LLM_TIMEOUT_S = 600.0
+CLAUDE_LLM_TIMEOUT_S = 300.0
+
+
+def llm_timeout_for(settings: Settings) -> float:
+    """The per-call model timeout: the flag, else 600 s (free, local model) or 300 s (claude)."""
+    if settings.llm_timeout is not None:
+        return settings.llm_timeout
+    return FREE_LLM_TIMEOUT_S if settings.profile is Profile.FREE else CLAUDE_LLM_TIMEOUT_S
+
+
 def _digest_tasks(args: argparse.Namespace) -> int:
     n: int = getattr(args, "digest_tasks", 10)
     if n < 1:
         raise CliError("--digest-tasks must be >= 1", EXIT_USAGE)
     return n
+
+
+def _llm_timeout(args: argparse.Namespace) -> float | None:
+    t: float | None = getattr(args, "llm_timeout", None)
+    if t is not None and not t > 0:
+        raise CliError("--llm-timeout must be > 0", EXIT_USAGE)
+    return t
 
 
 def settings_from_args(args: argparse.Namespace) -> Settings:
@@ -207,6 +234,7 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
         digest_tasks=_digest_tasks(args),
         seed=args.seed,
         send_openai_key=args.send_openai_key,
+        llm_timeout=_llm_timeout(args),
     )
 
 

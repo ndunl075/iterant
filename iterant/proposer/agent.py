@@ -23,6 +23,11 @@ MAX_HISTORY_CHARS = 20_000
 MAX_DIFF_LINES_SHOWN = 60
 MAX_HYPOTHESIS_CHARS = 300
 MAX_CONTEXT_CHARS = 400_000
+MAX_NUDGES = 2
+NUDGE = (
+    "You replied without calling a tool. Use the write_file tool to edit one of the editable "
+    "files listed above; reply with tool calls only."
+)
 
 TOOLS: list[Obj] = [
     {
@@ -90,9 +95,24 @@ def render_history(history: Sequence[TriedCandidate]) -> str:
     return head + "\n".join(reversed(kept))
 
 
-def build_user_prompt(parent: str, digest: str, history: Sequence[TriedCandidate]) -> str:
+def render_editable(files: Sequence[str], patterns: Sequence[str]) -> str:
+    listing = "\n".join(f"- {f}" for f in files) if files else "(no existing file matches)"
+    return (
+        f"## Files you may edit\n{listing}\n"
+        f"Allowed path patterns: {', '.join(patterns)}\n"
+        "Writes to any other path are refused.\n\n"
+    )
+
+
+def build_user_prompt(
+    parent: str,
+    digest: str,
+    history: Sequence[TriedCandidate],
+    editable: str = "",
+) -> str:
     return (
         f"Current agent: candidate {parent}.\n\n"
+        f"{editable}"
         f"## How it fails on training tasks\n{digest or '(no failure digest)'}\n\n"
         f"## Already tried (do not repeat)\n{render_history(history)}\n"
     )
@@ -146,8 +166,17 @@ class EditingProposer:
             workdir, genome_for(workdir, self._config), hidden=(self._config.evaluation.pack,)
         )
         messages: list[Obj] = [
-            {"role": "user", "content": build_user_prompt(parent, failure_digest, history)}
+            {
+                "role": "user",
+                "content": build_user_prompt(
+                    parent,
+                    failure_digest,
+                    history,
+                    render_editable(ws.editable_files(), self._config.target.genome),
+                ),
+            }
         ]
+        nudges = 0
         hypothesis = ""
         last_text = ""
         for _ in range(self._max_turns):
@@ -170,6 +199,10 @@ class EditingProposer:
             last_text = reply_text(resp) or last_text
             uses = [b for b in (obj(x) for x in content) if b and b.get("type") == "tool_use"]
             if not uses:
+                if not ws.touched and nudges < MAX_NUDGES:
+                    nudges += 1
+                    messages.append({"role": "user", "content": NUDGE})
+                    continue
                 break
             results: list[Obj] = []
             finished = False

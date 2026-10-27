@@ -59,7 +59,13 @@ class HttpMessagesClient:
                 parsed = obj(json.loads(resp.read()))
         except urllib.error.HTTPError as exc:
             raise LLMError(f"model call failed: HTTP {exc.code}") from exc
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except TimeoutError as exc:
+            raise LLMError(f"model call timed out after {self._timeout:g}s") from exc
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise LLMError(f"model call timed out after {self._timeout:g}s") from exc
+            raise LLMError(f"model call failed: {exc}") from exc
+        except (OSError, ValueError) as exc:
             raise LLMError(f"model call failed: {exc}") from exc
         if parsed is None:
             raise LLMError("model call failed: response is not a JSON object")

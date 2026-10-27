@@ -126,6 +126,9 @@ def test_every_kill_rule_rejects_and_the_champion_stays(world):
         "b1-6": (Stage.PROPOSE, Status.ERROR),
     }
     notes = {c.id: c.notes for c in res.candidates}
+    failed = world.db().get_candidate("b1-6")
+    assert failed is not None
+    assert failed.hypothesis == "proposer failed: RuntimeError: proposer exploded"
     assert notes["b1-2"] == ("task id found in diff",)
     assert notes["b1-4"] and notes["b1-4"][0].startswith("select:")
     assert res.promoted is None

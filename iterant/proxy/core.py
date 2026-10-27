@@ -24,6 +24,8 @@ from iterant.proxy.ledger import (
     RunUsage,
     Usage,
     cost_usd_micros,
+    estimate_input_tokens,
+    input_reserve_usd_micros,
     output_reserve_usd_micros,
 )
 from iterant.proxy.rules import Rejection, check_request, with_effort
@@ -177,10 +179,13 @@ class Proxy:
             else ("call", next(self._call_run_ids))
         )
         max_tokens = int(body["max_tokens"])
+        # Reserve the worst case: a conservative input estimate plus the full output.
+        est_input = estimate_input_tokens(len(body_bytes))
         units = (
-            max_tokens
+            est_input + max_tokens
             if cap.is_token_capped
-            else output_reserve_usd_micros(self.config.prices[cap.model], max_tokens)
+            else input_reserve_usd_micros(self.config.prices[cap.model], est_input)
+            + output_reserve_usd_micros(self.config.prices[cap.model], max_tokens)
         )
         reservation = self.ledger.reserve(session.role, run_id, cap, units)
         if isinstance(reservation, CapExceeded):

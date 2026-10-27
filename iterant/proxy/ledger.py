@@ -2,9 +2,10 @@
 
 Units follow the cap: tokens (``free``, input + output) or micro-USD (``claude``).
 A request is admitted only if what is already spent, plus what other in-flight
-requests may still spend, plus this request's worst-case *output*, fits both caps.
-Input tokens are only known after the call, so one call's input can overshoot a cap by
-at most that call; the next request is then rejected.
+requests may still spend, plus this request's worst-case input estimate and *output*, fits
+both caps.
+Input is reserved from a conservative size estimate at admit and replaced by actual
+usage at settle; an estimate that is too low can overshoot a cap by that call only.
 """
 
 from __future__ import annotations
@@ -44,6 +45,18 @@ def cost_usd_micros(price: ModelPrice, usage: Usage) -> int:
 
 def output_reserve_usd_micros(price: ModelPrice, max_tokens: int) -> int:
     return -(-max_tokens * price.output_per_mtok // MICROS_PER_MTOK)
+
+
+def estimate_input_tokens(request_bytes: int) -> int:
+    """Conservative input-token estimate from the raw request size (bytes / 3, rounded up).
+
+    Real tokenisers average 3-4 bytes per token on text; JSON overhead and base64 only
+    lower the count, so this over-reserves. ``settle`` replaces it with actual usage."""
+    return -(-request_bytes // 3)
+
+
+def input_reserve_usd_micros(price: ModelPrice, input_tokens: int) -> int:
+    return -(-input_tokens * price.input_per_mtok // MICROS_PER_MTOK)
 
 
 @dataclass(frozen=True)
@@ -183,5 +196,7 @@ __all__ = [
     "RunUsage",
     "Usage",
     "cost_usd_micros",
+    "estimate_input_tokens",
+    "input_reserve_usd_micros",
     "output_reserve_usd_micros",
 ]

@@ -52,6 +52,9 @@ def guest_digest() -> str:
     h.update(f"v{FORMAT_VERSION}".encode())
     h.update(_SHELL_INIT.encode())
     h.update(guest_source().encode())
+    # The builder's own source too, so the image format cannot go stale without a manual
+    # FORMAT_VERSION bump.
+    h.update(Path(__file__).read_bytes())
     return h.hexdigest()[:12]
 
 

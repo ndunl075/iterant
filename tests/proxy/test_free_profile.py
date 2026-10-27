@@ -150,7 +150,7 @@ def test_token_caps(make_stack, h):
     assert s.post(token, body(h))[0] == 200  # 900 spent
     status, raw = s.post(token, body(h, max_tokens=200))  # 900 + 200 > 1000
     assert status == 403 and json.loads(raw)["error"]["iterant_code"] == "cap_exceeded_run"
-    assert s.post(token, body(h, max_tokens=100))[0] == 200  # exactly fits: 1800 spent in gen
+    assert s.post(token, body(h, max_tokens=50))[0] == 200  # fits with the input estimate: 1800
     other = s.proxy.issue_run_token(Role.TARGET, RunKey(1, "c1", "t2", 0))
     assert s.post(other, body(h))[0] == 200  # gen total 2700 > 2500 cap is reached next
     third = s.proxy.issue_run_token(Role.TARGET, RunKey(1, "c1", "t3", 0))

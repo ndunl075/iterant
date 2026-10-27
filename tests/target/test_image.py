@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from iterant.contracts import IterantConfig
+from iterant.contracts import EvalConfig, IterantConfig
 from iterant.target import CommandResult, ImageBuildError, build_image, parse_config, slugify
 
 SLUG = "w1-target"
@@ -233,3 +234,33 @@ def test_real_build(tmp_path: Path) -> None:
         assert img.image_id
     finally:
         subprocess.run(["podman", "rmi", "--force", tag], check=False, capture_output=True)
+
+
+@pytest.mark.parametrize("pack", ["./evals/pack", "evals//pack", "evals/./pack"])
+def test_unnormalised_pack_path_still_excludes_the_pack(tmp_path: Path, pack: str) -> None:
+    _populate(tmp_path, ["Containerfile", "evals/pack/check", "agent/loop.py"])
+    cfg = dataclasses.replace(_config(), evaluation=EvalConfig(pack=pack))
+    snap = ContextSnapshot()
+    if pack == "evals//pack":  # an empty segment is malformed: refused, never half-excluded
+        with pytest.raises(ImageBuildError):
+            build_image(tmp_path, cfg, "iterant-x", runner=snap)
+        return
+    build_image(tmp_path, cfg, "iterant-x", runner=snap)
+    assert snap.files == {"Containerfile", "agent/loop.py"}
+
+
+def test_context_file_count_is_capped(tmp_path: Path) -> None:
+    _populate(tmp_path, ["Containerfile", *[f"d/f{i}" for i in range(6)]])
+    rec = Recorder()
+    with pytest.raises(ImageBuildError, match="limit"):
+        build_image(tmp_path, _config(), "iterant-x", runner=rec, max_files=5)
+    assert rec.calls == []  # nothing was built
+
+
+def test_context_total_bytes_are_capped(tmp_path: Path) -> None:
+    _populate(tmp_path, ["Containerfile"])
+    (tmp_path / "big.bin").write_bytes(b"x" * 1000)
+    rec = Recorder()
+    with pytest.raises(ImageBuildError, match="limit"):
+        build_image(tmp_path, _config(), "iterant-x", runner=rec, max_bytes=500)
+    assert rec.calls == []

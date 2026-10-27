@@ -37,9 +37,9 @@ DENIED_DIRS = (".git", ".iterant")
 # Any 8.3 short name (``ITERAN~1``, ``GIT~1.TXT``): it may alias a reserved directory.
 _SHORT_NAME = re.compile(r"[^~]+~\d+(?:\.[^.]*)?")
 _DEVICE_NAMES = frozenset(
-    {"con", "prn", "aux", "nul"}
-    | {f"com{i}" for i in range(1, 10)}
-    | {f"lpt{i}" for i in range(1, 10)}
+    {"con", "prn", "aux", "nul", "conin$", "conout$", "clock$"}
+    | {f"com{i}" for i in "123456789¹²³"}
+    | {f"lpt{i}" for i in "123456789¹²³"}
 )
 # Code points HFS+/APFS ignore when comparing names (".g<ZWNJ>it" is ".git" there),
 # beyond category Cf: combining grapheme joiner, Mongolian and variation selectors, fillers.
@@ -89,7 +89,7 @@ def _split(raw: str, *, what: str, allow_wild: bool) -> tuple[str, ...]:
             raise PathRejectedError(f"{what} has a segment ending in '.' or space: {seg!r}")
         if _is_denied_segment(seg):
             raise PathRejectedError(f"{what} touches a reserved directory: {seg!r}")
-        if seg.casefold().split(".")[0] in _DEVICE_NAMES:
+        if _is_device_name(seg):
             raise PathRejectedError(f"{what} uses a Windows device name: {seg!r}")
         if not allow_wild and any(c in seg for c in "*?"):
             raise PathRejectedError(f"{what} contains a wildcard")
@@ -97,6 +97,16 @@ def _split(raw: str, *, what: str, allow_wild: bool) -> tuple[str, ...]:
     if not parts:
         raise PathRejectedError(f"{what} names the repo root")
     return tuple(parts)
+
+
+def _is_device_name(seg: str) -> bool:
+    """Windows reserves these with or without an extension, and ignores spaces before the
+    dot (``nul .txt``). Compared case-folded, on the NFKC form too (``COM¹``)."""
+    for form in (seg, unicodedata.normalize("NFKC", seg)):
+        base = form.casefold().split(".")[0].rstrip(" ")
+        if base in _DEVICE_NAMES:
+            return True
+    return False
 
 
 def _is_denied_segment(seg: str) -> bool:

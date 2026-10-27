@@ -253,7 +253,12 @@ def _make_handler(proxy: Proxy) -> type[BaseHTTPRequestHandler]:
                     error_body("not_found_error", "iterant proxy serves POST /v1/messages only"),
                 )
                 return
-            adm = proxy.admit(token, raw, self.headers.get("anthropic-beta", ""))
+            try:
+                adm = proxy.admit(token, raw, self.headers.get("anthropic-beta", ""))
+            except Exception as exc:  # a bug in admit must be a reply, never a dropped socket
+                log.error("unexpected %s while admitting", type(exc).__name__)
+                self._try_send(500, error_body("api_error", "iterant proxy: internal error"))
+                return
             if isinstance(adm, Rejection):
                 self._reject(adm)
                 return

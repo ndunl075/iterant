@@ -296,6 +296,57 @@ def test_short_or_oversized_get_is_lost() -> None:
         sb2.get("/work/f")
 
 
+def test_lone_surrogate_command_is_refused_host_side() -> None:
+    rig = Rig(exec_ok)
+    with pytest.raises(ValueError, match="surrogate"):
+        rig.sandbox.exec("echo \ud800", 5)
+    assert not rig.sandbox.exec("echo ok", 5).sandbox_lost  # sandbox untouched
+
+
+def test_request_over_the_guest_line_limit_is_refused_host_side() -> None:
+    import re
+    from pathlib import Path
+
+    from iterant.sandbox.firecracker.sandbox import MAX_REQUEST_BYTES
+
+    src = (Path(__file__).parents[3] / "iterant/sandbox/firecracker/guest.py").read_text()
+    m = re.search(r"^MAX_REQUEST_LINE = (.+)$", src, re.M)
+    assert m is not None and eval(m.group(1), {}) == MAX_REQUEST_BYTES  # noqa: S307
+    rig = Rig(exec_ok)
+    # 1 Mi astral characters are 12 bytes each once JSON-escaped: under the char cap, over the line
+    with pytest.raises(ValueError, match="guest limit"):
+        rig.sandbox.exec("\U0001f600" * (1 << 20), 5)
+    assert rig.sandbox.exec("x", 5).exit_code == 3
+
+
+def test_reset_while_vm_still_running_is_lost_not_infra() -> None:
+    def script(sock: socket.socket, req: dict[str, object], _: bytes) -> None:
+        pass  # the reset itself is raised by the connection below
+
+    class Resetting(Rig):
+        def _connect(self, deadline: float) -> Conn:
+            host, guest = socket.socketpair()
+            guest.close()
+
+            class ResetConn(Conn):
+                def send(self, data: bytes) -> None:
+                    raise ConnectionResetError("reset")
+
+            return ResetConn(host, deadline)
+
+    rig = Resetting(script)  # the VM process keeps running (FakeVm never exits)
+    assert rig.sandbox.exec("x", 5).sandbox_lost
+    assert rig.killed == 1
+
+
+def test_connection_refused_with_running_vm_stays_infra() -> None:
+    rig = Rig(exec_ok)
+    rig.refuse = True
+    with pytest.raises(SandboxError) as info:
+        rig.sandbox.put("/work/f", b"")
+    assert not isinstance(info.value, SandboxLost)
+
+
 def test_command_longer_than_the_cap_is_refused_before_sending() -> None:
     rig = Rig(exec_ok)
     with pytest.raises(ValueError):

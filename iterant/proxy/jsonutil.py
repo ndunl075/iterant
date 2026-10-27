@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, cast
 
 Obj = dict[str, Any]
@@ -18,8 +19,10 @@ def arr(value: object) -> list[Any] | None:
 
 
 def num(value: object, default: int = 0) -> int:
-    """``value`` as a non-negative int (bools and non-numbers give ``default``)."""
+    """``value`` as a non-negative int (bools, non-numbers, NaN and infinities give ``default``)."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    if isinstance(value, float) and not math.isfinite(value):
         return default
     return max(int(value), 0)
 

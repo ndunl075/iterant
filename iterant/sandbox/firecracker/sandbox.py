@@ -234,7 +234,7 @@ class FirecrackerSandbox:
         req = json.dumps({"op": "put", "path": path, "size": len(data)}).encode() + b"\n"
         try:
             conn = self._open(_IO_TIMEOUT_S)
-        except OSError as e:
+        except (OSError, _Gone) as e:
             raise self._failure(f"put {path}", e) from e
         try:
             conn.send(req + data)
@@ -252,7 +252,7 @@ class FirecrackerSandbox:
         req = json.dumps({"op": "get", "path": path}).encode() + b"\n"
         try:
             conn = self._open(_IO_TIMEOUT_S)
-        except OSError as e:
+        except (OSError, _Gone) as e:
             raise self._failure(f"get {path}", e) from e
         try:
             conn.send(req)
@@ -346,7 +346,7 @@ class FirecrackerSandbox:
                 raise SandboxError("the microVM exited during boot")
             try:
                 conn = self._connect(min(deadline, time.monotonic() + 2.0))
-            except OSError as e:
+            except (OSError, _Gone) as e:
                 last = e
                 time.sleep(0.1)
                 continue

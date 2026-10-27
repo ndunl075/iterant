@@ -145,7 +145,9 @@ def cmd_run(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     if settings.candidates < 1:
         raise CliError("--candidates must be >= 1", EXIT_USAGE)
     project = load_project(settings.repo)
-    problems, notes = calibration_status(project.repo, fingerprint(settings, project))
+    problems, notes = calibration_status(
+        project.repo, fingerprint(settings, project), settings, project
+    )
     if problems:
         text = "; ".join(problems)
         if not args.skip_calibration:

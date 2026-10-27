@@ -235,6 +235,7 @@ def client_url(bind: str, port: str) -> str:
 def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtime:
     """The real wiring. Nothing here calls a model; calls happen when commands run."""
     config = project.config
+    defaulted = settings.proxy_bind is None
     bind = settings.proxy_bind or default_proxy_bind(settings.backend)
     if bind in WILDCARDS:
         print(
@@ -243,15 +244,29 @@ def build_runtime(settings: Settings, project: Project, db_path: Path) -> Runtim
             "Prefer the default bind address, or firewall the port.",
             file=sys.stderr,
         )
-    elif is_loopback(bind):
+    elif is_loopback(bind) and not defaulted:
         print(
             f"iterant: note: --proxy-bind {bind} is loopback; sandboxes cannot reach a "
             "loopback-only proxy through rootless podman",
             file=sys.stderr,
         )
     proxy = Proxy(_proxy_config(settings, project, db_path))
+    try:
+        server = ProxyServer(proxy, host=bind).start()
+    except OSError as exc:
+        raise CliError(
+            f"cannot bind the proxy to {bind}: {exc}. Pass --proxy-bind ADDRESS with an address "
+            "of this machine that sandboxes can reach (and --proxy-host if they need another "
+            "name for it).",
+            EXIT_USAGE,
+        ) from exc
     archive = Archive.open_path(db_path)
-    server = ProxyServer(proxy, host=bind).start()
+    if defaulted:
+        print(
+            f"iterant: note: the proxy is reachable on {bind} from the local network "
+            "(every request needs a per-run token); pass --proxy-bind to change that",
+            file=sys.stderr,
+        )
     prefix = f"iterant-{slugify(project.repo.resolve().name) or 'repo'}"
     port = server.base_url.rsplit(":", 1)[1]
     try:

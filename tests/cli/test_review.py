@@ -336,16 +336,24 @@ def test_default_bind_is_used_and_loopback_gets_a_note(world, monkeypatch, capsy
 
     monkeypatch.setattr(runtime, "default_proxy_bind", pick)
     project = load_project(world.repo)
+    db = world.repo / ".iterant" / "archive.db"
     args = build_parser().parse_args(["run", str(world.repo)])
-    rt = build_runtime(settings_from_args(args), project, world.repo / ".iterant" / "archive.db")
+    rt = build_runtime(settings_from_args(args), project, db)
     rt.close()
+    err = capsys.readouterr().err
     assert chosen == ["podman"]
-    assert "cannot reach a loopback-only proxy" in capsys.readouterr().err
+    # the defaulted address gets the exposure note, not the loopback one
+    assert "reachable on 127.0.0.1 from the local network" in err and "per-run token" in err
+    assert "loopback-only" not in err
+    explicit = build_parser().parse_args(["run", str(world.repo), "--proxy-bind", "127.0.0.1"])
+    build_runtime(settings_from_args(explicit), project, db).close()
+    err = capsys.readouterr().err
+    assert "cannot reach a loopback-only proxy" in err and "from the local network" not in err
 
 
 def test_estimate_is_required_too(world, capsys) -> None:
     world.init()
-    assert world.cli("aa-test", str(world.repo), *world.SMALL, "--trials", "10") == 0
+    assert world.cli("aa-test", str(world.repo), *world.cal("aa-test")) == 0
     capsys.readouterr()
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
     err = _err(capsys)
@@ -390,13 +398,13 @@ def test_a_newer_aborted_attempt_invalidates_an_older_pass(world, capsys, which:
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 0
     world.preflight_fails = True  # the newer attempt aborts
     capsys.readouterr()
-    assert world.cli(which, str(world.repo), *world.SMALL) == 5
+    assert world.cli(which, str(world.repo), *world.cal(which)) == 5
     capsys.readouterr()
     world.preflight_fails = False
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
     assert f"the last `iterant {which}` did not finish" in _err(capsys)
     # rerunning it successfully re-enables run
-    assert world.cli(which, str(world.repo), *world.SMALL) == 0
+    assert world.cli(which, str(world.repo), *world.cal(which)) == 0
     world.queue.append(None)
     assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 0
 
@@ -440,3 +448,149 @@ def test_confirm_leg_has_the_holdout_shape(monkeypatch) -> None:
     monkeypatch.setattr(calibrate, "decide_confirm", spy)
     calibrate.run_aa(pool, t, trials=3, seed=1, n_resamples=50)
     assert seen == [(12, 3, {Split.HOLDOUT})] * 3  # 12 tasks, 3 reps per arm, holdout-labelled
+
+
+# review round 4: minimum calibration strength, fingerprint extras, bind errors, CONFIRM pool
+
+
+@pytest.mark.parametrize(
+    "aa_flags, named",
+    [
+        (["--trials", "10", "--resamples", "1000"], "MIN_AA_TRIALS = 100"),
+        (["--trials", "100", "--resamples", "200"], "MIN_AA_RESAMPLES = 1000"),
+    ],
+)
+def test_a_weak_aa_test_does_not_unlock_run(world, capsys, aa_flags: list[str], named: str) -> None:
+    world.init()
+    assert world.cli("estimate", str(world.repo), *world.cal("estimate")) == 0
+    assert world.cli("aa-test", str(world.repo), *world.SMALL, *aa_flags) == 0  # it passes...
+    capsys.readouterr()
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6  # ...but is too weak
+    err = _err(capsys)
+    assert "too weak to rely on" in err and named in err
+
+
+@pytest.mark.parametrize(
+    "est_flags, named",
+    [
+        (["--split", "train", "--tasks", "4", "--reps", "1"], "MIN_ESTIMATE_SPLIT = 'select'"),
+        (
+            ["--split", "select", "--tasks", "4", "--reps", "1"],
+            "4 tasks (the select task count, 10)",
+        ),
+    ],
+)
+def test_a_weak_estimate_does_not_unlock_run(
+    world, capsys, est_flags: list[str], named: str
+) -> None:
+    world.init()
+    assert world.cli("aa-test", str(world.repo), *world.cal("aa-test")) == 0
+    assert world.cli("estimate", str(world.repo), *world.SMALL, *est_flags) == 0
+    capsys.readouterr()
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
+    err = _err(capsys)
+    assert "too weak to rely on" in err and named in err
+
+
+def test_an_estimate_with_too_few_reps_is_weak(world, capsys) -> None:
+    world.init()
+    two = ["--select-reps", "2"]
+    assert world.cli("aa-test", str(world.repo), *world.cal("aa-test"), *two) == 0
+    flags = ["--split", "select", "--tasks", "10", "--reps", "1"]
+    assert world.cli("estimate", str(world.repo), *world.SMALL, *two, *flags) == 0
+    capsys.readouterr()
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP, *two) == 6
+    assert "1 reps (the select reps, 2)" in _err(capsys)
+
+
+def test_fingerprint_includes_backend_and_grader_image(world, capsys) -> None:
+    world.init()
+    world.calibrate()
+    capsys.readouterr()
+    docker = ["--backend", "docker", "--unsafe-container"]
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP, *docker) == 6
+    assert "(backend changed)" in _err(capsys)
+    pack_toml = world.pack_root / "pack.toml"
+    text = pack_toml.read_text()
+    pack_toml.write_text(text.replace("cd" * 32, "ef" * 32))
+    assert world.cli("run", str(world.repo), *world.RUN_NOSKIP) == 6
+    err = _err(capsys)
+    assert "grader_image" in err and "changed" in err
+
+
+def test_a_proxy_bind_failure_is_a_clear_error(world, capsys) -> None:
+    assert world.cli("init", str(world.repo), "--genome", "agent/**") == 0
+    project = load_project(world.repo)
+    # a documentation-range address no machine owns: bind() fails with an OSError
+    args = build_parser().parse_args(["run", str(world.repo), "--proxy-bind", "203.0.113.77"])
+    from iterant.cli.errors import CliError
+
+    with pytest.raises(CliError, match="--proxy-bind ADDRESS") as info:
+        build_runtime(settings_from_args(args), project, world.repo / ".iterant" / "archive.db")
+    assert "cannot bind the proxy to 203.0.113.77" in info.value.message
+    assert info.value.code == 2
+
+
+def test_aa_test_pool_covers_all_select_tasks(world, capsys) -> None:
+    world.init()
+    flags = [*world.SMALL, "--select-tasks", "5", "--trials", "10"]
+    assert world.cli("aa-test", str(world.repo), *flags) == 0
+    # all 10 select tasks ran (2 reps per arm slot x max(select_reps, holdout_reps) = 2 each)
+    assert len(world.exec_log) == 10 * 2
+    assert {t for t in world.exec_log} == {f"se{i:02d}" for i in range(10)}
+
+
+def test_aa_test_needs_enough_select_tasks_for_the_confirm_leg(world, capsys) -> None:
+    world.init()
+    capsys.readouterr()
+    code = world.cli("aa-test", str(world.repo), *world.SMALL, "--holdout-tasks", "6")
+    assert code == 0  # 6 holdout tasks fit in the 10 select tasks
+    # a pack whose holdout split is larger than its select split: fabricate by raising the
+    # configured holdout size beyond what the select pool has, with a pack that has such a split
+    for i in range(10):
+        d = world.pack_root / "tasks" / f"ho{i + 10}"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "input.json").write_bytes(b"{}")
+        (d / "run").write_bytes(b"echo run\n")
+        (d / "check").write_bytes(b'{"v": 1}')
+    splits = json.loads((world.pack_root / "splits.json").read_text())
+    for i in range(10):
+        splits["assignment"][f"ho{i + 10}"] = "holdout"
+    (world.pack_root / "splits.json").write_text(json.dumps(splits))
+    capsys.readouterr()
+    exec_before = len(world.exec_log)
+    assert world.cli("aa-test", str(world.repo), *world.SMALL, "--holdout-tasks", "16") == 2
+    err = _err(capsys)
+    assert "16 tasks drawn from the select tasks" in err and "only 10 select tasks" in err
+    assert len(world.exec_log) == exec_before  # nothing ran
+
+
+def test_confirm_leg_draws_from_all_select_tasks(monkeypatch) -> None:
+    from iterant.contracts import AcceptanceThresholds, RunKey, RunResult, Split
+
+    pool = [
+        RunResult(
+            RunKey(1, "champion", f"t{i:02d}", rep, 0),
+            Split.SELECT,
+            float(rep % 2),
+            1,
+            1,
+            1,
+            1.0,
+            False,
+            False,
+        )
+        for i in range(40)
+        for rep in range(4)
+    ]
+    t = AcceptanceThresholds(select_tasks=10, select_reps=2, holdout_tasks=10, holdout_reps=2)
+    tasks_seen: set[str] = set()
+    real = calibrate.decide_confirm
+
+    def spy(cand, champ, thresholds, **kw):  # type: ignore[no-untyped-def]
+        tasks_seen.update(r.key.task for r in cand)
+        return real(cand, champ, thresholds, **kw)
+
+    monkeypatch.setattr(calibrate, "decide_confirm", spy)
+    calibrate.run_aa(pool, t, trials=20, seed=1, n_resamples=50)
+    assert max(tasks_seen) > "t09" and len(tasks_seen) > 10  # not just the first select_tasks

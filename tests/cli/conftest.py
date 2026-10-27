@@ -63,6 +63,9 @@ SMALL = [
     "--holdout-tasks", "6", "--holdout-reps", "1",
     "--smoke-tasks", "2",
 ]  # fmt: skip
+# Calibration strong enough to unlock `run` (see calibrate.MIN_*).
+CAL_ESTIMATE = ["--split", "select", "--tasks", "10", "--reps", "1"]
+CAL_AA = ["--trials", "100", "--resamples", "1000"]
 RUN_NOSKIP = [*SMALL, "--digest-tasks", "3"]
 RUN_SMALL = [*RUN_NOSKIP, "--skip-calibration"]
 
@@ -321,14 +324,18 @@ class World:
         self.runtimes.append(rt)
         return rt
 
+    def cal(self, kind: str) -> list[str]:
+        """Flags that make `kind` strong enough to unlock a run."""
+        return [*SMALL, *(CAL_ESTIMATE if kind == "estimate" else CAL_AA)]
+
     def args(self, command: str) -> list[str]:
         """Small-pack flags for ``command`` (run also skips calibration)."""
         return list(RUN_SMALL if command == "run" else SMALL)
 
     def calibrate(self) -> None:
         """A passing estimate and aa-test for the small pack (what `run` requires)."""
-        assert self.cli("estimate", str(self.repo), *SMALL) == 0
-        assert self.cli("aa-test", str(self.repo), *SMALL, "--trials", "10") == 0
+        assert self.cli("estimate", str(self.repo), *SMALL, *CAL_ESTIMATE) == 0
+        assert self.cli("aa-test", str(self.repo), *SMALL, *CAL_AA) == 0
 
     def cli(self, *argv: str) -> int:
         return main(list(argv), factory=self.factory)

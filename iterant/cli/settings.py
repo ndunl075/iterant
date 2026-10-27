@@ -68,7 +68,8 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
         "--proxy-bind",
         help="address the proxy listens on. Default: the host address sandboxes reach through "
         "the container runtime (loopback is unreachable from rootless podman; 0.0.0.0 is an "
-        "explicit opt-in that exposes the proxy on every interface)",
+        "explicit opt-in that exposes the proxy on every interface). The default address is "
+        "reachable from the local network; requests are token-gated",
     )
     p.add_argument(
         "--proxy-host",

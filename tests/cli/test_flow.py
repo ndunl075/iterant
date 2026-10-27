@@ -23,11 +23,8 @@ def test_init_estimate_run_status(world, capsys: pytest.CaptureFixture[str]) -> 
     assert not (world.repo / ".iterant" / "archive.db").exists()
     assert world.exec_log and set(world.exec_log) == {"tr0", "tr1", "tr2", "tr3"}
 
-    # aa-test: required before a real run (§4)
-    assert (
-        world.cli("aa-test", str(world.repo), *world.SMALL, "--trials", "20", "--resamples", "200")
-        == 0
-    )
+    # calibration required before a real run (§4): a strong estimate and aa-test
+    world.calibrate()
     capsys.readouterr()
 
     # run: one generation, the candidate wins and is promoted

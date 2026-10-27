@@ -44,6 +44,13 @@ from iterant.stats.pairing import final_attempts
 CALIBRATION_DB = Path(".iterant") / "calibration.db"
 CHAMPION_ID = "champion"
 MAX_FALSE_ACCEPT = 0.05  # §4: A/A false accepts must stay at or below 5%
+# What `run` demands of the calibration it relies on (the one place these live). A weaker
+# aa-test or estimate still runs and records, but does not unlock a real run.
+MIN_AA_TRIALS = 100
+MIN_AA_RESAMPLES = 1000
+MIN_ESTIMATE_SPLIT = "select"  # the split the acceptance rule's SELECT stage draws from
+# estimate must sample at least the configured select task count (or all the pack has) at
+# least the configured select reps (see ``_param_problems``).
 EASY_PASS_RATE = 0.9
 HARD_PASS_RATE = 0.1
 SMALL_SAMPLE_TASKS = 20
@@ -115,7 +122,7 @@ def _session(
         # invariant 7: the pack on disk must still be the pack that was loaded
         verify(project.pack, project.pack.content_hash, project.pack_root)
         # a newer attempt invalidates an older pass until it finishes (an abort leaves it so)
-        set_record(project.repo, kind, fingerprint(settings, project), "running", "")
+        set_record(project.repo, kind, fingerprint(settings, project), "running", "", {})
         rt = factory(settings, project, project.repo / CALIBRATION_DB)
         try:
             try:
@@ -273,7 +280,7 @@ def cmd_estimate(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     try:
         est = estimate(runs, eff)
     except ValueError as exc:
-        set_record(project.repo, ESTIMATE, fingerprint(settings, project), "fail", str(exc))
+        set_record(project.repo, ESTIMATE, fingerprint(settings, project), "fail", str(exc), {})
         raise CliError(
             f"no run was scored ({exc}): the agent or the grader is not working; "
             "check the target image, the run command and the grader image",
@@ -291,6 +298,7 @@ def cmd_estimate(args: argparse.Namespace, factory: RuntimeFactory) -> int:
         fingerprint(settings, project),
         "warn" if warnings else "pass",
         " | ".join(warnings)[:1000],
+        {"split": split.value, "tasks": len(tasks), "reps": reps},
     )
     return EXIT_OK
 
@@ -377,6 +385,8 @@ def fingerprint(settings: Settings, project: Project) -> dict[str, object]:
         "pack_hash": project.pack.content_hash,
         "thresholds": json.loads(json.dumps(asdict(settings.thresholds))),
         "profile": settings.profile.value,
+        "backend": settings.backend,
+        "grader_image": project.pack.grader_image,
         "target_model": json.loads(json.dumps(asdict(project.config.target.model))),
         "config_hash": hashlib.sha256(cfg.encode()).hexdigest(),
     }
@@ -396,15 +406,54 @@ def _load(repo: Path) -> dict[str, object]:
     return _as_map(raw)
 
 
-def set_record(repo: Path, kind: str, fp: dict[str, object], state: str, detail: str) -> None:
-    """``state`` is running (just started: invalidates any older result), pass, warn or fail."""
+def set_record(
+    repo: Path,
+    kind: str,
+    fp: dict[str, object],
+    state: str,
+    detail: str,
+    params: dict[str, object],
+) -> None:
+    """``state`` is running (just started: invalidates any older result), pass, warn or fail.
+    ``params`` are how the calibration was run (trials, resamples, seed; split, tasks, reps):
+    ``run`` checks them against the minimums above."""
     records = _load(repo)
-    records[kind] = {"fingerprint": fp, "state": state, "detail": detail}
+    records[kind] = {"fingerprint": fp, "state": state, "detail": detail, "params": params}
     (repo / RECORD).parent.mkdir(parents=True, exist_ok=True)
     (repo / RECORD).write_text(json.dumps(records, sort_keys=True), encoding="utf-8")
 
 
-def calibration_status(repo: Path, fp: dict[str, object]) -> tuple[list[str], list[str]]:
+def _int(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _param_problems(
+    kind: str, params: dict[str, object], settings: Settings, project: Project
+) -> list[str]:
+    """Why a passing record is too weak to unlock a real run."""
+    out: list[str] = []
+    if kind == AA_TEST:
+        if _int(params.get("trials")) < MIN_AA_TRIALS:
+            out.append(f"{_int(params.get('trials'))} trials (MIN_AA_TRIALS = {MIN_AA_TRIALS})")
+        if _int(params.get("resamples")) < MIN_AA_RESAMPLES:
+            out.append(
+                f"{_int(params.get('resamples'))} resamples (MIN_AA_RESAMPLES = {MIN_AA_RESAMPLES})"
+            )
+        return out
+    t = settings.thresholds
+    need_tasks = min(t.select_tasks, len(tasks_in(project.pack, Split.SELECT)))
+    if params.get("split") != MIN_ESTIMATE_SPLIT:
+        out.append(f"split {params.get('split')!r} (MIN_ESTIMATE_SPLIT = {MIN_ESTIMATE_SPLIT!r})")
+    if _int(params.get("tasks")) < need_tasks:
+        out.append(f"{_int(params.get('tasks'))} tasks (the select task count, {need_tasks})")
+    if _int(params.get("reps")) < t.select_reps:
+        out.append(f"{_int(params.get('reps'))} reps (the select reps, {t.select_reps})")
+    return out
+
+
+def calibration_status(
+    repo: Path, fp: dict[str, object], settings: Settings, project: Project
+) -> tuple[list[str], list[str]]:
     """``(problems, notes)``: why ``run`` may not start (§4: estimate and aa-test must pass for
     exactly this pack, rule, profile, model and config), and non-blocking notes."""
     records = _load(repo)
@@ -427,7 +476,14 @@ def calibration_status(repo: Path, fp: dict[str, object]) -> tuple[list[str], li
         if state not in _OK_STATES[kind]:
             why = "did not finish" if state == "running" else "failed"
             problems.append(f"the last `iterant {kind}` {why}: fix that, then rerun it")
-        elif state == "warn":
+        else:
+            weak = _param_problems(kind, _as_map(fields.get("params")), settings, project)
+            if weak:
+                problems.append(
+                    f"the last `iterant {kind}` was too weak to rely on ({'; '.join(weak)}): "
+                    "rerun it with more"
+                )
+        if state == "warn":
             notes.append(f"`iterant estimate` warned: {fields.get('detail')}")
     return problems, notes
 
@@ -438,10 +494,17 @@ def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
     trials = _positive(args.trials, "--trials")
     resamples = _positive(args.resamples, "--resamples")
     eff = effective_thresholds(project.pack, settings.thresholds)
-    sel_tasks = tasks_in(project.pack, Split.SELECT)[: eff.select_tasks]
+    sel_tasks = tasks_in(project.pack, Split.SELECT)  # all of them: legs draw from the pool
     pool_reps = max(eff.select_reps, eff.holdout_reps)
     if not sel_tasks:
         raise CliError("the A/A test needs select tasks in the pack", EXIT_USAGE)
+    if eff.holdout_tasks > len(sel_tasks):
+        raise CliError(
+            f"the A/A test simulates CONFIRM with {eff.holdout_tasks} tasks drawn from the select "
+            f"tasks, but the pack has only {len(sel_tasks)} select tasks: add select tasks or "
+            "lower --holdout-tasks",
+            EXIT_USAGE,
+        )
     with calibration_session(settings, project, factory, AA_TEST) as session:
         session.run([(task, rep) for task in sel_tasks for rep in range(2 * pool_reps)])
         runs = session.runs()
@@ -465,6 +528,7 @@ def cmd_aa_test(args: argparse.Namespace, factory: RuntimeFactory) -> int:
         fingerprint(settings, project),
         "pass" if passed else "fail",
         f"{result.false_accepts}/{result.trials} false accepts",
+        {"trials": trials, "resamples": resamples, "seed": settings.seed},
     )
     if degenerate:
         raise CliError(

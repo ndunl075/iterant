@@ -15,6 +15,7 @@ from __future__ import annotations
 import difflib
 import os
 import re
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -36,6 +37,8 @@ def _write_atomic(path: Path, data: bytes) -> None:
     tmp = path.with_name(f".{path.name}.iterant-{os.getpid()}.tmp")
     try:
         tmp.write_bytes(data)
+        if path.exists():
+            shutil.copymode(path, tmp)  # keep the exec bit: no mode change in the diff
         os.replace(tmp, path)
     except BaseException:
         try:

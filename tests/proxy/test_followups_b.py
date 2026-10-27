@@ -157,3 +157,40 @@ def test_in_flight_calls_per_token_are_limited(make_stack, h) -> None:
     assert isinstance(third, Rejection) and third.status == 429
     s.proxy.release(first)  # a finished call frees a slot
     assert not isinstance(s.proxy.admit(token, raw), Rejection)
+
+
+def test_release_after_settle_is_a_noop(make_stack, h) -> None:
+    """The server calls release in a finally when the response send fails after settle."""
+    from iterant.proxy.ledger import Usage
+
+    s = make_stack()
+    token = s.proxy.issue_run_token(Role.TARGET, h.KEY)
+    other = s.proxy.issue_run_token(Role.TARGET, RunKey(1, "c1", "t2", 0))
+    raw = _raw(h.msg_body())
+    adm, other_adm = s.proxy.admit(token, raw), s.proxy.admit(other, raw)
+    assert not isinstance(adm, Rejection) and not isinstance(other_adm, Rejection)
+    s.proxy.settle(adm, Usage(input=10, output=5), False, None)
+    s.proxy.release(adm)  # the send failed: must change nothing
+    s.proxy.release(adm)
+    ledger = s.proxy.ledger
+    gkey = (ledger.generation, Role.TARGET)
+    assert ledger._gen_held[gkey] == other_adm.reservation.units  # pyright: ignore
+    assert (Role.TARGET, h.KEY) not in ledger._run_held  # pyright: ignore
+    assert s.proxy._inflight == {other: 1}  # pyright: ignore  # other call's slot untouched
+    with pytest.raises(ValueError):
+        s.proxy.settle(adm, Usage(input=1, output=1), False, None)
+    s.proxy.release(other_adm)
+    assert ledger._gen_held[gkey] == 0  # pyright: ignore
+
+
+def test_reserve_failure_does_not_leak_an_in_flight_slot(make_stack, h, monkeypatch) -> None:
+    s = make_stack()
+    token = s.proxy.issue_run_token(Role.TARGET, h.KEY)
+
+    def boom(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("ledger bug")
+
+    monkeypatch.setattr(s.proxy.ledger, "reserve", boom)
+    with pytest.raises(RuntimeError):
+        s.proxy.admit(token, _raw(h.msg_body()))
+    assert s.proxy._inflight == {}  # pyright: ignore

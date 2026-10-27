@@ -47,8 +47,13 @@ PROPOSER_MAX_TOKENS = 16_000
 # Analyst: one 6k-char excerpt plus the system prompt, with escaping headroom.
 ANALYST_MAX_REQUEST_BYTES = 16 * 1024
 ANALYST_MAX_TOKENS = 1024
-# Auditor: the gate refuses diffs over 128 KiB; the rest is the system prompt and policy note.
-AUDITOR_MAX_REQUEST_BYTES = 160 * 1024
+# Auditor: the gate refuses diffs over 128 KiB; the request is JSON, which escapes a control
+# character to 6 bytes (``\u00XX``), so the worst case is 6x the diff, plus 40 KiB for the
+# system prompt and policy note.
+AUDITOR_MAX_REQUEST_BYTES = 6 * 128 * 1024 + 40 * 1024
+# Per-generation proposer budgets are NOT sized for the worst case of max_turns (30) full
+# 400k-char contexts per proposal (about 5.3M tokens, or ~$30 on Opus): a very long session
+# can hit the generation cap and is then cut off (the proposer keeps the diff written so far).
 AUDITOR_MAX_TOKENS = 1024
 
 PROPOSER_EFFORT: Effort = "high"
@@ -128,7 +133,7 @@ def build_policy(
             ),
             Role.AUDITOR: RoleCap(
                 *models.auditor,
-                max_tokens_per_run=64_000,
+                max_tokens_per_run=300_000,
                 max_tokens_per_gen=1_280_000 * candidates,
             ),
         }
@@ -162,7 +167,7 @@ def build_policy(
             ),
             Role.AUDITOR: RoleCap(
                 *models.auditor,
-                max_usd_micros_per_run=300_000,
+                max_usd_micros_per_run=900_000,
                 max_usd_micros_per_gen=4_000_000 * candidates,
             ),
         },

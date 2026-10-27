@@ -87,3 +87,9 @@ def test_a_near_max_request_is_admitted_end_to_end(profile: Profile, role: Role)
     assert len(raw) == size
     adm = proxy.admit(proxy.issue_call_token(role), raw)
     assert not isinstance(adm, Rejection), adm
+
+
+def test_auditor_limit_covers_a_max_diff_after_json_escaping() -> None:
+    diff = "\x01" * (128 * 1024)  # the gate's diff limit, worst case for JSON escaping (6x)
+    body = json.dumps({"messages": [{"role": "user", "content": diff}]}).encode()
+    assert len(body) + 32 * 1024 <= profiles.AUDITOR_MAX_REQUEST_BYTES

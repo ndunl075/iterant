@@ -13,6 +13,7 @@ by that many calls; the next request is refused once the spend is recorded.
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Hashable
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from typing import Any, cast
 
 from iterant.contracts import Role, RoleCap, RunKey
 from iterant.proxy.config import MICROS_PER_MTOK, ModelPrice
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -232,10 +235,15 @@ class Ledger:
 
     def _drop_hold(self, r: Reservation) -> None:
         gkey = (r.gen, r.role)
-        self._run_held[r.run_id] = self._run_held.get(r.run_id, 0) - r.units
-        self._gen_held[gkey] = self._gen_held.get(gkey, 0) - r.units
-        if self._run_held[r.run_id] <= 0:
-            del self._run_held[r.run_id]
+        run_left = self._run_held.get(r.run_id, 0) - r.units
+        gen_left = self._gen_held.get(gkey, 0) - r.units
+        if run_left < 0 or gen_left < 0:  # a double release would let spend past the caps
+            log.error("ledger hold went negative (%s, %s): clamped to 0", run_left, gen_left)
+        self._gen_held[gkey] = max(gen_left, 0)
+        if run_left > 0:
+            self._run_held[r.run_id] = run_left
+        else:
+            self._run_held.pop(r.run_id, None)
 
 
 __all__ = [

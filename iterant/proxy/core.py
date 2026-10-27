@@ -45,6 +45,8 @@ class Admission:
     stream: bool
     reservation: Reservation
     request_bytes: int
+    # one-element flag: set when the call was settled or released, so neither runs twice
+    finished: list[bool] = field(default_factory=lambda: [False], compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -199,7 +201,11 @@ class Proxy:
                     "may be in flight per token",
                 )
             self._inflight[token] = self._inflight.get(token, 0) + 1
-        reservation = self.ledger.reserve(session.role, run_id, cap, units)
+        try:
+            reservation = self.ledger.reserve(session.role, run_id, cap, units)
+        except BaseException:
+            self._done(token)  # never leak an in-flight slot
+            raise
         if isinstance(reservation, CapExceeded):
             self._done(token)
             return Rejection(403, "permission_error", reservation.code, reservation.message)
@@ -218,8 +224,17 @@ class Proxy:
 
     def release(self, adm: Admission) -> None:
         """The upstream call failed before any usage: nothing was spent."""
+        if self._finish(adm):  # a no-op once settled or released
+            self.ledger.release(adm.reservation)
+
+    def _finish(self, adm: Admission) -> bool:
+        """Mark ``adm`` finished and free its in-flight slot. False if it already was."""
+        with self._lock:
+            if adm.finished[0]:
+                return False
+            adm.finished[0] = True
         self._done(adm.token)
-        self.ledger.release(adm.reservation)
+        return True
 
     def _done(self, token: str) -> None:
         with self._lock:
@@ -241,7 +256,8 @@ class Proxy:
         """Log one completed (or cut-off) call. ``usage`` None means the upstream never said:
         charge the whole reservation rather than let it go uncounted."""
         cap, profile = adm.cap, self.config.policy.profile
-        self._done(adm.token)
+        if not self._finish(adm):
+            raise ValueError("call already settled or released")
         if usage is None:
             usage = Usage(output=int(adm.body["max_tokens"]))
         # Price and log what the upstream says it ran (a fallback may differ from the cap).

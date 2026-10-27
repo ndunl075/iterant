@@ -99,8 +99,10 @@ def build_user_prompt(parent: str, digest: str, history: Sequence[TriedCandidate
 
 
 def one_line(s: str) -> str:
+    # Control characters become spaces so the result passes ``Proposal``'s strict check.
+    s = "".join(" " if ord(c) < 0x20 or c == "'+B+'x7f" else c for c in s)
     line = " ".join(s.split())
-    return line[:MAX_HYPOTHESIS_CHARS] or "unspecified change"
+    return line[:MAX_HYPOTHESIS_CHARS].strip() or "unspecified change"
 
 
 class EditingProposer:

@@ -9,10 +9,26 @@ share the same random draw (run noise common to both arms), which lowers the
 discordance. Refused and infra-errored runs are drawn at the given rates and retried
 once, as in §6. Everything is seeded and reproducible. Stdlib only.
 
+``task_effect_sd`` adds a per-task shift to the candidate's pass probability (mean 0,
+truncated symmetrically to stay inside [0, 1], so the true gain stays ``gain``): a null
+diff then changes behaviour on particular tasks, which is what a real A/A looks like.
+The two arms can have different refusal / infra rates, and the candidate can cost more
+(``cost_multiplier``) or run longer (``wall_multiplier``), to exercise the guards
+against real harm.
+
+Scope limits. (1) The real orchestrator fixes the holdout set across candidates; here
+every trial draws fresh SELECT and holdout tasks, so this does not model holdout
+overfitting or its reuse. (2) The false-accept rate is per candidate: it is not per
+generation and applies no multiple-comparison correction across candidates. (3) Trials
+use far fewer resamples (200 by default, 2,000 in calibration) than production's
+10,000.
+
 ``run_trials`` plays the full rule (``decide_select``, ``decide_confirm``,
 ``accepted``). ``analytic_power`` is ``power()`` at the discordance the simulation
 actually produced, for the SELECT stage alone with the p-test only (a tiny
 ``delta_min``); the full rule is stricter, so compare its rate as an upper bound.
+``power()`` assumes no persistent per-task effect, so with ``task_effect_sd > 0`` it
+overstates power.
 """
 
 from __future__ import annotations
@@ -24,7 +40,7 @@ from dataclasses import dataclass, field, replace
 from statistics import NormalDist
 
 from iterant.contracts import AcceptanceThresholds, RunKey, RunResult, Split
-from iterant.stats.acceptance import Decision, accepted, decide_confirm, decide_select
+from iterant.stats.acceptance import Decision, Reason, accepted, decide_confirm, decide_select
 from iterant.stats.power import power, smallest_detectable_gain
 
 CI_TRIALS = 300  # default: runs in CI in seconds
@@ -34,6 +50,7 @@ CALIBRATION_RESAMPLES = 2000
 
 _CHAMP, _CAND = "champion", "candidate"
 _Z = NormalDist().inv_cdf(0.975)
+_GUARDS = {Reason.REFUSAL_GUARD, Reason.INFRA_GUARD}
 
 
 @dataclass(frozen=True)
@@ -42,8 +59,13 @@ class SimConfig:
     mean_pass: float = 0.3  # mean champion pass probability across tasks
     difficulty_concentration: float = 2.0  # Beta(m*k, (1-m)*k); small k = very uneven tasks
     arm_coupling: float = 0.0  # chance both arms of a (task, rep) share one random draw
-    refusal_rate: float = 0.0  # per-attempt chance a run is refused (both arms alike)
-    infra_rate: float = 0.0  # per-attempt chance a run errors in infrastructure
+    task_effect_sd: float = 0.0  # sd of the mean-0 per-task shift of the candidate's p
+    refusal_rate: float = 0.0  # per-attempt chance a run is refused (champion; the candidate
+    infra_rate: float = 0.0  # too, unless its candidate_* rate below is set)
+    candidate_refusal_rate: float | None = None
+    candidate_infra_rate: float | None = None
+    cost_multiplier: float = 1.0  # candidate usd_micros relative to champion
+    wall_multiplier: float = 1.0  # candidate wall_s relative to champion
     thresholds: AcceptanceThresholds = field(default_factory=AcceptanceThresholds)
 
     def __post_init__(self) -> None:
@@ -51,15 +73,23 @@ class SimConfig:
             raise ValueError("gain must be in [0, 1)")
         if not 0.0 < self.mean_pass < 1.0 or self.difficulty_concentration <= 0:
             raise ValueError("mean_pass must be in (0, 1) and concentration > 0")
-        for name in ("arm_coupling", "refusal_rate", "infra_rate"):
-            if not 0.0 <= getattr(self, name) <= 1.0:
-                raise ValueError(f"{name} must be in [0, 1]")
+        rates = (
+            self.arm_coupling,
+            self.refusal_rate,
+            self.infra_rate,
+            self.candidate_refusal_rate,
+            self.candidate_infra_rate,
+        )
+        if any(r is not None and not 0.0 <= r <= 1.0 for r in rates):
+            raise ValueError("coupling and refusal / infra rates must be in [0, 1]")
+        if self.task_effect_sd < 0 or min(self.cost_multiplier, self.wall_multiplier) <= 0:
+            raise ValueError("task_effect_sd must be >= 0 and multipliers > 0")
 
 
 @dataclass(frozen=True)
 class TrialOutcome:
     select: Decision
-    confirm: Decision
+    confirm: Decision | None  # None when the trial ran SELECT only
     accepted: bool
     discordance: float  # expected share of SELECT run pairs that differ in this trial
 
@@ -83,6 +113,9 @@ class SimSummary:
     accept: Proportion  # full rule: SELECT and CONFIRM
     select_pass: Proportion  # SELECT alone
     mean_discordance: float
+    # Among trials where every check except the refusal / infra guards passed: the
+    # share the refusal or infra guard vetoed.
+    guard_veto: Proportion
     analytic_power: float | None  # None when ``gain`` is 0 or above the discordance
 
 
@@ -97,26 +130,49 @@ def wilson(successes: int, n: int, z: float = _Z) -> Proportion:
     return Proportion(successes, n, max(0.0, centre - half), min(1.0, centre + half))
 
 
-def _draw_probs(rng: random.Random, cfg: SimConfig, n: int) -> list[float]:
+def _draw_probs(rng: random.Random, cfg: SimConfig, n: int) -> list[tuple[float, float]]:
+    """(champion p, candidate p) per task."""
     k, m = cfg.difficulty_concentration, cfg.mean_pass
     cap = 1.0 - cfg.gain
-    return [min(rng.betavariate(m * k, (1 - m) * k), cap) for _ in range(n)]
+    out: list[tuple[float, float]] = []
+    for _ in range(n):
+        p = min(rng.betavariate(m * k, (1 - m) * k), cap)
+        q = p + cfg.gain
+        shift = rng.gauss(0.0, cfg.task_effect_sd) if cfg.task_effect_sd else 0.0
+        room = min(q, 1.0 - q)  # truncate symmetrically so the shift keeps mean 0
+        out.append((p, q + max(-room, min(room, shift))))
+    return out
 
 
-def _discordance(probs: Sequence[float], cfg: SimConfig) -> float:
-    g, rho = cfg.gain, cfg.arm_coupling
+def _discordance(probs: Sequence[tuple[float, float]], cfg: SimConfig) -> float:
+    """Expected share of run pairs that differ (ignores dropped runs)."""
     if not probs:
         return 0.0
-    ind = [p * (1 - p - g) + (p + g) * (1 - p) for p in probs]
-    return sum(rho * g + (1 - rho) * d for d in ind) / len(probs)
+    rho = cfg.arm_coupling
+    return sum(rho * abs(q - p) + (1 - rho) * (p * (1 - q) + q * (1 - p)) for p, q in probs) / len(
+        probs
+    )
 
 
 def _attempt(
-    rng: random.Random, cfg: SimConfig, key: RunKey, split: Split, passed: bool
+    rng: random.Random,
+    cfg: SimConfig,
+    key: RunKey,
+    split: Split,
+    passed: bool,
+    candidate: bool,
 ) -> RunResult:
+    refusal_rate, infra_rate = cfg.refusal_rate, cfg.infra_rate
+    cost, wall = 1000, 10.0
+    if candidate:
+        if cfg.candidate_refusal_rate is not None:
+            refusal_rate = cfg.candidate_refusal_rate
+        if cfg.candidate_infra_rate is not None:
+            infra_rate = cfg.candidate_infra_rate
+        cost, wall = round(cost * cfg.cost_multiplier), wall * cfg.wall_multiplier
     u = rng.random()
-    refusal = u < cfg.refusal_rate
-    infra = not refusal and u < cfg.refusal_rate + cfg.infra_rate
+    refusal = u < refusal_rate
+    infra = not refusal and u < refusal_rate + infra_rate
     bad = refusal or infra
     return RunResult(
         key=key,
@@ -124,45 +180,70 @@ def _attempt(
         score=None if bad else float(passed),
         in_tok=1,
         out_tok=1,
-        usd_micros=1000,
-        wall_s=10.0,
+        usd_micros=cost,
+        wall_s=wall,
         refusal=refusal,
         infra_err=infra,
     )
 
 
 def _runs(
-    rng: random.Random, cfg: SimConfig, probs: Sequence[float], reps: int, split: Split, batch: int
+    rng: random.Random,
+    cfg: SimConfig,
+    probs: Sequence[tuple[float, float]],
+    reps: int,
+    split: Split,
+    batch: int,
 ) -> tuple[list[RunResult], list[RunResult]]:
     cand: list[RunResult] = []
     champ: list[RunResult] = []
-    for i, p in enumerate(probs):
+    for i, (p, q) in enumerate(probs):
         for rep in range(reps):
             u_h = rng.random()
             u_c = u_h if rng.random() < cfg.arm_coupling else rng.random()
-            for arm, out, passed in (
-                (_CHAMP, champ, u_h < p),
-                (_CAND, cand, u_c < p + cfg.gain),
+            for arm, out, passed, is_cand in (
+                (_CHAMP, champ, u_h < p, False),
+                (_CAND, cand, u_c < q, True),
             ):
-                r = _attempt(rng, cfg, RunKey(batch, arm, f"t{i}", rep, 0), split, passed)
+                key = RunKey(batch, arm, f"t{i}", rep, 0)
+                r = _attempt(rng, cfg, key, split, passed, is_cand)
                 out.append(r)
                 if r.score is None:  # one retry of a refused / errored run
-                    out.append(_attempt(rng, cfg, replace(r.key, attempt=1), split, passed))
+                    retry = replace(key, attempt=1)
+                    out.append(_attempt(rng, cfg, retry, split, passed, is_cand))
     return cand, champ
 
 
-def simulate_trial(cfg: SimConfig, seed: int, n_resamples: int = CI_RESAMPLES) -> TrialOutcome:
-    """One full SELECT + CONFIRM round on fresh synthetic tasks."""
+def simulate_trial(
+    cfg: SimConfig,
+    seed: int,
+    n_resamples: int = CI_RESAMPLES,
+    *,
+    select_only: bool = False,
+) -> TrialOutcome:
+    """One full SELECT + CONFIRM round on fresh synthetic tasks. ``select_only`` skips
+    CONFIRM (faster; ``accepted`` is then SELECT's verdict)."""
     t = cfg.thresholds
     rng = random.Random(seed)
     sel_p = _draw_probs(rng, cfg, t.select_tasks)
     hold_p = _draw_probs(rng, cfg, t.holdout_tasks)
     s_c, s_h = _runs(rng, cfg, sel_p, t.select_reps, Split.SELECT, 1)
-    h_c, h_h = _runs(rng, cfg, hold_p, t.holdout_reps, Split.HOLDOUT, 2)
     sel_seed, conf_seed = rng.randrange(2**31), rng.randrange(2**31)
     sel = decide_select(s_c, s_h, t, seed=sel_seed, n_resamples=n_resamples)
+    disc = _discordance(sel_p, cfg)
+    if select_only:
+        return TrialOutcome(sel, None, sel.accepted, disc)
+    h_c, h_h = _runs(rng, cfg, hold_p, t.holdout_reps, Split.HOLDOUT, 2)
     conf = decide_confirm(h_c, h_h, t, seed=conf_seed, n_resamples=n_resamples)
-    return TrialOutcome(sel, conf, accepted(sel, conf), _discordance(sel_p, cfg))
+    return TrialOutcome(sel, conf, accepted(sel, conf), disc)
+
+
+def _other_checks_pass(d: Decision | None) -> bool:
+    return d is None or not set(d.reasons) - _GUARDS
+
+
+def _guard_vetoed(d: Decision | None) -> bool:
+    return d is not None and bool(set(d.reasons) & _GUARDS)
 
 
 def run_trials(
@@ -172,16 +253,22 @@ def run_trials(
     trials: int | None = None,
     n_resamples: int | None = None,
     calibration: bool = False,
+    select_only: bool = False,
 ) -> SimSummary:
     """Run many seeded trials. Defaults are CI size; ``calibration=True`` is the big
-    size. Explicit ``trials`` / ``n_resamples`` override either."""
+    size. Explicit ``trials`` / ``n_resamples`` override either. ``select_only`` skips
+    CONFIRM, so ``accept`` equals ``select_pass``."""
     n = trials if trials is not None else (CALIBRATION_TRIALS if calibration else CI_TRIALS)
     res = (
         n_resamples
         if n_resamples is not None
         else (CALIBRATION_RESAMPLES if calibration else CI_RESAMPLES)
     )
-    outs = [simulate_trial(cfg, seed * 1_000_003 + i, res) for i in range(n)]
+    outs = [
+        simulate_trial(cfg, seed * 1_000_003 + i, res, select_only=select_only) for i in range(n)
+    ]
+    clean = [o for o in outs if _other_checks_pass(o.select) and _other_checks_pass(o.confirm)]
+    vetoed = sum(_guard_vetoed(o.select) or _guard_vetoed(o.confirm) for o in clean)
     disc = sum(o.discordance for o in outs) / n if n else 0.0
     return SimSummary(
         config=cfg,
@@ -189,6 +276,7 @@ def run_trials(
         accept=wilson(sum(o.accepted for o in outs), n),
         select_pass=wilson(sum(o.select.accepted for o in outs), n),
         mean_discordance=disc,
+        guard_veto=wilson(vetoed, len(clean)),
         analytic_power=_analytic(cfg, disc),
     )
 
@@ -198,6 +286,18 @@ def _analytic(cfg: SimConfig, discordance: float) -> float | None:
         return None
     t = cfg.thresholds
     return power(t.select_tasks, cfg.gain, discordance, t.select_reps, t.select_p)
+
+
+def analytic_power_at(summary: SimSummary, alpha: float) -> float | None:
+    """``power()`` at the simulated discordance, but at test size ``alpha``. The
+    sign-flip test on these discrete scores rejects a true null less than 5% of the time
+    (about 3 to 4% measured), so the matching analytic value uses that size."""
+    cfg = summary.config
+    disc = summary.mean_discordance
+    if cfg.gain <= 0.0 or cfg.gain > disc:
+        return None
+    t = cfg.thresholds
+    return power(t.select_tasks, cfg.gain, disc, t.select_reps, alpha)
 
 
 def analytic_smallest_gain(summary: SimSummary) -> float:
@@ -216,17 +316,19 @@ def power_curve(
     trials: int | None = None,
     n_resamples: int | None = None,
     calibration: bool = False,
+    select_only: bool = False,
 ) -> list[SimSummary]:
-    """One ``run_trials`` summary per true gain (same seed for each, so the curve is
-    smooth)."""
+    """One ``run_trials`` summary per true gain, each with its own seed (``seed`` plus
+    the index), so noise is independent across points."""
     cfg = base or SimConfig()
     return [
         run_trials(
             replace(cfg, gain=g),
-            seed=seed,
+            seed=seed + i,
             trials=trials,
             n_resamples=n_resamples,
             calibration=calibration,
+            select_only=select_only,
         )
-        for g in gains
+        for i, g in enumerate(gains)
     ]

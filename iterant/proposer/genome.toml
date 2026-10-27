@@ -1,0 +1,2 @@
+# The proposer's own editable files (§8: research mode makes these the target's genome).
+genome = ["prompt.md"]

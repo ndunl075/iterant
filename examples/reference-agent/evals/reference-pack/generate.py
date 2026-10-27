@@ -138,7 +138,7 @@ FACT_MATH = [
     ("Revenue is 12600. What is the revenue per employee?", "12600 / 42"),
     ("The company doubles its headcount. How many employees is that?", "42 * 2"),
     ("What do 5 units of the company's product cost?", "5 * 19.99"),
-    ("What do 12 units of the product cost after a 10% discount?", "12 * 19.99 * 0.9"),
+    ("What do 10 units of the product cost after a 10% discount?", "10 * 19.99 * 0.9"),
     ("How many whole units of the product can you buy with 200?", "200 // 19.99"),
     (
         "A customer buys 3 units of the product and 2 gadgets at 4.50 each. What is the total?",
@@ -338,7 +338,10 @@ def _fact_math() -> tuple[str, str]:
         n = r.randrange(2, 40)
         return f"What do {n} units of the company's product cost?", f"{n} * 19.99"
     if kind == 5:
-        n, off = r.randrange(5, 50), r.choice((5, 10, 15, 20, 25))
+        off = r.choice((5, 10, 15, 20, 25))
+        n = r.randrange(5, 50)
+        while n * (100 - off) % 100:  # keep the price exact to 2 decimals: no rounding needed
+            n = r.randrange(5, 50)
         q = f"What do {n} units of the product cost after a {off}% discount?"
         return q, f"{n} * 19.99 * {(100 - off) / 100}"
     if kind == 6:

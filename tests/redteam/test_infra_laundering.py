@@ -138,9 +138,9 @@ def test_row6_when_the_runtime_really_is_down_the_run_is_infra_and_the_candidate
     assert res.promoted is None
     [cand] = res.candidates
     assert cand.stage is Stage.SELECT and cand.status is Status.REJECTED
-    assert any("infra-error rate" in n and "worse than champion" in n for n in cand.notes), (
-        cand.notes
-    )
+    # 3 of 10 first tries is not statistically clear on 10 tasks (p = 0.125), but dropping
+    # more than 10% of the tasks rejects it anyway
+    assert any("tasks dropped (refused/infra-error)" in n for n in cand.notes), cand.notes
 
 
 def test_refusals_the_candidate_provokes_on_its_hard_tasks_do_not_get_it_promoted(world) -> None:  # type: ignore[no-untyped-def]
@@ -150,7 +150,7 @@ def test_refusals_the_candidate_provokes_on_its_hard_tasks_do_not_get_it_promote
     assert res.promoted is None
     [cand] = res.candidates
     assert (cand.stage, cand.status) == (Stage.SELECT, Status.REJECTED)
-    assert any("refusal" in n for n in cand.notes), cand.notes
+    assert any("tasks dropped (refused/infra-error)" in n for n in cand.notes), cand.notes
 
 
 def test_a_candidate_cannot_use_an_infra_looking_first_try_to_get_a_second_chance_at_a_win(  # type: ignore[no-untyped-def]

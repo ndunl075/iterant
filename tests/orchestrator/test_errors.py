@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from iterant.contracts import RunKey, Split, Stage, Status
-from iterant.orchestrator import BatchAborted
+from iterant.orchestrator import InfraRateExceeded, OrchestratorConfig
 
 
 def champ_default(task: str) -> str:
@@ -76,16 +76,45 @@ def test_a_refusal_is_retried_once_and_tracked_apart_from_infra(world):
     assert first.usd_micros == world.RUN_COST  # a refused first try still cost money
 
 
-def test_too_many_infra_errors_abort_the_batch_and_leave_candidates_resumable(world):
+def test_infra_abort_closes_the_batch_and_the_next_call_opens_a_fresh_one(world):
     world.solver = solver_with(lambda a, t, n: "infra" if a == "champ" else "")
     world.queue(world.proposal("v0", "v1", "h"))
-    with pytest.raises(BatchAborted, match="infra"):
+    with pytest.raises(InfraRateExceeded, match="infra"):
         world.orchestrator(max_infra_rate=0.4).run_generation()
-    [cand] = [c for c in world.db().iter_candidates() if c.parent is not None]
-    assert (cand.stage, cand.status) == (Stage.SMOKE, Status.ACTIVE)
+
+    db = world.db()
+    cand = db.get_candidate("b1-0")
+    marker = db.get_candidate("b1-closed")
+    assert cand is not None and cand.status is Status.REJECTED
+    assert marker is not None and marker.hypothesis.startswith("infra-abort")
 
     world.solver = solver_with(lambda a, t, n: "")  # the outage is over
-    assert world.orchestrator().run_generation().promoted == "b1-0"
+    world.queue(world.proposal("v0", "v1", "h2"))
+    res = world.orchestrator(max_infra_rate=0.4).run_generation()  # the SAME config
+    assert (res.batch_id, res.gen, res.promoted) == (2, 1, "b2-0")
+
+
+def test_a_persistent_outage_aborts_each_new_batch_too_not_wedges_one(world):
+    world.solver = solver_with(lambda a, t, n: "infra" if a == "champ" else "")
+    world.queue(world.proposal("v0", "v1", "h"), world.proposal("v0", "v1", "h2"))
+    for batch in (1, 2):
+        with pytest.raises(InfraRateExceeded):
+            world.orchestrator(max_infra_rate=0.4).run_generation()
+        assert world.db().get_batch(batch) is not None
+
+
+def test_refusals_never_trip_the_infra_abort(world):
+    world.solver = solver_with(lambda a, t, n: "refuse" if a == "champ" else "")
+    world.queue(world.proposal("v0", "v1", "h"))
+    res = world.orchestrator(max_infra_rate=0.4).run_generation()  # does not raise
+    assert res.promoted is None  # the stats drop the pairs and reject the candidate
+
+
+def test_a_candidates_own_infra_errors_do_not_abort_the_batch(world):
+    world.solver = solver_with(lambda a, t, n: "infra" if a == "b1-0" else "")
+    world.queue(world.proposal("v0", "v1", "h"))
+    res = world.orchestrator(max_infra_rate=0.4).run_generation()
+    assert res.promoted is None
 
 
 def task(world, tid: str = "se00"):
@@ -96,7 +125,7 @@ def task(world, tid: str = "se00"):
 def test_candidate_caused_failures_score_zero_and_are_not_infra(world, outcome):
     world.solver = lambda arm, t, n: outcome
     key = RunKey(1, "c", "se00", 0)
-    r = world.executor().execute(key, task(world), "img:c")
+    r = world.executor().execute(key, task(world), "img:c").result
     assert (r.score, r.infra_err, r.refusal) == (0.0, False, False)
     assert all(sb.destroyed >= 1 for sb in world.backend.sandboxes)  # even a lost one
 
@@ -109,29 +138,73 @@ def test_a_lost_sandbox_is_not_graded(world):
 
 def test_runtime_failures_are_infra_not_zero(world):
     world.solver = lambda arm, t, n: "infra"
-    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c")
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
     assert (r.score, r.infra_err, r.refusal) == (None, True, False)
 
 
-@pytest.mark.parametrize("flag", ["create_fails", "put_fails", "get_fails"])
-def test_sandbox_failures_around_the_run_are_infra(world, flag):
+@pytest.mark.parametrize("flag", ["create_fails", "put_fails"])
+def test_sandbox_failures_before_the_run_are_infra(world, flag):
     world.solver = lambda arm, t, n: "ok"
     setattr(world, flag, True)
-    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c")
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
     assert (r.score, r.infra_err) == (None, True)
+
+
+def test_a_get_failure_the_agent_can_cause_scores_zero_when_the_sandbox_still_answers(world):
+    world.solver = lambda arm, t, n: "ok"
+    world.get_fails = True  # chmod 000 on an out file, a FIFO, a path too deep ...
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
+    assert (r.score, r.infra_err) == (0.0, False)
+
+
+def test_a_get_failure_is_infra_only_if_the_runtime_is_down(world):
+    world.solver = lambda arm, t, n: "ok"
+    world.get_fails = True
+    world.runtime_down = True
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
+    assert (r.score, r.infra_err) == (None, True)
+
+
+def test_the_agent_sandbox_outlives_the_run_the_listing_and_the_read_budget(world):
+    from iterant.orchestrator.runs import sandbox_ttl
+
+    world.solver = lambda arm, t, n: "ok"
+    ex = world.executor(run_timeout_s=50, read_budget_s=200)
+    ex.execute(RunKey(1, "c", "se00", 0), task(world), "img:c")
+    want = sandbox_ttl(OrchestratorConfig(run_timeout_s=50, read_budget_s=200))
+    assert world.backend.ttls[0] == want >= 50 + 200
+
+
+def test_a_key_rerun_in_one_process_is_not_double_counted(world):
+    world.solver = lambda arm, t, n: "ok"
+    ex = world.executor()
+    key = RunKey(1, "c", "se00", 0)
+    first = ex.execute(key, task(world), "img:c").result
+    again = ex.execute(key, task(world), "img:c").result
+    assert first.usd_micros == again.usd_micros == world.RUN_COST
+
+
+def test_the_run_token_is_revoked_when_the_sandbox_cannot_be_created(world, monkeypatch):
+    revoked: list[RunKey] = []
+    real = world.proxy.sessions.revoke_run
+    monkeypatch.setattr(world.proxy.sessions, "revoke_run", lambda k: (revoked.append(k), real(k)))
+    world.create_fails = True
+    key = RunKey(1, "c", "se00", 0)
+    world.executor().execute(key, task(world), "img:c")
+    assert key in revoked
 
 
 def test_a_refusal_wins_over_the_output_and_skips_grading(world):
     world.solver = lambda arm, t, n: "refuse"
-    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c")
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
     assert (r.score, r.refusal, r.infra_err) == (None, True, False)
     assert [sb.net for sb in world.backend.sandboxes] == ["proxy-only"]
 
 
 def test_a_wrong_answer_scores_zero_and_a_right_one_one(world):
     world.solver = lambda arm, t, n: "wrong"
-    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c")
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
     assert r.score == 0.0 and not r.infra_err
     world.solver = lambda arm, t, n: "ok"
-    r = world.executor().execute(RunKey(1, "c", "se00", 0, 1), task(world), "img:c")
+    r = world.executor().execute(RunKey(1, "c", "se00", 0, 1), task(world), "img:c").result
     assert r.score == 1.0 and r.usd_micros == world.RUN_COST

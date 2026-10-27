@@ -9,16 +9,19 @@ from iterant.orchestrator.config import (
     FailureDigest,
     GraderLike,
     ImageSource,
+    InfraRateExceeded,
     OrchestratorConfig,
 )
+from iterant.orchestrator.lock import OrchestratorBusy, WriterLock
 from iterant.orchestrator.loop import (
     SEED_ID,
     CandidateOutcome,
     GenerationResult,
     Orchestrator,
 )
-from iterant.orchestrator.runs import RunExecutor, agent_command, bind_paths, read_out
-from iterant.orchestrator.workspace import DiffStore, export_commit
+from iterant.orchestrator.outcomes import Outcomes
+from iterant.orchestrator.runs import Executed, RunExecutor, agent_command, bind_paths, read_out
+from iterant.orchestrator.workspace import DiffStore, export_commit, proposer_view
 
 __all__ = [
     "OUT_DIR",
@@ -30,8 +33,20 @@ __all__ = [
     "CandidateOutcome",
     "DiffStore",
     "FailureDigest",
+    "Executed",
     "GenerationResult",
+    "Executed",
     "GraderLike",
+    "InfraRateExceeded",
+    "OrchestratorBusy",
+    "Outcomes",
+    "WriterLock",
+    "proposer_view",
+    "InfraRateExceeded",
+    "OrchestratorBusy",
+    "Outcomes",
+    "WriterLock",
+    "proposer_view",
     "ImageSource",
     "Orchestrator",
     "OrchestratorConfig",

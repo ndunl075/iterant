@@ -9,6 +9,7 @@ import tarfile
 from pathlib import Path
 
 from iterant.archive import GitRefError, diff_sha256
+from iterant.target.image import _copy_context, _Filter  # pyright: ignore[reportPrivateUsage]
 
 _STRIPPED_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
@@ -30,6 +31,14 @@ def export_commit(repo: str | os.PathLike[str], sha: str, dest: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(proc.stdout)) as tar:
         tar.extractall(dest, filter="data")
+    return dest
+
+
+def proposer_view(full: Path, pack_rel: str | None, dest: Path) -> Path:
+    """Copy ``full`` (an exported tree) to ``dest`` without what the image build context leaves
+    out: the pack (hidden checks), ``.git``, ``.iterant`` and the repo's ``.containerignore``
+    entries. This is all the proposer may see of the repo (invariant 4)."""
+    _copy_context(full, dest, _Filter(full, pack_rel or ".iterant-no-pack"))
     return dest
 
 

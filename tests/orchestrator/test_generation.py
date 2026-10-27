@@ -30,7 +30,8 @@ def test_full_generation_promotes_a_clear_win(world):
     assert world.git("rev-parse", "iterant/gen-1^{commit}") == world.git(
         "rev-parse", "iterant/champion"
     )
-    assert res.spent_usd_micros == 2 * PER_ARM * world.RUN_COST
+    # the whole generation: both arms' runs plus the proposer's call, from the proxy log
+    assert res.spent_usd_micros == 2 * PER_ARM * world.RUN_COST + world.PROPOSER_COST
     assert world.proposer.calls[0]["parent"] == SEED_ID
     assert world.proposer.calls[0]["prompt"] == "v0\n"
     assert world.proposer.calls[0]["digest"] == "digest"

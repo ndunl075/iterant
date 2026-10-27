@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -13,12 +13,21 @@ from iterant.grader import GradeResult
 TASK_DIR = "/work/task"
 OUT_DIR = "/work/out"
 
-FailureDigest = Callable[[], str]
+# Builds the proposer's failure digest from train trajectories. The argument is every string the
+# digest must strip (hidden check paths and contents; the analyst's ``redact`` parameter).
+FailureDigest = Callable[[Sequence[str]], str]
 
 
 class BatchAborted(RuntimeError):
-    """The batch cannot continue for an infrastructure reason (grader preflight failed, too
-    many infra errors). Candidates are left as they were, so a later call resumes them."""
+    """The batch cannot continue for an infrastructure reason. Unless it is an
+    ``InfraRateExceeded`` (which closes the batch), nothing is recorded against the candidates,
+    so the next ``run_generation`` resumes the same batch."""
+
+
+class InfraRateExceeded(BatchAborted):
+    """Too many of the champion arm's runs ended in infra errors. The batch is closed (its
+    candidates are rejected with the reason recorded on a ``b<batch>-closed`` marker) and the
+    next ``run_generation`` opens a fresh batch of the same generation."""
 
 
 class BudgetExhausted(RuntimeError):
@@ -56,7 +65,9 @@ class OrchestratorConfig:
     cpu: float = 1.0
     mem: int = 2048
     disk: int = 2048
-    max_infra_rate: float = 0.5  # abort a stage when more final runs than this are infra errors
+    # close the batch when more of a stage's champion-arm runs than this are infra errors
+    max_infra_rate: float = 0.5
+    read_budget_s: float = 300.0  # time allowed to read /out once the agent has finished
     seed: int = 0  # mixed into the bootstrap seeds
     task_dir: str = TASK_DIR
     out_dir: str = OUT_DIR
@@ -68,5 +79,7 @@ class OrchestratorConfig:
             raise ValueError("budget_usd_micros must be >= 0")
         if self.run_timeout_s <= 0:
             raise ValueError("run_timeout_s must be > 0")
+        if self.read_budget_s <= 0:
+            raise ValueError("read_budget_s must be > 0")
         if not 0.0 < self.max_infra_rate <= 1.0:
             raise ValueError("max_infra_rate must be within (0, 1]")

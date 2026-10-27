@@ -11,36 +11,44 @@ import json
 import re
 import subprocess
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from contextlib import closing
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from iterant.archive import Archive
+from iterant.archive import Archive, archive_path
 from iterant.contracts import (
     AcceptanceThresholds,
+    Candidate,
     ExecResult,
     GateResult,
     NetMode,
     Pack,
     Profile,
     Proposal,
+    ProxyCall,
     ProxyPolicy,
     Role,
     RoleCap,
     RunKey,
     Sandbox,
+    Stage,
+    Status,
     TargetConfig,
     TargetModel,
 )
 from iterant.grader import Grader
 from iterant.orchestrator import Orchestrator, OrchestratorConfig, RunExecutor
 from iterant.packs import load_pack
-from iterant.proxy import InMemorySink, ModelPrice, Proxy, ProxyConfig, Usage
+from iterant.proxy import ModelPrice, Proxy, ProxyConfig, Usage
 from iterant.sandbox import SandboxError, SandboxLost
 
 HAIKU = "claude-haiku-5-5"
+OPUS = "claude-opus-5-5"
+PROPOSER_CAP = 50_000
+PROPOSER_COST = 17_500  # 1000 in + 500 out at $5 / $25 per Mtok
 GRADER_IMAGE = "docker.io/library/python@sha256:" + "cd" * 32
 RUN_COST = 4500  # 2000 input + 500 output tokens at $1 / $5 per Mtok
 RUN_CAP = 100_000
@@ -114,6 +122,10 @@ class FakeSandbox:
         if cmd.startswith("cd /work/out && exec sh"):
             good = self.files.get("/work/out/answer.txt") == b"ok"
             return ExecResult(0, json.dumps({"v": 1 if good else 0}), "", False, 0.1)
+        if cmd == "true":
+            if self.world.runtime_down:
+                raise SandboxError("runtime is down")
+            return ok
         if cmd.startswith("find "):
             return self._list()
         if "ANTHROPIC_API_KEY" in cmd:
@@ -166,6 +178,9 @@ class FakeSandbox:
             raise SandboxLost("killed")
         elif outcome == "crash":
             return ExecResult(1, "", "boom", False, 1.0)
+        elif outcome == "ok-crash":  # right answer written, then a non-zero exit
+            self.files["/work/out/answer.txt"] = b"ok"
+            return ExecResult(1, "", "boom", False, 1.0)
         return ok_result()
 
 
@@ -180,6 +195,7 @@ def _py() -> ExecResult:
 class FakeBackend:
     def __init__(self, world: World) -> None:
         self.world = world
+        self.ttls: list[float] = []
         self.sandboxes: list[FakeSandbox] = []
 
     def create(
@@ -187,13 +203,15 @@ class FakeBackend:
     ) -> Sandbox:
         if self.world.create_fails:
             raise SandboxError("cannot create")
+        self.ttls.append(ttl)
         sb = FakeSandbox(self.world, image, net)
         self.sandboxes.append(sb)
         return sb
 
 
 class FakeProposer:
-    def __init__(self) -> None:
+    def __init__(self, world: World | None = None) -> None:
+        self.world = world
         self.queue: list[Proposal | None | Exception] = []
         self.calls: list[dict[str, Any]] = []
 
@@ -204,10 +222,25 @@ class FakeProposer:
         failure_digest: str,
         history: Any,
     ) -> Proposal | None:
-        prompt = (Path(workdir) / "agent" / "prompt.txt").read_text()
+        root = Path(workdir)
+        prompt = (root / "agent" / "prompt.txt").read_text()
+        files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
         self.calls.append(
-            {"parent": parent, "prompt": prompt, "digest": failure_digest, "history": list(history)}
+            {
+                "parent": parent,
+                "prompt": prompt,
+                "digest": failure_digest,
+                "history": list(history),
+                "files": files,
+            }
         )
+        if self.world is not None:  # the proposer's LLM call, through the proxy
+            w = self.world
+            token = w.proxy.issue_call_token(Role.PROPOSER)
+            body = json.dumps({"model": OPUS, "max_tokens": 1000, "messages": []}).encode()
+            adm = w.proxy.admit(token, body)
+            assert not hasattr(adm, "status"), adm
+            w.proxy.settle(adm, Usage(input=1000, output=500), False, None)  # type: ignore[arg-type]
         item = self.queue.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -268,10 +301,13 @@ def _git(repo: Path, *args: str) -> str:
 
 class World:
     Crash = Crash
+    THRESHOLDS = THRESHOLDS
     SELECT = SELECT
     HOLDOUT = HOLDOUT
     TRAIN = TRAIN
     RUN_COST = RUN_COST
+    PROPOSER_COST = PROPOSER_COST
+    PROPOSER_CAP = PROPOSER_CAP
     RUN_CAP = RUN_CAP
 
     @staticmethod
@@ -283,11 +319,14 @@ class World:
         self.repo = tmp / "repo"
         (self.repo / "agent").mkdir(parents=True)
         (self.repo / "agent" / "prompt.txt").write_bytes(b"v0\n")
+        (self.repo / "notes").mkdir()
+        (self.repo / "notes" / "secret.txt").write_bytes(b"not for the proposer")
+        (self.repo / ".containerignore").write_bytes(b"notes/")
+        self.pack_root = self.repo / "evals" / "pack"  # the pack lives INSIDE the target repo
+        self.write_pack()
         _git(self.repo, "init", "-q", "-b", "main")
         _git(self.repo, "add", "-A")
         _git(self.repo, "commit", "-q", "-m", "seed")
-        self.pack_root = tmp / "pack"
-        self.write_pack()
         self.pack = load_pack(self.pack_root)
         self.real_key = "sk-ant-REAL-KEY"
         self.solver: Callable[[str, str, int], str] = default_solver
@@ -297,8 +336,10 @@ class World:
         self.create_fails = False
         self.put_fails = False
         self.get_fails = False
+        self.runtime_down = False
+        self.redactions: list[list[str]] = []
         self.listing: str | None = None
-        self.proposer = FakeProposer()
+        self.proposer = FakeProposer(self)
         self.gate = FakeGate()
         self.images = FakeImages()
         self.backend = FakeBackend(self)
@@ -332,6 +373,11 @@ class World:
         )
         (root / "splits.json").write_text(json.dumps({"assignment": splits}))
 
+    def _sink(self, call: ProxyCall) -> None:
+        """What the CLI wires: every proxy call lands in the archive (ids are process-local)."""
+        with closing(Archive.open_path(archive_path(self.repo), create_schema=False)) as a:
+            a.insert_proxy_call(replace(call, id=0))
+
     def _new_proxy(self) -> Proxy:
         policy = ProxyPolicy(
             Profile.CLAUDE,
@@ -341,14 +387,23 @@ class World:
                     "medium",
                     max_usd_micros_per_run=RUN_CAP,
                     max_usd_micros_per_gen=100_000_000,
-                )
+                ),
+                Role.PROPOSER: RoleCap(
+                    OPUS,
+                    "high",
+                    max_usd_micros_per_run=PROPOSER_CAP,
+                    max_usd_micros_per_gen=100_000_000,
+                ),
             },
         )
         return Proxy(
             ProxyConfig(
                 policy=policy,
-                sink=InMemorySink(),
-                prices={HAIKU: ModelPrice(1_000_000, 5_000_000)},
+                sink=self._sink,
+                prices={
+                    HAIKU: ModelPrice(1_000_000, 5_000_000),
+                    OPUS: ModelPrice(5_000_000, 25_000_000),
+                },
                 anthropic_base_url="http://upstream.invalid",
                 anthropic_api_key=self.real_key,
             )
@@ -375,12 +430,23 @@ class World:
             proposer=self.proposer,
             gate=self.gate,
             images=self.images,
-            digest=lambda: "digest",
+            digest=self._digest,
             config=OrchestratorConfig(**cfg),
         )
 
-    def executor(self) -> RunExecutor:
-        cfg = OrchestratorConfig(thresholds=THRESHOLDS)
+    def _digest(self, redact: Any) -> str:
+        self.redactions.append(list(redact))
+        return "digest"
+
+    def executor(self, **cfg_args: Any) -> RunExecutor:
+        """An executor for direct runs; creates the batch and candidate rows its proxy calls
+        reference."""
+        db = self.db()
+        if db.get_batch(1) is None:
+            db.create_batch(1, self.pack.content_hash)
+            sha = "0" * 64
+            db.insert_candidate(Candidate("c", None, sha, "x", Stage.PROMOTE, Status.PROMOTED, 0))
+        cfg = OrchestratorConfig(thresholds=THRESHOLDS, **cfg_args)
         return RunExecutor(
             backend=self.backend,
             grader=Grader(self.backend, self.pack, self.pack_root, timeout=5),

@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 
 from iterant.archive import Archive
-from iterant.archive import PackHashMismatch as ArchivePackHashMismatch
 from iterant.contracts import RunKey, Stage, Status
 from iterant.orchestrator import BatchAborted
 from iterant.packs.hashing import PackHashMismatch
 
 TOTAL_RUNS = 36  # (smoke 2 + select 10 + holdout 6) x (candidate + champion)
+BIG = 170_000  # fits the proposer worst case, then stops after about a dozen runs (cap 100k each)
 
 
 def keys(world) -> set[RunKey]:
@@ -22,11 +22,11 @@ def keys(world) -> set[RunKey]:
 
 def test_budget_exhaustion_stops_without_a_verdict_and_resume_finishes(world):
     world.queue(world.proposal("v0", "v1", "h-good"))
-    res = world.orchestrator(budget_usd_micros=150_000).run_generation()
+    res = world.orchestrator(budget_usd_micros=BIG).run_generation()
 
     assert res.stopped == "budget" and res.promoted is None
-    assert res.spent_usd_micros <= 150_000 + world.RUN_COST  # stops before a run could overshoot
-    assert res.spent_usd_micros == len(world.exec_log) * world.RUN_COST
+    assert res.spent_usd_micros <= BIG  # stops before a run could overshoot
+    assert res.spent_usd_micros == world.PROPOSER_COST + len(world.exec_log) * world.RUN_COST
     [cand] = res.candidates
     assert cand.status is Status.ACTIVE  # not rejected: money ran out, not the candidate
     first_runs = len(world.exec_log)
@@ -37,13 +37,14 @@ def test_budget_exhaustion_stops_without_a_verdict_and_resume_finishes(world):
     assert again.batch_id == 1  # resumed, not a new batch
     assert len(world.exec_log) == TOTAL_RUNS  # nothing run twice, nothing skipped
     assert len(set(world.exec_log)) == TOTAL_RUNS
-    assert again.spent_usd_micros == TOTAL_RUNS * world.RUN_COST  # spend carried over
+    assert again.spent_usd_micros == world.PROPOSER_COST + TOTAL_RUNS * world.RUN_COST
 
 
 def test_a_budget_too_small_for_one_run_runs_nothing(world):
     world.queue(world.proposal("v0", "v1", "h"))
-    res = world.orchestrator(budget_usd_micros=world.RUN_CAP - 1).run_generation()
+    res = world.orchestrator(budget_usd_micros=world.PROPOSER_CAP - 1).run_generation()
     assert res.stopped == "budget" and not world.exec_log
+    assert not world.proposer.calls  # the proposer's worst case did not fit either
 
 
 @pytest.mark.parametrize("crash_at", [1, 4, 5, 24, 25, 36])
@@ -85,9 +86,9 @@ def test_crash_between_the_git_promotion_and_the_db_write_is_repaired(world, mon
     assert world.git("tag", "-l", "iterant/gen-1") == "iterant/gen-1"
     runs_before = len(world.exec_log)
 
-    res = world.orchestrator().run_generation()
+    res = world.orchestrator().run_generation()  # repairs gen 1, then starts gen 2
 
-    assert res.promoted == "b1-0" and res.gen == 1 and res.batch_id == 1
+    assert (res.gen, res.batch_id) == (2, 2)  # nothing queued: gen 2 proposes nothing
     assert len(world.exec_log) == runs_before  # no run repeated
     db = world.db()
     promo = db.get_promotion(1)
@@ -125,12 +126,63 @@ def test_crash_after_promoting_rejects_the_rest_of_the_batch(world, monkeypatch)
     assert res.gen == 2 and res.batch_id == 2  # a fresh batch, the old one is closed
 
 
-def test_a_batch_pinned_to_another_pack_is_never_resumed(world):
-    world.queue(world.proposal("v0", "v1", "h"))
-    world.orchestrator(budget_usd_micros=150_000).run_generation()  # leaves batch 1 open
+def test_a_batch_pinned_to_another_pack_is_closed_not_resumed_and_not_a_brick(world):
+    world.queue(world.proposal("v0", "v1", "h-old"))
+    first = world.orchestrator(budget_usd_micros=BIG).run_generation()  # leaves batch 1 open
     world.write_pack(input_suffix="-edited")
     world.reload_pack()
-    with pytest.raises(ArchivePackHashMismatch):
+    world.queue(world.proposal("v0", "v1", "h-new"))
+
+    res = world.orchestrator().run_generation()
+
+    db = world.db()
+    old = db.get_candidate("b1-0")
+    marker = db.get_candidate("b1-closed")
+    assert old is not None and old.status is Status.REJECTED
+    assert marker is not None and marker.hypothesis.startswith("pack-changed")
+    assert (res.batch_id, res.gen, res.promoted) == (2, 1, "b2-0")
+    assert db.get_batch(2).pack_hash == world.pack.content_hash  # type: ignore[union-attr]
+    # the budget is per generation: the closed batch's spend still counts
+    assert res.spent_usd_micros > first.spent_usd_micros
+
+
+def test_a_lost_db_write_is_repaired_even_after_the_pack_changed(world, monkeypatch):
+    world.queue(world.proposal("v0", "v1", "h-good"))
+    real = Archive.record_promotion
+
+    def die(self, promo):
+        raise world.Crash("died")
+
+    monkeypatch.setattr(Archive, "record_promotion", die)
+    with pytest.raises(world.Crash):
+        world.orchestrator().run_generation()
+    monkeypatch.setattr(Archive, "record_promotion", real)
+    world.write_pack(input_suffix="-edited")
+    world.reload_pack()
+    world.queue(world.proposal("v1", "v2", "h-next"))
+
+    res = world.orchestrator().run_generation()
+
+    db = world.db()
+    promo = db.get_promotion(1)
+    assert promo is not None and promo.cand == "b1-0"
+    assert db.get_candidate("b1-0").status is Status.PROMOTED  # type: ignore[union-attr]
+    assert (res.gen, res.promoted) == (2, "b2-0")
+    assert world.git("tag", "-l", "iterant/gen-1") == "iterant/gen-1"
+
+
+def test_a_foreign_gen_tag_fails_with_a_repair_message_not_forever(world, monkeypatch):
+    world.queue(world.proposal("v0", "v1", "h-good"))
+
+    def die(self, promo):
+        raise world.Crash("died")
+
+    monkeypatch.setattr(Archive, "record_promotion", die)
+    with pytest.raises(world.Crash):
+        world.orchestrator().run_generation()
+    monkeypatch.undo()
+    world.git("tag", "-f", "iterant/gen-1", world.git("rev-parse", "main"))  # re-pointed by hand
+    with pytest.raises(BatchAborted, match="delete the tag"):
         world.orchestrator().run_generation()
 
 

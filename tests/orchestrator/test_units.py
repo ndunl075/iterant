@@ -71,13 +71,35 @@ def test_read_out_rejects_an_unlistable_or_vanishing_output():
         read_out(ListSandbox("f\t1\t1\tgone\0"), "/o")  # type: ignore[arg-type]
 
 
-def test_read_out_lets_sandbox_errors_through_as_infra():
-    class Broken(ListSandbox):
+def test_read_out_calls_an_unreadable_file_the_agents_when_the_sandbox_answers():
+    class Unreadable(ListSandbox):
         def get(self, path: str) -> bytes:
-            raise SandboxError("runtime")
+            raise SandboxError("permission denied")
 
-    with pytest.raises(SandboxError):
-        read_out(Broken("f\t1\t1\ta\0"), "/o")  # type: ignore[arg-type]
+    with pytest.raises(OutputRejected):
+        read_out(Unreadable("f	1	1	a\0"), "/o")  # type: ignore[arg-type]
+
+
+def test_read_out_lets_sandbox_errors_through_as_infra_when_the_runtime_is_down():
+    class Down(ListSandbox):
+        def exec(self, cmd: str, timeout: float) -> ExecResult:
+            if cmd == "true":
+                raise SandboxError("runtime gone")
+            return super().exec(cmd, timeout)
+
+        def get(self, path: str) -> bytes:
+            raise SandboxError("runtime gone")
+
+    with pytest.raises(SandboxError) as info:
+        read_out(Down("f	1	1	a\0"), "/o")  # type: ignore[arg-type]
+    assert not isinstance(info.value, OutputRejected)
+
+
+def test_read_out_gives_up_after_its_budget():
+    ticks = iter([0.0, 0.0, 10.0, 20.0, 30.0])
+    sb = ListSandbox("f	1	1	a\0f	1	1	b\0", {"/o/a": b"x", "/o/b": b"y"})
+    with pytest.raises(OutputRejected, match="too long"):
+        read_out(sb, "/o", budget_s=5.0, clock=lambda: next(ticks))  # type: ignore[arg-type]
 
 
 def test_bind_paths_moves_task_and_out_into_the_writable_dir_only():
@@ -97,15 +119,14 @@ def test_agent_command_carries_the_session_token_and_no_real_key():
 
 
 def test_budget_blocks_a_run_that_could_overshoot_and_counts_spend():
-    b = Budget(1000)
+    spent = [0]
+    b = Budget(1000, lambda: spent[0])
     b.check(1000)
-    b.charge(400)
+    spent[0] = 400
     b.check(600)
     with pytest.raises(BudgetExhausted):
         b.check(601)
-    Budget(None).check(10**12)  # unlimited
-    with pytest.raises(ValueError):
-        b.charge(-1)
+    Budget(None, lambda: 10**12).check(10**12)  # unlimited
 
 
 @pytest.mark.parametrize(

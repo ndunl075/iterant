@@ -54,6 +54,7 @@ MAX_RESULT_BYTES = 64 * 1024
 MAX_RESULT_DEPTH = 32
 DEFAULT_TIMEOUT_S = 120.0  # wall-clock limit of one check; ``Grader(timeout=...)`` overrides
 PREFLIGHT_TIMEOUT_S = 30.0
+PUT_ALLOWANCE_S = 2.0  # sandbox lifetime reserved per agent file, so slow puts never expire it
 MAX_NAME_BYTES = 255  # longest file name component most filesystems accept
 
 
@@ -258,7 +259,7 @@ class Grader:
                 self._cpu,
                 self._mem,
                 self._disk,
-                self._timeout + 60.0,
+                self._timeout + 60.0 + PUT_ALLOWANCE_S * len(targets),
                 net="default-deny",
             )
         except Exception:

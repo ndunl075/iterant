@@ -2,14 +2,19 @@
 
 State lives in the archive, so a restarted process picks up where the last one stopped:
 
-* Candidate ids are ``b<batch>-<index>``; the ids say which batch a candidate belongs to.
+* Candidate ids are ``b<batch>-<index>``; the ids say which batch a candidate belongs to. A batch
+  that is abandoned (infra abort, changed pack) gets a ``b<batch>-closed`` marker whose
+  hypothesis is the reason; a batch with a marker is never reopened.
 * A candidate's ``stage`` is where it is *now* (``ACTIVE`` at ``SMOKE`` means the gate passed and
   smoke is pending or half done); ``REJECTED`` at a stage means it was killed there.
 * A run slot ``(batch, cand, task, rep)`` is done once it has a scored row, or a second attempt
   (§6: one retry). Resume runs only the missing slots (and the missing retry), so rows are
   neither duplicated nor skipped.
 * Stage verdicts are recomputed from the archived runs with fixed seeds, never stored.
-* Promotion is git first, then one DB transaction; a lost DB write is repaired on resume.
+* Promotion is git first, then one DB transaction; a lost DB write is repaired on the next start,
+  even if the pack changed in between.
+* One orchestrator per archive (``WriterLock``). Pass it a fresh ``Proxy``: on its first run it
+  preloads the generation's archived calls into the proxy's in-memory ledger.
 
 The champion arm is a normal candidate id (the champion's) whose runs sit in the same batch, so
 every candidate of the batch is paired against the very same champion runs (§3).
@@ -20,16 +25,19 @@ from __future__ import annotations
 import hashlib
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from iterant.archive import (
     Archive,
     GitRefError,
+    archive_path,
     champion_sha,
     diff_sha256,
     ensure_seed,
     find_promoted_commit,
+    gen_tag_sha,
     promote,
 )
 from iterant.contracts import (
@@ -40,6 +48,8 @@ from iterant.contracts import (
     Promotion,
     Proposal,
     Proposer,
+    ProxyCall,
+    Role,
     RunKey,
     SandboxBackend,
     Split,
@@ -48,6 +58,7 @@ from iterant.contracts import (
     TargetConfig,
     Task,
     TriedCandidate,
+    open_archive,
 )
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator.budget import Budget
@@ -57,16 +68,20 @@ from iterant.orchestrator.config import (
     FailureDigest,
     GraderLike,
     ImageSource,
+    InfraRateExceeded,
     OrchestratorConfig,
 )
+from iterant.orchestrator.lock import WriterLock
+from iterant.orchestrator.outcomes import Outcomes
 from iterant.orchestrator.runs import RunExecutor
-from iterant.orchestrator.workspace import DiffStore, export_commit
+from iterant.orchestrator.workspace import DiffStore, export_commit, proposer_view
 from iterant.packs import tasks_in
 from iterant.packs.hashing import verify
 from iterant.proxy import Proxy
 from iterant.stats import Decision, decide_confirm, decide_select
 
 SEED_ID = "seed"
+CLOSED = "closed"
 
 
 @dataclass(frozen=True)
@@ -74,7 +89,8 @@ class CandidateOutcome:
     id: str
     stage: Stage
     status: Status
-    notes: tuple[str, ...]  # why it was killed (this process only; not stored)
+    # Why it was killed (this process only; a closed batch keeps its reason in the archive).
+    notes: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -84,7 +100,8 @@ class GenerationResult:
     candidates: tuple[CandidateOutcome, ...]
     promoted: str | None
     stopped: Literal["done", "budget"]
-    spent_usd_micros: int
+    spent_usd_micros: int  # the whole generation so far (every batch, every role)
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass
@@ -95,7 +112,12 @@ class _Gen:
     budget: Budget
     notes: dict[str, list[str]] = field(default_factory=lambda: {})
     images: dict[str, str] = field(default_factory=lambda: {})
+    warnings: list[str] = field(default_factory=lambda: [])
     digest: str | None = None
+
+
+def _is_marker(c: Candidate) -> bool:
+    return c.id.endswith(f"-{CLOSED}")
 
 
 class Orchestrator:
@@ -129,7 +151,7 @@ class Orchestrator:
         self._digest = digest
         self._cfg = config or OrchestratorConfig()
         self._store = DiffStore(self._repo)
-        self._tasks = {t.id: t for t in pack.tasks}
+        self._outcomes = Outcomes(self._repo)
         self._exec = RunExecutor(
             backend=backend,
             grader=grader,
@@ -138,14 +160,36 @@ class Orchestrator:
             read_input=lambda t: (pack_root / t.input).read_bytes(),
             config=self._cfg,
         )
-        self._worst_run = target.model.max_usd_micros_per_run or 0
+        self._preloaded = False
+        target_cap = proxy.config.policy.roles.get(Role.TARGET)
+        if self._cfg.budget_usd_micros is not None and (
+            target_cap is None or target_cap.max_usd_micros_per_run is None
+        ):
+            raise ValueError("a $ budget needs the claude profile (USD caps on the target role)")
+        self._worst_run = self._worst(Role.TARGET)
+        try:
+            self._pack_rel: str | None = (
+                pack_root.resolve().relative_to(self._repo.resolve()).as_posix()
+            )
+        except ValueError:
+            self._pack_rel = None  # the pack lives outside the repo
 
     # --- entry point --------------------------------------------------------------
 
     def run_generation(self) -> GenerationResult:
-        """Run (or resume) one generation. Raises ``BatchAborted`` on an infra failure, the
-        archive's ``PackHashMismatch`` if a batch being resumed was pinned to another pack, and
-        the packs module's if the pack on disk changed (invariant 7)."""
+        """Run (or resume) one generation.
+
+        Raises ``OrchestratorBusy`` if another orchestrator holds the archive, ``BatchAborted``
+        on an infra failure (``InfraRateExceeded`` closes the batch; the others leave it
+        resumable), and the packs module's ``PackHashMismatch`` if the pack on disk is not the
+        pack this orchestrator was given (invariant 7). A batch pinned to an older pack is
+        closed and a new one opened.
+        """
+        with WriterLock(self._repo):
+            return self._run()
+
+    def _run(self) -> GenerationResult:
+        self._reconcile_promotion()
         verify(self._pack, self._pack.content_hash, self._pack_root)
         champ, last_gen = self._champion()
         try:
@@ -155,9 +199,14 @@ class Orchestrator:
         sha = champion_sha(self._repo)
         if sha is None:
             raise BatchAborted("no iterant/champion branch")
-        batch = self._open_batch(last_gen)
+        batch = self._open_batch(last_gen, champ)
+        self._repair_spend(batch)
         self._proxy.begin_generation(batch.gen)
-        g = _Gen(batch, champ, sha, Budget(self._cfg.budget_usd_micros, self._spent(batch, champ)))
+        if not self._preloaded:
+            self._proxy.preload(self._gen_calls(batch.gen))
+            self._preloaded = True
+        budget = Budget(self._cfg.budget_usd_micros, lambda: self._gen_spend(batch.gen))
+        g = _Gen(batch, champ, sha, budget)
         stopped: Literal["done", "budget"] = "done"
         try:
             self._propose_all(g)
@@ -168,6 +217,9 @@ class Orchestrator:
             self._promote_phase(g)
         except BudgetExhausted:
             stopped = "budget"
+        except InfraRateExceeded as exc:
+            self._close(batch, champ, f"infra-abort: {exc}")
+            raise
         return self._result(g, stopped)
 
     # --- champion, batch ------------------------------------------------------------
@@ -193,17 +245,43 @@ class Orchestrator:
             latest, i = b, i + 1
         return latest
 
-    def _members(self, batch_id: int) -> list[Candidate]:
+    def _all_members(self, batch_id: int) -> list[Candidate]:
         prefix = f"b{batch_id}-"
         return [c for c in self._archive.iter_candidates() if c.id.startswith(prefix)]
 
-    def _open_batch(self, last_gen: int) -> Batch:
+    def _members(self, batch_id: int) -> list[Candidate]:
+        """The batch's real candidates (the closed marker is not one)."""
+        return [c for c in self._all_members(batch_id) if not _is_marker(c)]
+
+    def _close(self, batch: Batch, champ: Candidate, reason: str) -> None:
+        """Abandon ``batch``: reject its live candidates and leave the reason on a marker."""
+        members = self._all_members(batch.id)
+        if any(_is_marker(c) for c in members):
+            return
+        for c in members:
+            if c.status is Status.ACTIVE:
+                self._archive.finish_candidate(c.id, Status.REJECTED)
+        marker = Candidate(
+            f"b{batch.id}-{CLOSED}",
+            champ.id,
+            diff_sha256(b""),
+            reason[:500],
+            Stage.PROPOSE,
+            Status.ERROR,
+            0,
+        )
+        self._archive.insert_candidate(marker)
+
+    def _open_batch(self, last_gen: int, champ: Candidate) -> Batch:
         """The unfinished batch of the next generation, or a new one."""
         latest = self._latest_batch()
         if latest is not None:
-            members = self._members(latest.id)
+            all_members = self._all_members(latest.id)
+            members = [c for c in all_members if not _is_marker(c)]
             promo = self._archive.latest_promotion()
-            if promo is not None and promo.cand.startswith(f"b{latest.id}-"):
+            if any(_is_marker(c) for c in all_members):
+                pass
+            elif promo is not None and promo.cand.startswith(f"b{latest.id}-"):
                 # Crashed after promoting: the rest of that batch lost to the winner.
                 for c in members:
                     if c.status is Status.ACTIVE:
@@ -212,57 +290,146 @@ class Orchestrator:
                 len(members) < self._cfg.candidates_per_gen
                 or any(c.status is Status.ACTIVE for c in members)
             ):
-                self._archive.require_pack_hash(latest.id, self._pack.content_hash)
-                return latest
+                if latest.pack_hash == self._pack.content_hash:
+                    return latest
+                self._close(
+                    latest,
+                    champ,
+                    f"pack-changed: batch pinned to {latest.pack_hash}, "
+                    f"current pack is {self._pack.content_hash}",
+                )
         return self._archive.create_batch(last_gen + 1, self._pack.content_hash)
 
-    def _spent(self, batch: Batch, champ: Candidate) -> int:
-        ids = [champ.id, *(c.id for c in self._members(batch.id))]
-        return sum(
-            r.usd_micros
-            for cid in ids
-            for r in self._archive.runs_for_candidate(cid, batch=batch.id, latest_only=False)
-        )
+    def _reconcile_promotion(self) -> None:
+        """Finish a promotion whose git half happened but whose DB write was lost.
+
+        Runs before the pack check: the evidence is in the archived runs, which do not depend on
+        the pack on disk."""
+        latest = self._latest_batch()
+        if latest is None or self._archive.get_promotion(latest.gen) is not None:
+            return
+        pending = [
+            c
+            for c in self._members(latest.id)
+            if c.status is Status.ACTIVE and c.stage is Stage.PROMOTE
+        ]
+        if not pending:
+            return
+        for c in pending:
+            try:
+                commit = find_promoted_commit(self._repo, c, latest.gen)
+            except GitRefError:
+                continue
+            if commit is not None and c.parent is not None:
+                sel = self._decide(latest.id, c.parent, c.id, Split.SELECT)
+                conf = self._decide(latest.id, c.parent, c.id, Split.HOLDOUT)
+                self._archive.record_promotion(
+                    Promotion(latest.gen, c.id, sel.delta, sel.p, conf.delta, conf.p)
+                )
+                return
+        if gen_tag_sha(self._repo, latest.gen) is not None:
+            raise BatchAborted(
+                f"tag iterant/gen-{latest.gen} exists but belongs to none of batch "
+                f"{latest.id}'s candidates; delete the tag or fix the archive by hand, then rerun"
+            )
+
+    def _repair_spend(self, batch: Batch) -> None:
+        """A crash between ``insert_run`` and ``add_spend`` leaves a candidate's spend short;
+        bring it up to what its run rows say."""
+        for c in self._members(batch.id):
+            if c.status is not Status.ACTIVE:
+                continue
+            runs = self._archive.runs_for_candidate(c.id, batch=batch.id, latest_only=False)
+            short = sum(r.usd_micros for r in runs) - c.usd_micros
+            if short > 0:
+                self._archive.add_spend(c.id, short)
+
+    # --- spend (from the proxy's archived calls) --------------------------------------
+
+    def _worst(self, role: Role) -> int:
+        cap = self._proxy.config.policy.roles.get(role)
+        return (cap.max_usd_micros_per_run or 0) if cap else 0
+
+    def _gen_call_ids(self, gen: int) -> list[tuple[int, int]]:
+        """``(call id, usd)`` of every proxy call of generation ``gen``: runs of its batches,
+        plus calls outside any run made since its first batch started."""
+        con = open_archive(archive_path(self._repo))
+        try:
+            batches = con.execute(
+                "SELECT started_at FROM batches WHERE gen = ? ORDER BY id", (gen,)
+            ).fetchall()
+            if not batches:
+                return []
+            # proxy timestamps have whole-second precision, so compare at that precision
+            since = datetime.fromisoformat(str(batches[0][0])).replace(microsecond=0)
+            out = [
+                (int(r[0]), int(r[1]))
+                for r in con.execute(
+                    "SELECT id, usd_micros FROM proxy_calls WHERE batch IN"
+                    " (SELECT id FROM batches WHERE gen = ?)",
+                    (gen,),
+                )
+            ]
+            for row in con.execute(
+                "SELECT id, usd_micros, created_at FROM proxy_calls WHERE batch IS NULL"
+            ):
+                if datetime.fromisoformat(str(row[2])) >= since:
+                    out.append((int(row[0]), int(row[1])))
+            return out
+        finally:
+            con.close()
+
+    def _gen_spend(self, gen: int) -> int:
+        return sum(usd for _id, usd in self._gen_call_ids(gen))
+
+    def _gen_calls(self, gen: int) -> list[ProxyCall]:
+        calls = (self._archive.get_proxy_call(i) for i, _ in self._gen_call_ids(gen))
+        return [c for c in calls if c is not None]
 
     # --- PROPOSE --------------------------------------------------------------------
+
+    def _redactions(self) -> list[str]:
+        """Everything the failure digest must strip: hidden check paths and contents."""
+        out: set[str] = set()
+        for t in self._pack.tasks:
+            check = Path(str(t.check))
+            out.add(check.as_posix())
+            if self._pack_rel:
+                out.add(f"{self._pack_rel}/{check.as_posix()}")
+            try:
+                text = (self._pack_root / check).read_text(encoding="utf-8").strip()
+            except (OSError, ValueError):
+                continue
+            if text:
+                out.add(text)
+        return sorted(out)
 
     def _propose_all(self, g: _Gen) -> None:
         for i in range(self._cfg.candidates_per_gen):
             cid = f"b{g.batch.id}-{i}"
             if self._archive.get_candidate(cid) is None:
+                g.budget.check(self._worst(Role.PROPOSER))
                 self._propose_one(g, cid)
 
     def _add(
         self, g: _Gen, cid: str, diff: str, hypothesis: str, stage: Stage, status: Status
     ) -> None:
+        sha = self._store.put(diff) if diff else diff_sha256(b"")
         self._archive.insert_candidate(
-            Candidate(
-                cid,
-                g.champ.id,
-                self._store.put(diff) if diff else diff_sha256(b""),
-                hypothesis,
-                stage,
-                status,
-                0,
-            )
+            Candidate(cid, g.champ.id, sha, hypothesis, stage, status, 0)
         )
 
     def _propose_one(self, g: _Gen, cid: str) -> None:
         if g.digest is None:
-            g.digest = self._digest()
+            g.digest = self._digest(self._redactions())
         with tempfile.TemporaryDirectory(prefix="iterant-propose-") as tmp:
-            work = export_commit(self._repo, g.champ_sha, Path(tmp) / "work")
+            full = export_commit(self._repo, g.champ_sha, Path(tmp) / "full")
+            work = proposer_view(full, self._pack_rel, Path(tmp) / "work")
             try:
                 proposal = self._proposer.propose(g.champ.id, work, g.digest, self._history())
             except Exception as exc:
-                self._add(
-                    g,
-                    cid,
-                    "",
-                    f"proposer failed: {type(exc).__name__}",
-                    Stage.PROPOSE,
-                    Status.ERROR,
-                )
+                msg = f"proposer failed: {type(exc).__name__}"
+                self._add(g, cid, "", msg, Stage.PROPOSE, Status.ERROR)
                 return
         if proposal is None:
             self._add(g, cid, "", "no diff", Stage.PROPOSE, Status.REJECTED)
@@ -275,11 +442,11 @@ class Orchestrator:
         self._add(g, cid, proposal.diff, proposal.hypothesis, Stage.GATE, Status.ACTIVE)
 
     def _history(self) -> list[TriedCandidate]:
-        out: list[TriedCandidate] = []
-        for c in self._archive.iter_candidates():
-            if c.parent is not None:
-                out.append(TriedCandidate(c, self._store.get(c.diff_sha)))
-        return out
+        return [
+            TriedCandidate(c, self._store.get(c.diff_sha))
+            for c in self._archive.iter_candidates()
+            if c.parent is not None and not _is_marker(c)
+        ]
 
     # --- GATE -----------------------------------------------------------------------
 
@@ -290,6 +457,7 @@ class Orchestrator:
 
     def _gate_phase(self, g: _Gen) -> None:
         for c in self._active(g, Stage.GATE):
+            g.budget.check(self._worst(Role.AUDITOR))
             proposal = Proposal(self._store.get(c.diff_sha), c.hypothesis)
             try:
                 with tempfile.TemporaryDirectory(prefix="iterant-gate-") as tmp:
@@ -315,21 +483,21 @@ class Orchestrator:
             return
         tasks = tasks_in(self._pack, Split.TRAIN)[: self._cfg.thresholds.smoke_tasks]
         self._run_slots(g, tasks, 1, [g.champ.id, *(c.id for c in cands)], Split.TRAIN)
-        champ = self._scores(g, g.champ.id, Split.TRAIN)
+        champ_faults = self._outcomes.faults(g.batch.id, g.champ.id)
+        ids = {t.id for t in tasks}
         for c in cands:
-            # TODO(contract): RunResult has no crash flag, so "a crash or timeout the champion
-            # didn't have" is approximated: all-zero where the champion scored.
-            mine = self._scores(g, c.id, Split.TRAIN)
-            both = [t for t in mine if t in champ]
-            if both and sum(mine[t] for t in both) == 0 and sum(champ[t] for t in both) > 0:
-                g.notes[c.id] = ["smoke: scored 0 on every smoke task the champion scored on"]
+            # §3: kill on any crash or timeout the champion didn't have on the same task.
+            mine = self._outcomes.faults(g.batch.id, c.id)
+            new = sorted(
+                f"{task}: {fault}"
+                for (task, rep), fault in mine.items()
+                if task in ids and (task, rep) not in champ_faults
+            )
+            if new:
+                g.notes[c.id] = [f"smoke: {', '.join(new)}"]
                 self._archive.finish_candidate(c.id, Status.REJECTED, stage=Stage.SMOKE)
             else:
                 self._archive.advance_stage(c.id, Stage.SELECT)
-
-    def _scores(self, g: _Gen, cid: str, split: Split) -> dict[str, float]:
-        runs = self._archive.runs_for_candidate(cid, split=split, batch=g.batch.id)
-        return {r.key.task: r.score for r in runs if r.score is not None}
 
     # --- SELECT, CONFIRM ------------------------------------------------------------
 
@@ -339,7 +507,8 @@ class Orchestrator:
         if not cands:
             return
         tasks = tasks_in(self._pack, Split.SELECT)[: t.select_tasks]
-        self._run_slots(g, tasks, t.select_reps, [g.champ.id, *(c.id for c in cands)], Split.SELECT)
+        arms = [g.champ.id, *(c.id for c in cands)]
+        self._run_slots(g, tasks, t.select_reps, arms, Split.SELECT)
         for c in cands:
             self._judge(g, c, Split.SELECT, Stage.SELECT, Stage.CONFIRM)
 
@@ -351,27 +520,28 @@ class Orchestrator:
         tasks = tasks_in(self._pack, Split.HOLDOUT)[: t.holdout_tasks]
         arms = [g.champ.id, *(c.id for c in cands)]
         self._run_slots(g, tasks, t.holdout_reps, arms, Split.HOLDOUT)
+        if self._archive.holdout_warning_due(t.holdout_query_warn):
+            g.warnings.append(
+                f"holdout has been queried {self._archive.holdout_query_count()} times "
+                f"(warn after {t.holdout_query_warn}): add fresh holdout tasks"
+            )
         for c in cands:
             self._judge(g, c, Split.HOLDOUT, Stage.CONFIRM, Stage.PROMOTE)
 
-    def _decide(self, g: _Gen, cid: str, split: Split) -> Decision:
+    def _decide(self, batch_id: int, champ_id: str, cid: str, split: Split) -> Decision:
         runs = {
             who: self._archive.runs_for_candidate(
-                who, split=split, batch=g.batch.id, latest_only=False
+                who, split=split, batch=batch_id, latest_only=False
             )
-            for who in (cid, g.champ.id)
+            for who in (cid, champ_id)
         }
-        seed = int.from_bytes(
-            hashlib.sha256(f"{self._cfg.seed}:{g.batch.id}:{cid}:{split.value}".encode()).digest()[
-                :8
-            ],
-            "big",
-        )
+        tag = f"{self._cfg.seed}:{batch_id}:{cid}:{split.value}"
+        seed = int.from_bytes(hashlib.sha256(tag.encode()).digest()[:8], "big")
         decide = decide_select if split is Split.SELECT else decide_confirm
-        return decide(runs[cid], runs[g.champ.id], self._cfg.thresholds, seed=seed)
+        return decide(runs[cid], runs[champ_id], self._cfg.thresholds, seed=seed)
 
     def _judge(self, g: _Gen, c: Candidate, split: Split, stage: Stage, nxt: Stage) -> None:
-        d = self._decide(g, c.id, split)
+        d = self._decide(g.batch.id, g.champ.id, c.id, split)
         if d.accepted:
             self._archive.advance_stage(c.id, nxt)
         else:
@@ -385,7 +555,11 @@ class Orchestrator:
         if not ready:
             return
         scored = [
-            (self._decide(g, c.id, Split.HOLDOUT), self._decide(g, c.id, Split.SELECT), c)
+            (
+                self._decide(g.batch.id, g.champ.id, c.id, Split.HOLDOUT),
+                self._decide(g.batch.id, g.champ.id, c.id, Split.SELECT),
+                c,
+            )
             for c in ready
         ]
         confirm, select, winner = max(scored, key=lambda s: (s[0].delta, s[1].delta, s[2].id))
@@ -444,9 +618,10 @@ class Orchestrator:
                     while True:
                         g.budget.check(self._worst_run)
                         key = RunKey(g.batch.id, cid, task.id, rep, attempt)
-                        run = self._exec.execute(key, task, g.images[cid])
+                        ran = self._exec.execute(key, task, g.images[cid])
+                        run = ran.result
+                        self._outcomes.record(key, ran.fault)
                         self._archive.insert_run(run)
-                        g.budget.charge(run.usd_micros)
                         if cid != g.champ.id:
                             self._archive.add_spend(cid, run.usd_micros)
                         if run.score is not None or attempt >= 1:
@@ -455,17 +630,25 @@ class Orchestrator:
         self._guard_infra(g, split)
 
     def _guard_infra(self, g: _Gen, split: Split) -> None:
-        finals = [r for r in self._archive.latest_runs(g.batch.id).values() if r.split is split]
-        bad = sum(1 for r in finals if r.score is None)
+        """Close the batch when the *champion* arm keeps hitting infra errors.
+
+        Only the champion's runs count: the candidate cannot cause those. Refusals are not
+        counted (a candidate steers its own); the stats' refusal guard owns them."""
+        finals = [
+            r
+            for (cid, _t, _r), r in self._archive.latest_runs(g.batch.id).items()
+            if cid == g.champ.id and r.split is split
+        ]
+        bad = sum(1 for r in finals if r.infra_err)
         if finals and bad / len(finals) > self._cfg.max_infra_rate:
-            raise BatchAborted(
-                f"{bad} of {len(finals)} {split.value} runs ended in an infra error or refusal"
+            raise InfraRateExceeded(
+                f"{bad} of {len(finals)} champion {split.value} runs ended in an infra error"
             )
 
     # --- result ---------------------------------------------------------------------
 
     def _result(self, g: _Gen, stopped: Literal["done", "budget"]) -> GenerationResult:
-        members = self._members(g.batch.id)
+        members = self._all_members(g.batch.id)
         promoted = next((c.id for c in members if c.status is Status.PROMOTED), None)
         return GenerationResult(
             gen=g.batch.gen,
@@ -476,5 +659,6 @@ class Orchestrator:
             ),
             promoted=promoted,
             stopped=stopped,
-            spent_usd_micros=g.budget.spent,
+            spent_usd_micros=self._gen_spend(g.batch.gen),
+            warnings=tuple(g.warnings),
         )

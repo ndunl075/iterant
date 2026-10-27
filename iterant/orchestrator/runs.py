@@ -4,11 +4,13 @@
 Who is to blame decides the result:
 
 * The candidate's doing scores 0.0: ``ExecResult.sandbox_lost``, a ``SandboxLost`` from
-  ``exec``/``get`` afterwards, a timeout, truncated output, and ``/out`` that breaks the
-  invariant 8 limits (links, special files, too big, unlistable).
+  ``exec``/``get`` afterwards, a timeout, truncated output, ``/out`` that breaks the invariant 8
+  limits (links, special files, too big, unlistable, too slow to read), and any ``get`` failure
+  after the agent ran while the sandbox still answers (``chmod 000``, a FIFO, a path too deep).
 * A refusal (the proxy saw one) is ``refusal=True``, no score.
-* Everything else that goes wrong (sandbox create/put/get failures, grader infra errors) is
-  ``infra_err=True``, no score. The caller retries once, then drops the task pair.
+* Everything else that goes wrong (sandbox create/put failures, a runtime that stops answering
+  while ``/out`` is read, grader infra errors) is ``infra_err=True``, no score. The caller
+  retries once, then drops the task pair.
 
 Spend and tokens come from the proxy ledger, never from the agent (invariant 2).
 """
@@ -18,6 +20,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from iterant.contracts import (
     ExecResult,
@@ -37,10 +40,11 @@ from iterant.grader.outfiles import (
 )
 from iterant.orchestrator.config import GraderLike, OrchestratorConfig
 from iterant.proxy import Proxy
-from iterant.sandbox import SandboxLost
+from iterant.sandbox import SandboxError, SandboxLost
 from iterant.sandbox.container import PROXY_ENV
 
 _LIST_TIMEOUT_S = 30.0
+_PROBE_TIMEOUT_S = 10.0
 _TTL_MARGIN_S = 120.0
 # One record per entry: type, hard-link count, size, path relative to the out dir, NUL-ended.
 _LIST_CMD = r"find {out} -mindepth 1 -printf '%y\t%n\t%s\t%P\0'"
@@ -62,14 +66,37 @@ def agent_command(run: str, token: str, cfg: OrchestratorConfig) -> str:
     )
 
 
-def read_out(sandbox: Sandbox, out_dir: str) -> dict[str, bytes]:
+def sandbox_ttl(cfg: OrchestratorConfig) -> float:
+    """The agent sandbox must outlive the agent run, the listing and the whole read budget, so
+    an expired sandbox (an infra error) can never be the agent's doing."""
+    return cfg.run_timeout_s + _LIST_TIMEOUT_S + cfg.read_budget_s + _TTL_MARGIN_S
+
+
+def _answers(sandbox: Sandbox) -> bool:
+    """True if the sandbox still runs a trivial command: the runtime is fine."""
+    try:
+        res = sandbox.exec("true", _PROBE_TIMEOUT_S)
+    except Exception:
+        return False
+    return res.exit_code == 0 and not (res.timed_out or res.sandbox_lost or res.truncated)
+
+
+def read_out(
+    sandbox: Sandbox,
+    out_dir: str,
+    *,
+    budget_s: float = 300.0,
+    clock: Callable[[], float] = time.monotonic,
+) -> dict[str, bytes]:
     """Read the agent's ``/out`` as plain data under the invariant 8 limits.
 
     Lists with ``find`` (types, link counts and sizes are checked before anything is read),
-    then fetches regular single-link files one by one. Raises ``OutputRejected`` when the
-    output breaks a rule or cannot be listed (the agent's doing), ``SandboxLost`` or another
-    ``SandboxError`` from the sandbox itself.
+    then fetches regular single-link files one by one within ``budget_s``. Raises
+    ``OutputRejected`` when the output breaks a rule, cannot be read, or takes too long (the
+    agent's doing); ``SandboxLost`` if the sandbox is gone; another ``SandboxError`` only when
+    the sandbox stopped answering for reasons the agent cannot cause (an infra error).
     """
+    deadline = clock() + budget_s
     listing = sandbox.exec(_LIST_CMD.format(out=out_dir), _LIST_TIMEOUT_S)
     if listing.timed_out or listing.truncated or listing.sandbox_lost or listing.exit_code != 0:
         raise OutputRejected("output cannot be listed")
@@ -98,11 +125,28 @@ def read_out(sandbox: Sandbox, out_dir: str) -> dict[str, bytes]:
         raise OutputRejected("output too large")
     files: dict[str, bytes] = {}
     for rel in paths:
+        if clock() > deadline:
+            raise OutputRejected("output took too long to read")
         try:
             files[rel] = sandbox.get(f"{out_dir}/{rel}")
         except (FileNotFoundError, IsADirectoryError) as exc:
             raise OutputRejected("output changed while reading") from exc
+        except SandboxLost:
+            raise
+        except SandboxError as exc:
+            if _answers(sandbox):  # the runtime is fine, so the file is the problem
+                raise OutputRejected("unreadable output") from exc
+            raise
     return files
+
+
+@dataclass(frozen=True)
+class Executed:
+    """A run's result plus how the agent ended, for the SMOKE rule. ``fault`` is None unless
+    the run crashed (non-zero exit), timed out, lost its sandbox or left unusable output."""
+
+    result: RunResult
+    fault: str | None
 
 
 class RunExecutor:
@@ -125,38 +169,49 @@ class RunExecutor:
         self._read_input = read_input
         self._cfg = config
 
-    def execute(self, key: RunKey, task: Task, image: str) -> RunResult:
+    def execute(self, key: RunKey, task: Task, image: str) -> Executed:
         start = time.monotonic()
         cfg = self._cfg
+        before = self._proxy.run_usage(key)  # a key re-run in this process must not double count
 
         def finish(
-            score: float | None, *, infra: bool = False, wall: float | None = None
-        ) -> RunResult:
-            usage = self._proxy.run_usage(key)
-            refused = usage.refusals > 0
+            score: float | None,
+            *,
+            infra: bool = False,
+            wall: float | None = None,
+            fault: str | None = None,
+        ) -> Executed:
+            now = self._proxy.run_usage(key)
+            refused = now.refusals > before.refusals
             if refused:
-                score, infra = None, False
+                score, infra, fault = None, False, None
             elif score is None:
                 infra = True
-            return RunResult(
-                key=key,
-                split=task.split,
-                score=score,
-                in_tok=usage.in_tok,
-                out_tok=usage.out_tok,
-                usd_micros=usage.usd_micros,
-                wall_s=wall if wall is not None else time.monotonic() - start,
-                refusal=refused,
-                infra_err=infra,
+            return Executed(
+                RunResult(
+                    key=key,
+                    split=task.split,
+                    score=score,
+                    in_tok=now.in_tok - before.in_tok,
+                    out_tok=now.out_tok - before.out_tok,
+                    usd_micros=now.usd_micros - before.usd_micros,
+                    wall_s=wall if wall is not None else time.monotonic() - start,
+                    refusal=refused,
+                    infra_err=infra,
+                ),
+                fault,
             )
 
+        token: str | None = None
         try:
             input_bytes = self._read_input(task)
-            token = self._proxy.issue_run_token(Role.TARGET, key, cfg.run_timeout_s + _TTL_MARGIN_S)
+            token = self._proxy.issue_run_token(Role.TARGET, key, sandbox_ttl(cfg))
             sandbox = self._backend.create(
-                image, cfg.cpu, cfg.mem, cfg.disk, cfg.run_timeout_s + _TTL_MARGIN_S, "proxy-only"
+                image, cfg.cpu, cfg.mem, cfg.disk, sandbox_ttl(cfg), "proxy-only"
             )
         except Exception:
+            if token is not None:
+                self._proxy.sessions.revoke_run(key)
             return finish(None, infra=True)
         files: dict[str, bytes] | None = None
         agent_wall: float | None = None
@@ -168,11 +223,14 @@ class RunExecutor:
             try:
                 res = sandbox.exec(agent_command(self._run, token, cfg), cfg.run_timeout_s)
                 agent_wall = res.wall_s
-                if _candidate_failed(res):
-                    return finish(0.0, wall=agent_wall)
-                files = read_out(sandbox, cfg.out_dir)
-            except (OutputRejected, SandboxLost):
-                return finish(0.0, wall=agent_wall)
+                bad = _fault(res)
+                if bad is not None:
+                    return finish(0.0, wall=agent_wall, fault=bad)
+                files = read_out(sandbox, cfg.out_dir, budget_s=cfg.read_budget_s)
+            except OutputRejected:
+                return finish(0.0, wall=agent_wall, fault="bad-output")
+            except SandboxLost:
+                return finish(0.0, wall=agent_wall, fault="lost")
             except Exception:
                 return finish(None, infra=True, wall=agent_wall)
         finally:
@@ -181,11 +239,17 @@ class RunExecutor:
                 sandbox.destroy()
             except Exception:  # best-effort; the backend ttl reaps it
                 pass
-        if self._proxy.run_usage(key).refusals > 0:
+        if self._proxy.run_usage(key).refusals > before.refusals:
             return finish(None, wall=agent_wall)  # refused: no point grading
         graded = self._grader.grade(task, files)
-        return finish(graded.score, wall=agent_wall)
+        return finish(graded.score, wall=agent_wall, fault="crash" if res.exit_code != 0 else None)
 
 
-def _candidate_failed(res: ExecResult) -> bool:
-    return res.sandbox_lost or res.timed_out or res.truncated
+def _fault(res: ExecResult) -> str | None:
+    if res.sandbox_lost:
+        return "lost"
+    if res.timed_out:
+        return "timeout"
+    if res.truncated:
+        return "truncated"
+    return None

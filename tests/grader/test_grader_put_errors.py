@@ -52,11 +52,13 @@ class Backend:
     def __init__(self, fail: Exception | None = None) -> None:
         self.fail = fail
         self.created = 0
+        self.ttls: list[float] = []
 
     def create(
         self, image: str, cpu: float, mem: int, disk: int, ttl: float, net: NetMode = "proxy-only"
     ) -> Sandbox:
         self.created += 1
+        self.ttls.append(ttl)
         return PutFailSandbox(self.fail)
 
 
@@ -99,3 +101,12 @@ def test_overlong_path_component_scores_zero(tmp_path: Path) -> None:
     backend = Backend()
     r = Grader(backend, PACK, tmp_path).grade(_task(tmp_path), {"x" * 300: b"x"})
     assert r.score == 0.0 and r.error is None
+
+
+def test_grader_sandbox_outlives_its_slow_puts(tmp_path: Path) -> None:
+    from iterant.grader.grader import PUT_ALLOWANCE_S
+
+    backend = Backend()
+    files = {f"f{i}": b"x" for i in range(1000)}
+    Grader(backend, PACK, tmp_path, timeout=30).grade(_task(tmp_path), files)
+    assert backend.ttls[0] >= 30 + 60 + 1000 * PUT_ALLOWANCE_S

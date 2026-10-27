@@ -25,7 +25,7 @@ Design details: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Quick start (reference agent, free profile)
 
-The reference agent in [`examples/reference-agent/`](examples/reference-agent/) is a small question-answering agent. It ships with a free-profile `iterant.toml` (`llama3.1:8b`) and a 57-task reference pack in `evals/reference-pack/`, and it reads its model from `iterant.toml`, so no edits are needed. Run the steps from a checkout of this repo.
+The reference agent in [`examples/reference-agent/`](examples/reference-agent/) is a small question-answering agent. It ships with a free-profile `iterant.toml` (`llama3.1:8b`) and a 209-task reference pack in `evals/reference-pack/`, and it reads its model from `iterant.toml`, so no edits are needed. Run the steps from a checkout of this repo.
 
 ```sh
 # 1. Install Iterant (from the Iterant checkout; run every `iterant` command from the Iterant checkout, not from ../my-agent).
@@ -39,8 +39,8 @@ cp -r examples/reference-agent ../my-agent
 ollama pull llama3.1:8b
 
 # 4. Baseline pass rate, variance, smallest detectable gain and cost
-#    (the reference pack has 20 select tasks).
-uv run iterant estimate --backend podman --split select --tasks 20 --reps 2 ../my-agent
+#    (the reference pack has 80 select tasks).
+uv run iterant estimate --backend podman --split select --tasks 80 --reps 2 ../my-agent
 
 # 5. A/A test: the champion against itself must be falsely accepted at most 5% of the time.
 uv run iterant aa-test --backend podman ../my-agent
@@ -57,7 +57,7 @@ Notes:
 
 - Every command takes an optional `repo` as its last argument (default: the current directory).
 - `iterant run` refuses to start unless a matching `iterant estimate` (on the `select` split, with at least the select task and rep counts, or every select task in your pack if it has fewer than 80) and a passing `iterant aa-test` exist for this pack, profile, model and config. `--skip-calibration` overrides this (not recommended).
-- With the defaults (the `balanced` preset: `select` 80 tasks x 2 reps at p < 0.10, `holdout` 40 x 2 at p < 0.5, `--delta-min 0.05`; `--preset strict` uses p < 0.05 and 0.2 with 80 holdout tasks), a pack with fewer tasks gets smaller splits and cannot detect a 5-point gain. The reference pack is small (20 select, 11 holdout): it is a demo, not a benchmark. `estimate` reports the smallest gain it can detect. Flags such as `--select-tasks`, `--select-reps`, `--holdout-tasks`, `--holdout-reps`, `--smoke-tasks`, `--select-p`, `--holdout-p` and `--delta-min` override the preset. `estimate` prints the chance of accepting a +3, +5, +8 and +12 pt gain. A calibration record only counts if these flags match the ones you pass to `run`.
+- With the defaults (the `balanced` preset: `select` 80 tasks x 2 reps at p < 0.10, `holdout` 40 x 2 at p < 0.5, `--delta-min 0.05`; `--preset strict` uses p < 0.05 and 0.2 with 80 holdout tasks), a pack with fewer tasks gets smaller splits and cannot detect a 5-point gain. The reference pack has 80 select and 40 holdout tasks (209 in all, split 80/40/32/57): enough for the defaults, but it is a demo, not a benchmark. `estimate` reports the smallest gain it can detect. Flags such as `--select-tasks`, `--select-reps`, `--holdout-tasks`, `--holdout-reps`, `--smoke-tasks`, `--select-p`, `--holdout-p` and `--delta-min` override the preset. `estimate` prints the chance of accepting a +3, +5, +8 and +12 pt gain. A calibration record only counts if these flags match the ones you pass to `run`.
 - Use `--backend docker --unsafe-container` for Docker. The Docker daemon is root-equivalent, so use it on dev machines only.
 - By default the proxy binds an address that sandboxes can reach through the container runtime. That address is reachable from your local network; requests are token-gated. Use `--proxy-bind` to change it.
 - Run `uv run iterant <command> --help` for every flag.

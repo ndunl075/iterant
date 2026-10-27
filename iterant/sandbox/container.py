@@ -383,8 +383,8 @@ class ContainerSandbox:
                 if out.returncode != 0 and not _gone(out):
                     if argv[1:3] == ["rm", "-f"] and self._confirmed_removed(argv[3]):
                         # e.g. rootless podman fails killing its netns helper after the
-                        # container itself is already deleted
-                        log.warning("%s: %s", " ".join(argv), _text(out.stderr).strip())
+                        # container itself is already deleted; harmless, so not a warning
+                        log.debug("%s: %s", " ".join(argv), _text(out.stderr).strip())
                         continue
                     errors.append(f"{' '.join(argv)}: {_text(out.stderr).strip()}")
             if errors:

@@ -6,7 +6,7 @@ own project: its dependencies are in `requirements.txt`, not in Iterant's.
 - `agent/loop.py`: the model/tool loop (editable by Iterant).
 - `prompts/`, `tools/`: system prompt and tools (editable).
 - `kb/facts.json`, `agent/__main__.py`, `Containerfile`, `iterant.toml`: frozen.
-- `evals/reference-pack/`: the task pack (57 self-written tasks: arithmetic, facts about the
+- `evals/reference-pack/`: the task pack (209 self-written tasks: arithmetic, facts about the
   demo company, yes/no). `evals/reference-pack/generate.py` regenerates it. The pack directory is always
   excluded from the agent's image and the proposer's view, whatever `.containerignore` says.
 
@@ -30,4 +30,4 @@ another local model. For the paid claude profile, write a new config:
     cd examples/reference-agent && git init && git add -A && git commit -m init
     iterant estimate .          # podman by default; --backend firecracker needs Linux + /dev/kvm
 
-The pack has 57 tasks, so the splits are proportional (`iterant estimate` says so).
+The pack has 209 tasks: 80 select, 40 holdout, 32 test and 57 train, so the default acceptance sizes apply.

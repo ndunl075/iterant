@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[2]
 AGENT = REPO / "examples" / "reference-agent"
 PACK = AGENT / "evals" / "reference-pack"
 # Pinned: fails if any byte of the pack changes. Update on purpose only (regenerate first).
-PINNED_HASH = "02f3baebc85ecceb2c219b0dbf8ec2b9389d1a43ad3ed5bd4253d8c6e4edb1e2"
+PINNED_HASH = "129872fa94b62c59683bba3c3f9060f956b6c19597a6e3a9e7016c542a0e20ae"
 
 
 def _generator() -> ModuleType:
@@ -64,7 +64,9 @@ def test_pack_loads_with_a_pinned_hash() -> None:
 
 def test_pack_size_and_splits() -> None:
     pack = load_pack(PACK)
-    assert 40 <= len(pack.tasks) <= 60
+    assert 200 <= len(pack.tasks) <= 220
+    assert len(tasks_in(pack, Split.SELECT)) >= 80
+    assert len(tasks_in(pack, Split.HOLDOUT)) >= 40
     for split in Split:
         assert tasks_in(pack, split), split
     assert not (set(tasks_in(pack, Split.TRAIN)) & set(tasks_in(pack, Split.SELECT)))
@@ -279,3 +281,18 @@ def test_grader_refuses_an_edited_pack(tmp_path: Path) -> None:
     (copy / "tasks" / "arith-easy-01" / "check").write_bytes(b'{"number": "44"}\n')
     with pytest.raises(PackError):
         Grader(LocalBackend(tmp_path), pack, copy)
+
+
+def test_numeric_answers_are_exact_or_the_question_says_rounded() -> None:
+    """Fairness: an answer needing 3+ decimals must come with a rounding instruction."""
+    gen = _generator()
+    groups = (gen.EASY, gen.MEDIUM, gen.HARD, gen.FACT_MATH)
+    for question, expr in (pair for group in groups for pair in group):
+        if "rounded" not in question.lower():
+            assert gen.exact(expr) * 100 % 1 == 0, question
+    for task_dir in sorted((PACK / "tasks").iterdir()):
+        expected = json.loads((task_dir / "check").read_text(encoding="utf-8"))
+        if "number" in expected:
+            question = json.loads((task_dir / "input.json").read_text(encoding="utf-8"))["question"]
+            if "rounded" not in question.lower():
+                assert len(expected["number"].partition(".")[2]) <= 2, task_dir.name

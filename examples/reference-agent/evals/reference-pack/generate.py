@@ -20,7 +20,9 @@ from __future__ import annotations
 import ast
 import json
 import operator
+import random
 import shutil
+from collections.abc import Callable
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
 from pathlib import Path
@@ -136,7 +138,7 @@ FACT_MATH = [
     ("Revenue is 12600. What is the revenue per employee?", "12600 / 42"),
     ("The company doubles its headcount. How many employees is that?", "42 * 2"),
     ("What do 5 units of the company's product cost?", "5 * 19.99"),
-    ("What do 12 units of the product cost after a 10% discount?", "12 * 19.99 * 0.9"),
+    ("What do 10 units of the product cost after a 10% discount?", "10 * 19.99 * 0.9"),
     ("How many whole units of the product can you buy with 200?", "200 // 19.99"),
     (
         "A customer buys 3 units of the product and 2 gadgets at 4.50 each. What is the total?",
@@ -167,6 +169,238 @@ YES_NO = [
     ("Was the company founded before 2020?", "no"),
     ("Is 1000000 divisible by 64?", "yes"),
 ]
+
+# --- generated extensions -----------------------------------------------------------
+# The hand-written lists above are the first tasks of each category; the rest are drawn from
+# templates with a fixed seed, so the pack is byte-for-byte reproducible. Every expected value
+# still comes from ``exact`` / ``FACTS``, never from a typed-in constant.
+_RNG = random.Random(20240611)
+
+
+def _money(cents: int) -> str:
+    return f"{cents // 100}.{cents % 100:02d}"
+
+
+def _fill(group: list[tuple[str, str]], target: int, make: Callable[[], tuple[str, str]]) -> None:
+    """Append template draws to ``group`` until it has ``target`` unique questions."""
+    seen = {q for q, _ in group}
+    while len(group) < target:
+        question, expr = make()
+        if question not in seen:
+            seen.add(question)
+            group.append((question, expr))
+
+
+def _easy() -> tuple[str, str]:
+    r = _RNG
+    kind = r.randrange(8)
+    a, b = r.randrange(11, 99), r.randrange(11, 99)
+    if kind == 0:
+        return f"What is {a} + {b}?", f"{a} + {b}"
+    if kind == 1:
+        hi, lo = max(a, b) + 100, min(a, b)
+        return f"What is {hi} - {lo}?", f"{hi} - {lo}"
+    if kind == 2:
+        x, y = r.randrange(3, 13), r.randrange(3, 13)
+        return f"What is {x} * {y}?", f"{x} * {y}"
+    if kind == 3:
+        y, q = r.randrange(3, 13), r.randrange(4, 30)
+        return f"What is {y * q} / {y}?", f"{y * q} / {y}"
+    if kind == 4:
+        p, n = r.choice((10, 20, 25, 50, 5)), r.randrange(2, 20) * 20
+        return f"What is {p}% of {n}?", f"{p / 100} * {n}"
+    if kind == 5:
+        x, y, z = r.randrange(5, 30), r.randrange(3, 9), r.randrange(2, 40)
+        return f"What is {x} * {y} + {z}?", f"{x} * {y} + {z}"
+    if kind == 6:
+        x, y, z = r.randrange(5, 30), r.randrange(5, 30), r.randrange(2, 9)
+        return f"What is ({x} + {y}) * {z}?", f"({x} + {y}) * {z}"
+    n, d = r.randrange(50, 500), r.randrange(3, 12)
+    return f"What is the remainder when {n} is divided by {d}?", f"{n} % {d}"
+
+
+def _medium() -> tuple[str, str]:
+    r = _RNG
+    kind = r.randrange(12)
+    if kind == 0:
+        n, c = r.randrange(12, 90), r.randrange(80, 900)
+        q = f"A shop sells notebooks at {_money(c)} each. How much do {n} notebooks cost?"
+        return q, f"{n} * {_money(c)}"
+    if kind == 1:
+        v, t = r.randrange(40, 130), r.randrange(2, 9) + r.choice((0, 0.5))
+        q = f"A bus travels at {v} km per hour for {t} hours. How many km does it cover?"
+        return q, f"{v} * {t}"
+    if kind == 2:
+        rent, m = r.randrange(600, 2400, 25), r.randrange(3, 18)
+        return f"A flat costs {rent} per month. How much is that over {m} months?", f"{rent} * {m}"
+    if kind == 3:
+        n, c, ship = r.randrange(2, 9), r.randrange(200, 3000), r.randrange(2, 15)
+        q = f"You buy {n} items at {_money(c)} each and pay {ship} for shipping. What is the total?"
+        return q, f"{n} * {_money(c)} + {ship}"
+    if kind == 4:
+        d, per = r.randrange(5, 40), r.randrange(3, 25)
+        q = (
+            f"A report has {d * per} pages and you proofread {per} pages a day. "
+            "How many days does it take?"
+        )
+        return q, f"{d * per} / {per}"
+    if kind == 5:
+        v = [r.randrange(5, 99) for _ in range(4)]
+        v[0] += (4 - sum(v) % 4) % 4  # keep the mean a short decimal
+        return (
+            f"What is the average of {v[0]}, {v[1]}, {v[2]} and {v[3]}?",
+            f"({v[0]} + {v[1]} + {v[2]} + {v[3]}) / 4",
+        )
+    if kind == 6:
+        w, h = r.randrange(8, 60), r.randrange(8, 60)
+        return f"What is the area of a rectangle that is {w} wide and {h} long?", f"{w} * {h}"
+    if kind == 7:
+        km = r.randrange(11, 99) / 10
+        return f"Convert {km} kilometres to metres.", f"{km} * 1000"
+    if kind == 8:
+        price, off, tax = r.randrange(40, 400, 10), r.choice((10, 20, 25, 30)), r.choice((5, 8, 10))
+        q = (
+            f"A jacket costs {price}. It is reduced by {off}%, then {tax}% tax is added. "
+            "What is the final price?"
+        )
+        return q, f"{price} * {(100 - off) / 100} * {(100 + tax) / 100}"
+    if kind == 9:
+        n, share = r.randrange(3, 9), r.randrange(500, 5000)
+        q = (
+            f"A bill of {_money(n * share)} is split equally among {n} people. "
+            "How much does each pay?"
+        )
+        return q, f"{_money(n * share)} / {n}"
+    if kind == 10:
+        pay, cost = r.randrange(50, 200), r.randrange(500, 4900)
+        q = f"You pay with {pay} for an item that costs {_money(cost)}. How much change is that?"
+        return q, f"{pay} - {_money(cost)}"
+    days, hours = r.randrange(2, 9), r.randrange(2, 13)
+    q = f"How many minutes are there in {days} days and {hours} hours?"
+    return q, f"{days} * 24 * 60 + {hours} * 60"
+
+
+def _hard() -> tuple[str, str]:
+    r = _RNG
+    kind = r.randrange(9)
+    if kind == 0:
+        a, b = r.randrange(10000, 99999), r.randrange(100, 999)
+        return f"What is {a} * {b}?", f"{a} * {b}"
+    if kind == 1:
+        a, b = r.randrange(1000, 9999), r.randrange(1000, 9999)
+        return f"What is {a} * {b}?", f"{a} * {b}"
+    if kind == 2:
+        a, b = r.randrange(11, 40), r.randrange(4, 7)
+        return f"What is {a} to the power of {b}?", f"{a} ** {b}"
+    if kind == 3:
+        a, c = (r.randrange(5, 60) + r.choice((0.25, 0.5, 0.75)) for _ in range(2))
+        e, g, f = r.randrange(5, 30), r.randrange(3, 20), r.randrange(100, 900)
+        return f"What is ({a} * {e}) - ({c} * {g}) + {f}?", f"({a} * {e}) - ({c} * {g}) + {f}"
+    if kind == 4:
+        a, b = r.randrange(500, 9999), r.randrange(7, 97)
+        return f"What is {a} divided by {b}, rounded to 2 decimal places?", f"{a} / {b}"
+    if kind == 5:
+        p, rate, yrs = r.randrange(500, 5000, 50), r.randrange(2, 9), r.randrange(3, 12)
+        q = (
+            f"{p} is invested at {rate}% interest compounded yearly for {yrs} years. "
+            "What is the final amount, rounded to 2 decimal places?"
+        )
+        return q, f"{p} * {(100 + rate) / 100} ** {yrs}"
+    if kind == 6:
+        n = r.randrange(100, 900)
+        return f"What is the sum of all whole numbers from 1 to {n}?", f"{n} * {n + 1} / 2"
+    if kind == 7:
+        a, b = r.randrange(10000, 999999), r.randrange(31, 199)
+        return f"What is the remainder when {a} is divided by {b}?", f"{a} % {b}"
+    n = r.randrange(6, 13)
+    squares = " + ".join(f"{k} ** 2" for k in range(1, n + 1))
+    return f"What is the sum of the squares of the whole numbers from 1 to {n}?", squares
+
+
+def _fact_math() -> tuple[str, str]:
+    r = _RNG
+    kind = r.randrange(10)
+    if kind == 0:
+        y = r.randrange(2026, 2060)
+        return f"How many years pass from the company's founding to {y}?", f"{y} - 2024"
+    if kind == 1:
+        n = r.randrange(3, 60)
+        q = f"The company hires {n} more people. How many employees does it then have?"
+        return q, f"42 + {n}"
+    if kind == 2:
+        rev = 42 * r.randrange(100, 900)
+        return f"Revenue is {rev}. What is the revenue per employee?", f"{rev} / 42"
+    if kind == 3:
+        m = r.randrange(2, 6)
+        q = f"The company multiplies its headcount by {m}. How many employees is that?"
+        return q, f"42 * {m}"
+    if kind == 4:
+        n = r.randrange(2, 40)
+        return f"What do {n} units of the company's product cost?", f"{n} * 19.99"
+    if kind == 5:
+        off = r.choice((5, 10, 15, 20, 25))
+        n = r.randrange(5, 50)
+        while n * (100 - off) % 100:  # keep the price exact to 2 decimals: no rounding needed
+            n = r.randrange(5, 50)
+        q = f"What do {n} units of the product cost after a {off}% discount?"
+        return q, f"{n} * 19.99 * {(100 - off) / 100}"
+    if kind == 6:
+        budget = r.randrange(50, 900)
+        q = f"How many whole units of the product can you buy with {budget}?"
+        return q, f"{budget} // 19.99"
+    if kind == 7:
+        n, k, c = r.randrange(2, 9), r.randrange(2, 9), r.randrange(100, 900)
+        q = (
+            f"A customer buys {n} units of the product and {k} gadgets at {_money(c)} each. "
+            "What is the total?"
+        )
+        return q, f"{n} * 19.99 + {k} * {_money(c)}"
+    if kind == 8:
+        wage = r.randrange(30, 90) * 1000
+        q = f"If each employee costs {wage} a year, what is the yearly staff cost?"
+        return q, f"42 * {wage}"
+    n = r.randrange(2, 20)
+    q = f"If each employee sells {n} units of the product, how many units is that in total?"
+    return q, f"42 * {n}"
+
+
+_fill(EASY, 30, _easy)
+_fill(MEDIUM, 45, _medium)
+_fill(HARD, 35, _hard)
+_fill(FACT_MATH, 35, _fact_math)
+
+FACT += [
+    ("Name the city where the company has its headquarters.", "headquarters"),
+    ("Which city houses the company's head office?", "headquarters"),
+    ("Where is the company based?", "headquarters"),
+    ("What year did the company start?", "founded"),
+    ("In what year was the company established?", "founded"),
+    ("The company was founded in which year?", "founded"),
+    ("How large is the company's workforce?", "employees"),
+    ("How many people work at the company?", "employees"),
+    ("What is the company's employee count?", "employees"),
+    ("What does the company make?", "product"),
+    ("Name the company's main product.", "product"),
+    ("What is the price of one unit of the product, in USD?", "widget_price_usd"),
+    ("How many US dollars does a single unit of the product cost?", "widget_price_usd"),
+    ("What does the company charge per unit, in USD?", "widget_price_usd"),
+]
+
+_PRIMES = (
+    101, 109, 127, 139, 151, 163, 179, 191, 197, 211, 227, 233, 241, 257, 271, 283,
+)  # fmt: skip
+_COMPOSITES = (
+    111, 119, 133, 147, 161, 187, 203, 217, 247, 259, 287, 299, 319, 341, 377, 403,
+)  # fmt: skip
+YES_NO += [(f"Is {p} a prime number?", "yes") for p in _PRIMES[:8]]
+YES_NO += [(f"Is {c} a prime number?", "no") for c in _COMPOSITES[:8]]
+YES_NO += [(f"Is the company headquartered in {c}?", "no") for c in ("Madrid", "Paris", "Oslo")]
+YES_NO += [(f"Does the company have more than {n} employees?", "yes") for n in (30, 41)]
+YES_NO += [(f"Does the company have more than {n} employees?", "no") for n in (42, 50, 100)]
+YES_NO += [(f"Was the company founded before {y}?", "yes") for y in (2025, 2030)]
+YES_NO += [(f"Was the company founded before {y}?", "no") for y in (2024, 2010)]
+YES_NO += [(f"Does one unit of the product cost less than {p} USD?", "yes") for p in (25, 30)]
+YES_NO += [(f"Does one unit of the product cost less than {p} USD?", "no") for p in (10, 19)]
 
 HEADER = '''"""Reference-pack check (@KIND@): parse-only; answer.json is read as JSON text."""
 import json

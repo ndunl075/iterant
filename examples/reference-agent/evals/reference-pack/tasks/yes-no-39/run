@@ -1,0 +1,44 @@
+exec python3 -I - <<'ITERANT_PY'
+"""Reference-pack check (yes/no): parse-only; answer.json is read as JSON text."""
+import json
+import re
+import sys
+from decimal import ROUND_HALF_UP, Decimal
+
+MAX_BYTES = 65536
+
+
+def refuse(_name):
+    raise ValueError("non-finite number")
+
+
+def load_answer():
+    with open("answer.json", "rb") as handle:
+        raw = handle.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        raise ValueError("too large")
+    data = json.loads(raw.decode("utf-8"), parse_constant=refuse)
+    if not isinstance(data, dict) or not isinstance(data.get("answer"), str):
+        raise ValueError("need an object with a string `answer`")
+    return data["answer"]
+
+VERDICT = re.compile(r"\b(yes|no)\b", re.IGNORECASE)
+
+
+def extract(text):
+    found = VERDICT.search(text)  # the first yes/no is the verdict; later words are explanation
+    if not found:
+        raise ValueError("no verdict")
+    return {"verdict": found.group(1).lower()}
+
+
+def main():
+    try:
+        out = extract(load_answer())
+    except Exception:
+        sys.exit(1)
+    sys.stdout.write(json.dumps(out, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+main()
+ITERANT_PY

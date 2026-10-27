@@ -63,20 +63,32 @@ def test_row2_agent_and_grader_never_share_a_sandbox_or_an_image(world) -> None:
         assert (sb.image == GRADER_IMAGE) == (sb.net == "default-deny"), (sb.image, sb.net)
 
 
-def test_row2_a_candidate_that_hunts_for_checks_in_out_gets_nothing_for_it(world) -> None:  # type: ignore[no-untyped-def]
-    """The agent "finds" a check path and writes a file named after it into /out."""
-    task = next(t for t in world.pack.tasks if t.id == "se00")
-
-    def hunt(sb, key, result):  # type: ignore[no-untyped-def]
-        sb.files["/work/out/tasks/se00/check"] = b'{"v": 1}'
-        sb.files["/work/out/answer.txt"] = b"no"
-
-    world.solver = lambda arm, t, n: "wrong"
-    world.after_agent = hunt
+def test_row2_a_planted_check_lookalike_in_out_buys_nothing(world) -> None:  # type: ignore[no-untyped-def]
+    """The agent writes a file named like a hidden check into /out. Baselines: the same plant
+    next to a right answer scores 1.0 (it is inert data), next to a wrong one 0.0 (it is not a
+    way to a pass), and the grader sandbox holds nothing but the pack's script outside /out."""
     from iterant.contracts import RunKey
 
-    r = world.executor().execute(RunKey(1, "c", "se00", 0), task, "img:c").result
-    assert (r.score, r.infra_err) == (0.0, False)
+    task = next(t for t in world.pack.tasks if t.id == "se00")
+
+    def plant(answer: bytes):  # type: ignore[no-untyped-def]
+        def hunt(sb, key, result):  # type: ignore[no-untyped-def]
+            sb.files["/work/out/tasks/se00/check"] = b'{"v": 1}'
+            sb.files["/work/out/answer.txt"] = answer
+
+        return hunt
+
+    world.solver = lambda arm, t, n: "wrong"
+    world.after_agent = plant(b"ok")
+    right = world.executor().execute(RunKey(1, "c", "se00", 0), task, "img:c").result
+    world.after_agent = plant(b"no")
+    wrong = world.executor().execute(RunKey(1, "c", "se00", 1), task, "img:c").result
+    assert (right.score, wrong.score) == (1.0, 0.0)
+    assert not (right.infra_err or wrong.infra_err)
+    for sb in world.backend.sandboxes:
+        if sb.net == "default-deny":
+            outside = [p for p in sb.files if not p.startswith("/work/out/")]
+            assert outside == ["/work/.grader/run.sh"]
 
 
 def _json_check(repo: Path, task: str, obj: object) -> None:

@@ -75,9 +75,9 @@ class Backend:
 
 
 def says(stdout: str, **kw: Any) -> Any:
-    return lambda _box: ExecResult(
-        kw.pop("code", 0), stdout, "", kw.pop("timed_out", False), 0.1, **kw
-    )
+    code = kw.pop("code", 0)
+    timed_out = kw.pop("timed_out", False)
+    return lambda _box: ExecResult(code, stdout, "", timed_out, 0.1, **kw)
 
 
 @pytest.fixture(scope="module")
@@ -447,3 +447,30 @@ def test_row6_agent_files_are_inert_bytes_whatever_they_say(pack_world: World) -
     assert res.score == 1.0
     assert backend.boxes[0].files["/work/out/sitecustomize.py"] == payload
     assert json.loads(EXPECTED) == {"v": 1}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "conftest.py",
+        "tests/conftest.py",
+        "pytest.ini",
+        "tox.ini",
+        "pyproject.toml",
+        "sitecustomize.py",
+        "usercustomize.py",
+        "evals/pack/tasks/beta-9/run",
+        "tests/test_agent.py",
+    ],
+)
+def test_row6_patching_the_test_framework_or_python_startup_is_outside_the_genome(
+    run_gate, edit, path: str
+) -> None:  # type: ignore[no-untyped-def]
+    """The "patch its test framework" half of the row, at the gate: a diff that plants a
+    conftest, an ini, or a startup hook that every python process would import is not in the
+    genome, so it never reaches an image. (The runtime half, that the grader never imports
+    agent files, is the invariant 8 tests above; this file cannot attack the real grader image
+    without a container runtime, see test_row8.)"""
+    result = run_gate(edit(path, "import os\nos.system('true')\n"))
+    assert not result.passed
+    assert result.findings[0].startswith("path-allowlist:")

@@ -226,11 +226,32 @@ def test_row4_the_proxy_never_stores_select_or_holdout_content(world) -> None:  
 
 
 def test_row4_a_digest_cannot_carry_the_hidden_check_text_to_the_proposer(world) -> None:  # type: ignore[no-untyped-def]
-    """Even train content that quotes a hidden check is scrubbed by the redact list the
-    orchestrator hands to the digest builder."""
+    """Train content that quotes a hidden check goes through the real digest with the redact
+    list the orchestrator really passes; the check text must come out scrubbed."""
+    from iterant.proxy.core import CallContent
+
     world.queue(world.proposal("v0", "v1", "h"))
     world.orchestrator().run_generation()
     redact = world.redactions[0]
-    secret = (world.pack_root / "tasks" / "tr0" / "check").read_text()
-    assert secret in redact or any(secret in r for r in redact)
-    assert any(r.endswith("tasks/tr0/check") or "tr0" in r for r in redact)
+    check_text = (world.pack_root / "tasks" / "tr0" / "check").read_text()
+    assert check_text in redact and any(r.endswith("tasks/tr0/check") for r in redact)
+
+    secret = "EXPECTED-ANSWER-" + check_text
+    key = RunKey(1, "b1-0", "tr0", 0)
+    content = CallContent(
+        1,
+        key,
+        next(iter(world.proxy.config.policy.roles)),
+        {"messages": [{"role": "user", "content": f"grader wants {secret} in tasks/tr0/check"}]},
+        {"content": [{"type": "text", "text": f"I read {secret} from tasks/tr0/check"}]},
+    )
+    results = [RunResult(key, Split.TRAIN, 0.0, 10, 5, 100, 1.0, False, False)]
+    unscrubbed = FailureAnalyst(None, model="m", effort="medium", redact=()).digest(
+        results, [content]
+    )
+    assert check_text in unscrubbed  # control: without the list the text does get through
+    digest = FailureAnalyst(None, model="m", effort="medium", redact=redact).digest(
+        results, [content]
+    )
+    assert check_text not in digest and "tasks/tr0/check" not in digest
+    assert "[redacted]" in digest

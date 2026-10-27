@@ -123,6 +123,7 @@ def test_row3_nonsense_max_tokens_never_admits(proxy: Proxy, bad: object) -> Non
 
 @pytest.mark.xfail(
     strict=True,
+    raises=(ValueError, OverflowError),
     reason="HOLE: max_tokens NaN/Infinity makes Proxy.admit raise (num() calls int(nan)) instead "
     "of returning a Rejection; iterant/proxy/jsonutil.py:24 via iterant/proxy/rules.py:176. "
     "Fails closed (no upstream call, no spend) but the server drops the connection with no reply.",
@@ -140,6 +141,7 @@ def test_row3_non_finite_max_tokens_is_a_rejection_not_a_crash(proxy: Proxy, bad
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,  # the final cap assertion; admit itself must not raise
     reason="HOLE: the per-run cap reserves only max_tokens of OUTPUT at admit "
     "(iterant/proxy/core.py:180-183); the request's input size is never reserved, so one huge "
     "prompt (up to the 8 MiB body limit, ~2M input tokens) is admitted and then settles far "
@@ -198,34 +200,27 @@ def test_row3_a_new_run_key_cannot_launder_a_runs_spend_past_the_generation_cap(
     assert spent <= GEN_CAP + 40_500
 
 
-def test_row3_a_restarted_proxy_remembers_what_was_spent(proxy: Proxy) -> None:
+def test_row3_a_restarted_proxy_remembers_what_was_spent() -> None:
     """Restarting the process must not hand the candidate a fresh budget."""
     import json
 
-    token = proxy.issue_run_token(Role.TARGET, KEY)
+    old, calls = make_proxy()
+    token = old.issue_run_token(Role.TARGET, KEY)
     body = json.dumps(msg_body()).encode()
-    for _ in range(9):
-        adm = proxy.admit(token, body)
+    for usage in [Usage(input=10_000, output=100)] * 9 + [Usage(input=20_000, output=100)]:
+        adm = old.admit(token, body)
         assert isinstance(adm, Admission)
-        proxy.settle(adm, Usage(input=10_000, output=100), False, None)  # 10,500 each
+        old.settle(adm, usage, False, None)
+    assert old.run_usage(KEY).usd_micros > RUN_CAP  # spend is past the cap
+    assert isinstance(old.admit(token, body), Rejection)  # control: the old process refuses
 
     fresh, _ = make_proxy()
-    from tests.redteam import conftest as c
-
-    # replay the first proxy's archive into the fresh one, as the orchestrator does on start
-    calls = c.make_proxy()[1]
-    del calls
-    fresh.preload(proxy_calls(proxy, KEY))
     token2 = fresh.issue_run_token(Role.TARGET, KEY)
-    after = fresh.admit(token2, body)
-    assert isinstance(after, Rejection) or fresh.run_usage(KEY).usd_micros >= 9 * 10_500
-
-
-def proxy_calls(proxy: Proxy, key: RunKey) -> list:  # type: ignore[type-arg]
-    from iterant.contracts import ProxyCall
-
-    u = proxy.run_usage(key)
-    return [ProxyCall(1, key, Role.TARGET, HAIKU, u.in_tok, u.out_tok, u.usd_micros, False, "t")]
+    assert isinstance(fresh.admit(token2, body), Admission)  # a fresh proxy knows nothing
+    fresh2, _ = make_proxy()
+    fresh2.preload(calls)  # what the orchestrator does on start, from the archived calls
+    token3 = fresh2.issue_run_token(Role.TARGET, KEY)
+    rejected(fresh2.admit(token3, body), "cap_exceeded_run")
 
 
 # --- the budget, end to end ----------

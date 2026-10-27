@@ -4,8 +4,16 @@
 Two layers. (a) Always-on: the real container backends are driven through a fake runner, and
 every runtime command they would issue is checked for escape hatches, including a hostile image
 name. (b) ``podman`` / ``docker`` marked: hostile code runs in a real sandbox and the walls are
-probed from inside. Those skip cleanly when the runtime is missing and are deselected in CI's
-main job.
+probed from inside. Those skip cleanly when the runtime is missing.
+
+NOT RUN IN CI: ci.yml deselects `podman`/`docker`/`firecracker` tests and we add no container CI
+job ($0 budget). Layer (b) runs only on demand, on a machine with rootless Podman or Docker:
+
+    uv run pytest tests/redteam/test_row8_sandbox_escape.py -m "podman or docker" -q -rs
+
+It was last run on a throwaway `probe/*` branch with a copied `container-probe.yml` workflow
+(never merged). There is no Firecracker red-team test yet; the microVM backend is not attacked
+here.
 """
 
 from __future__ import annotations
@@ -80,10 +88,8 @@ def test_row8_a_shell_looking_image_name_stays_one_argv_element(name: str) -> No
     """No shell sits between Iterant and the runtime: the name is one argv element, and the
     runtime refuses what is not an image."""
     r = FakeRunner()
-    try:
-        make(r).create(name, 1, 64, 64, 60, net="default-deny")
-    except Exception:
-        return  # refused outright: also fine
+    make(r).create(name, 1, 64, 64, 60, net="default-deny")  # not rejected by name
+    assert runs(r)
     for argv in runs(r):
         assert argv.count(name) == 1
         at = argv.index(name)

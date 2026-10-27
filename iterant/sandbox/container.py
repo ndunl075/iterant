@@ -8,6 +8,7 @@ and its own relay.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -15,6 +16,7 @@ import secrets
 import threading
 import time
 from collections.abc import Sequence
+from typing import cast
 from urllib.parse import urlsplit
 
 from iterant.contracts import ExecResult, NetMode, Sandbox
@@ -31,8 +33,11 @@ PROXY_ENV = "ITERANT_PROXY_URL"
 RELAY_PORT = 8080
 RELAY_GRACE_S = 30
 CONTAINER_TTL_SLACK_S = 10  # the container's own `sleep` outlives the host-side deadline
-EXEC_TTL_MARGIN_S = 5.0  # exec never runs closer than this to the ttl
-_LOST_POLLS = 10  # re-checks (0.2 s apart) while a dying container is still listed
+LOST_WINDOW_S = 10.0  # how long a dying container may stay listed after its exec ends
+# exec never runs closer than this to the ttl: room for the lost-window polling plus slack,
+# so a ttl teardown cannot land inside it
+EXEC_TTL_MARGIN_S = 5.0 + LOST_WINDOW_S
+_LOST_POLL_INTERVAL_S = 0.2
 # alpine/socat 1.8.1.3 (multi-arch index digest). Needs busybox `timeout` and `socat`.
 DEFAULT_RELAY_IMAGE = (
     "docker.io/alpine/socat@sha256:603174b77eebaba25ba8f8ebb15e1234d6600409554e95d6fb203fd106150287"
@@ -60,6 +65,7 @@ _CONTAINER_LOST_CODES = (125, 126, 137, 255)
 # What `container inspect` says about a container that is really absent (not "being removed").
 _GATEWAY_OPT = "com.docker.network.bridge.gateway_mode_ipv4"
 _DOCKER_MIN_MAJOR = 28
+_VERSION_RE = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+~-]{0,31}")
 _ABSENT_MARKERS = ("no such container", "no container with name or id")
 
 # Run in the fresh container: needed tools exist, and the cgroup caps really applied
@@ -90,6 +96,14 @@ def slugify(text: str, limit: int = 40) -> str:
     """Lowercase, only ``a-z0-9-``; used for the resource-name prefix (e.g. a branch name)."""
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit].strip("-")
     return slug or "x"
+
+
+def _check_window(seconds: float) -> float:
+    """``lost_window_s`` must be finite, >= 0 and at most ``LOST_WINDOW_S`` (what
+    ``EXEC_TTL_MARGIN_S`` leaves room for)."""
+    if not math.isfinite(seconds) or not 0 <= seconds <= LOST_WINDOW_S:
+        raise ValueError(f"lost_window_s must be between 0 and {LOST_WINDOW_S}, got {seconds!r}")
+    return seconds
 
 
 def _text(data: bytes) -> str:
@@ -144,9 +158,11 @@ class ContainerSandbox:
         ttl: float,
         teardown: Sequence[Sequence[str]],
         proxy_url: str | None,
+        lost_window_s: float = LOST_WINDOW_S,
     ) -> None:
         self._rt = runtime
         self._runner = runner
+        self._lost_window_s = _check_window(lost_window_s)
         self._name = name
         self._teardown = [list(a) for a in teardown]
         self.proxy_url = proxy_url
@@ -247,6 +263,13 @@ class ContainerSandbox:
 
         An exit of 125/126 with the container present is returned as a result: it is
         indistinguishable from the command itself exiting with that code.
+
+        Known race: ``destroy`` (or ttl expiry) and the post-exec ``inspect`` are not atomic.
+        The ``_dead`` flag is checked right after the runtime call returns, so a teardown that
+        finishes before that check is reported as ``SandboxError``; one that starts after it
+        but before ``inspect`` makes the container look ``absent`` and is scored as
+        ``sandbox_lost``. That needs a destroy during the few ms between the two calls, and
+        callers only destroy a sandbox they have finished with, so it is accepted.
         """
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
@@ -293,13 +316,16 @@ class ContainerSandbox:
                 raise SandboxError(f"{self._rt} cannot report on {self._name} after exec")
             if state == "present" and out.returncode in _CONTAINER_LOST_CODES:
                 # A dying container can stay listed for a moment after its exec ends.
-                for _ in range(_LOST_POLLS):
-                    time.sleep(0.2)
+                # Poll until the state is decided (absent, removing, unknown) or the window ends.
+                give_up = time.monotonic() + self._lost_window_s
+                while state == "present" and not self._dead and time.monotonic() < give_up:
+                    time.sleep(_LOST_POLL_INTERVAL_S)
                     state = self._container_state()
-                    if state != "present":
-                        break
                 if state == "unknown":
                     raise SandboxError(f"{self._rt} cannot report on {self._name} after exec")
+            if self._dead:
+                # destroy or the ttl ran during the polling: its teardown made it vanish
+                raise SandboxError(f"sandbox {self._name} was destroyed or expired during exec")
             if state in ("absent", "removing"):
                 # PID 1 or the whole container died. destroy/ttl were ruled out above, so the
                 # command caused it; later calls raise SandboxLost.
@@ -381,6 +407,7 @@ class ContainerBackend:
         relay_extra_args: Sequence[str],
         work_tmpfs_owner: str,
         network_extra_args: Sequence[str] = (),
+        lost_window_s: float = LOST_WINDOW_S,
         runner: Runner,
     ) -> None:
         if not _NAME_RE.fullmatch(name_prefix):
@@ -394,6 +421,7 @@ class ContainerBackend:
         self._relay_extra = list(relay_extra_args)
         self._work_tmpfs_owner = work_tmpfs_owner
         self._network_extra = list(network_extra_args)
+        self._lost_window_s = _check_window(lost_window_s)
         self._proxy = _parse_proxy(proxy_url) if proxy_url is not None else None
 
     @property
@@ -503,6 +531,7 @@ class ContainerBackend:
             ttl=ttl,
             teardown=teardown,
             proxy_url=proxy_url,
+            lost_window_s=self._lost_window_s,
         )
         sandbox.start_ttl()
         return sandbox
@@ -587,6 +616,7 @@ class PodmanBackend(ContainerBackend):
         *,
         name_prefix: str = "iterant",
         relay_image: str = DEFAULT_RELAY_IMAGE,
+        lost_window_s: float = LOST_WINDOW_S,
         runner: Runner = subprocess_runner,
     ) -> None:
         super().__init__(
@@ -600,6 +630,7 @@ class PodmanBackend(ContainerBackend):
             relay_extra_args=(),
             # podman's --tmpfs rejects uid=/gid=; `U` chowns the mount to the container user
             work_tmpfs_owner="U",
+            lost_window_s=lost_window_s,
             runner=runner,
         )
 
@@ -614,6 +645,7 @@ class DockerBackend(ContainerBackend):
         unsafe_container: bool = False,
         name_prefix: str = "iterant",
         relay_image: str = DEFAULT_RELAY_IMAGE,
+        lost_window_s: float = LOST_WINDOW_S,
         runner: Runner = subprocess_runner,
     ) -> None:
         if unsafe_container is not True:
@@ -633,6 +665,7 @@ class DockerBackend(ContainerBackend):
             # no host-side gateway address on the internal net: the sandbox cannot reach host
             # services through the bridge IP
             network_extra_args=("--opt", f"{_GATEWAY_OPT}=isolated"),
+            lost_window_s=lost_window_s,
             runner=runner,
         )
 
@@ -646,15 +679,23 @@ class DockerBackend(ContainerBackend):
         ).strip()
         major = ver.split(".")[0]
         if not major.isdigit() or int(major) < _DOCKER_MIN_MAJOR:
+            shown = ver if _VERSION_RE.fullmatch(ver) else "unrecognised"
             raise SandboxError(
-                f"docker {ver or '?'} cannot isolate the internal network gateway "
+                f"docker {shown} cannot isolate the internal network gateway "
                 f"(needs >= {_DOCKER_MIN_MAJOR})"
             )
-        opts = _text(
+        raw = _text(
             self._run(
                 [self._rt, "network", "inspect", "--format", "{{json .Options}}", netname],
                 "network inspect",
             ).stdout
         )
-        if _GATEWAY_OPT not in opts or "isolated" not in opts:
+        try:
+            opts: object = json.loads(raw)
+        except ValueError:
+            opts = None
+        if (
+            not isinstance(opts, dict)
+            or cast("dict[str, object]", opts).get(_GATEWAY_OPT) != "isolated"
+        ):
             raise SandboxError(f"network {netname}: gateway isolation is not in effect")

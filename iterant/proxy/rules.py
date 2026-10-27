@@ -67,7 +67,7 @@ def _check_blocks(content: object, where: str, *, allow_none: bool = False) -> R
         if block is None:
             return _bad("malformed", f"{where} must contain only content block objects")
         kind = block.get("type")
-        if kind not in _ALLOWED_BLOCKS:
+        if not isinstance(kind, str) or kind not in _ALLOWED_BLOCKS:
             return _bad("block_not_allowed", f"content block type {kind!r} is not allowed")
         if kind in ("image", "document"):
             source = obj(block.get("source"))

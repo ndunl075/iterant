@@ -70,12 +70,7 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
         help="host name sandboxes use to reach the proxy "
         "(default host.containers.internal for podman, host.docker.internal for docker)",
     )
-    p.add_argument("--select-tasks", type=int, help="SELECT tasks (default 80)")
-    p.add_argument("--select-reps", type=int, help="SELECT reps (default 2)")
-    p.add_argument("--holdout-tasks", type=int, help="CONFIRM tasks (default 40)")
-    p.add_argument("--holdout-reps", type=int, help="CONFIRM reps (default 2)")
-    p.add_argument("--smoke-tasks", type=int, help="SMOKE tasks (default 5)")
-    p.add_argument("--delta-min", type=float, help="smallest SELECT gain to accept (default 0.05)")
+    add_threshold_arguments(p)
     p.add_argument(
         "--send-openai-key",
         action="store_true",
@@ -85,7 +80,17 @@ def add_common_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--seed", type=int, default=0, help="mixed into the bootstrap seeds")
 
 
-def _thresholds(args: argparse.Namespace) -> AcceptanceThresholds:
+def add_threshold_arguments(p: argparse.ArgumentParser) -> None:
+    """The acceptance-rule knobs (§4)."""
+    p.add_argument("--select-tasks", type=int, help="SELECT tasks (default 80)")
+    p.add_argument("--select-reps", type=int, help="SELECT reps (default 2)")
+    p.add_argument("--holdout-tasks", type=int, help="CONFIRM tasks (default 40)")
+    p.add_argument("--holdout-reps", type=int, help="CONFIRM reps (default 2)")
+    p.add_argument("--smoke-tasks", type=int, help="SMOKE tasks (default 5)")
+    p.add_argument("--delta-min", type=float, help="smallest SELECT gain to accept (default 0.05)")
+
+
+def thresholds_from_args(args: argparse.Namespace) -> AcceptanceThresholds:
     chosen = {
         name: getattr(args, name)
         for name in (
@@ -149,7 +154,7 @@ def settings_from_args(args: argparse.Namespace) -> Settings:
         backend=args.backend,
         unsafe_container=args.unsafe_container,
         openai_base_url=args.openai_base_url,
-        thresholds=_thresholds(args),
+        thresholds=thresholds_from_args(args),
         candidates=getattr(args, "candidates", 1),
         budget_usd_micros=budget,
         prices=prices,

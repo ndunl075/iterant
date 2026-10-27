@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -138,37 +136,18 @@ def test_aa_test_failure_is_exit_6(world, monkeypatch, capsys: pytest.CaptureFix
     assert "A/A test FAILED" in err and "20.0%" in err and "stats or the pack are broken" in err
 
 
-def test_report_is_pending_until_the_module_lands(
-    world, monkeypatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    world.init()
-    world.cli("run", str(world.repo), *world.RUN_SMALL)  # an archive to report on (no candidate)
-    capsys.readouterr()
-    monkeypatch.setitem(sys.modules, "iterant.report", None)  # as if the module is absent
-    assert world.cli("report", str(world.repo)) == 1
-    assert "pending W2.11" in _err(capsys)
-
-
-def test_report_calls_render_with_archive_and_out_dir(
-    world, monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_report_calls_the_real_render_with_pack_and_thresholds(
+    world, capsys: pytest.CaptureFixture[str]
 ) -> None:
     world.init()
     world.queue.append(None)
     world.cli("run", str(world.repo), *world.RUN_SMALL)
     capsys.readouterr()
-    calls: list[tuple[Path, Path]] = []
-
-    def render(archive_path: Path, out_dir: Path) -> Path:
-        calls.append((archive_path, out_dir))
-        return out_dir / "index.html"
-
-    fake = types.ModuleType("iterant.report")
-    fake.render = render  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "iterant.report", fake)
-    out = tmp_path / "out"
-    assert world.cli("report", str(world.repo), "--out", str(out)) == 0
-    assert calls == [(world.repo / ".iterant" / "archive.db", out)]
-    assert "index.html" in capsys.readouterr().out
+    assert world.cli("report", str(world.repo), "--select-tasks", "10") == 0
+    page = world.repo / ".iterant" / "report" / "index.html"
+    assert str(page) in capsys.readouterr().out
+    html = page.read_text(encoding="utf-8")
+    assert "fake" in html  # the pack name comes from the loaded pack
 
 
 def test_report_without_an_archive(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

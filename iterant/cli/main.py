@@ -22,7 +22,7 @@ from iterant.cli.init import cmd_init
 from iterant.cli.report import cmd_report
 from iterant.cli.run import cmd_run
 from iterant.cli.runtime import RuntimeFactory, build_runtime
-from iterant.cli.settings import add_common_arguments
+from iterant.cli.settings import add_common_arguments, add_threshold_arguments
 from iterant.cli.status import cmd_status
 from iterant.contracts import Profile, Split
 from iterant.gate import GateInfraError
@@ -97,6 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     rep = sub.add_parser("report", help="write the static HTML report")
     rep.add_argument("repo", nargs="?", default=".")
     rep.add_argument("--out", help="output directory (default <repo>/.iterant/report)")
+    add_threshold_arguments(rep)
     rep.set_defaults(handler="report")
     return p
 

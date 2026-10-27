@@ -22,4 +22,5 @@ tar -xzf "$dest/firecracker.tgz" -C "$dest" --strip-components=1 \
   "release-v${FC_VERSION}-x86_64/firecracker-v${FC_VERSION}-x86_64"
 mv "$dest/firecracker-v${FC_VERSION}-x86_64" "$dest/firecracker"
 chmod +x "$dest/firecracker"
-echo "export ITERANT_FIRECRACKER_BIN=$dest/firecracker ITERANT_FIRECRACKER_KERNEL=$dest/vmlinux"
+echo "export ITERANT_FIRECRACKER_BIN=$dest/firecracker"
+echo "export ITERANT_FIRECRACKER_KERNEL=$dest/vmlinux"

@@ -138,19 +138,33 @@ def test_row6_when_the_runtime_really_is_down_the_run_is_infra_and_the_candidate
     assert res.promoted is None
     [cand] = res.candidates
     assert cand.stage is Stage.SELECT and cand.status is Status.REJECTED
-    assert any("infra-error rate" in n and "worse than champion" in n for n in cand.notes), (
-        cand.notes
-    )
+    # 3 of 10 first tries is not statistically clear on 10 tasks (p = 0.125), but dropping
+    # more than 10% of the tasks rejects it anyway
+    assert any("tasks dropped (infra-error)" in n for n in cand.notes), cand.notes
 
 
-def test_refusals_the_candidate_provokes_on_its_hard_tasks_do_not_get_it_promoted(world) -> None:  # type: ignore[no-untyped-def]
-    """§6 drops a pair after a second refusal. A candidate whose prompt trips the classifier
-    on exactly the tasks it would lose must be stopped by the refusal guard."""
+def test_refusals_the_candidate_provokes_on_its_hard_tasks_score_zero_not_dropped(world) -> None:  # type: ignore[no-untyped-def]
+    """A refusal that survives its retry is the refuser's failure (it scores 0.0), not a
+    dropped pair. A candidate whose prompt trips the classifier on exactly the tasks it would
+    lose therefore pays for those tasks and is not promoted by shedding them."""
     res = run_attack(world, "refuse")
     assert res.promoted is None
     [cand] = res.candidates
     assert (cand.stage, cand.status) == (Stage.SELECT, Status.REJECTED)
-    assert any("refusal" in n for n in cand.notes), cand.notes
+    rows = final_rows(world, HARD & {f"se0{i}" for i in range(3)})
+    assert rows and all(r.refusal and r.score is None for r in rows)  # stored as refusals...
+    # ...but the decision counts them as losses: nothing was dropped, the pairs were kept
+    assert not any("dropped" in n for n in cand.notes), cand.notes
+    from iterant.stats import decide_select
+
+    d = decide_select(
+        world.db().runs_for_candidate("b1-0", split=Split.SELECT, batch=1, latest_only=False),
+        world.db().runs_for_candidate("seed", split=Split.SELECT, batch=1, latest_only=False),
+        world.THRESHOLDS,
+        seed=0,
+    )
+    assert d.n_dropped == 0 and d.n_tasks == 10
+    assert round(d.delta, 6) == 0.4  # 7 wins on tasks the champion fails, 3 losses on HARD
 
 
 def test_a_candidate_cannot_use_an_infra_looking_first_try_to_get_a_second_chance_at_a_win(  # type: ignore[no-untyped-def]

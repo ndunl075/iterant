@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 import os
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Final
 
@@ -70,10 +71,12 @@ def _banner(data: ReportData) -> str:
 
 def _thresholds(t: AcceptanceThresholds) -> str:
     return (
-        f"SELECT: delta &ge; {_e(t.delta_min)}, p &lt; {_e(t.select_p)}. "
+        f"SELECT: delta &ge; {_e(t.delta_min)} (the minimum gain worth keeping), "
+        f"p &lt; {_e(t.select_p)}. "
         f"CONFIRM: delta &gt; 0, p &lt; {_e(t.holdout_p)}. "
         f"Guards: cost &le; +{_e(f'{t.max_cost_increase:.0%}')}, "
-        f"wall time &le; +{_e(f'{t.max_wall_increase:.0%}')}, refusal and infra rates no worse."
+        f"wall time &le; +{_e(f'{t.max_wall_increase:.0%}')}, "
+        "first-try refusal and infra rates not clearly worse."
     )
 
 
@@ -90,14 +93,14 @@ def _arms(arms: tuple[ArmStats, ...]) -> str:
     )
 
 
-def _stage_html(ev: StageEvidence | None, label: str) -> str:
+def _stage_html(ev: StageEvidence | None, label: str, source: str) -> str:
     if ev is None:
         return f"<h4>{_e(label)}</h4><p class='muted'>not reached</p>"
     if ev.stored:
         src = "recorded decision, as stored in the promotions row"
     else:
         src = (
-            "recomputed with default thresholds and a fixed seed, NOT the recorded decision; "
+            f"recomputed with {source} and a fixed seed, NOT the recorded decision; "
             "no verdict is implied"
         )
     delta = "n/a" if ev.delta is None else f"{ev.delta:+.4f}"
@@ -116,7 +119,7 @@ def _diff_html(c: CandidateReport) -> str:
     return note + body
 
 
-def _candidate_html(c: CandidateReport, *, detail: bool) -> str:
+def _candidate_html(c: CandidateReport, *, detail: bool, source: str) -> str:
     k = c.cand
     promoted = k.status.value == "promoted"
     flags = ""
@@ -135,7 +138,7 @@ def _candidate_html(c: CandidateReport, *, detail: bool) -> str:
         f"{_e(k.stage.value)}, run spend {_e(_usd(k.usd_micros))})</span></h3>"
         f"<p>Hypothesis: {_e(k.hypothesis)}</p>{flags}"
     )
-    ev = _stage_html(c.select, "SELECT") + _stage_html(c.confirm, "CONFIRM")
+    ev = _stage_html(c.select, "SELECT", source) + _stage_html(c.confirm, "CONFIRM", source)
     if detail:
         return head + ev + f"<h4>Diff</h4>{_diff_html(c)}"
     return head + ev + f"<details><summary>Diff</summary>{_diff_html(c)}</details>"
@@ -181,7 +184,9 @@ def _gen_section(g: GenerationReport, data: ReportData) -> str:
         )
     elif g.batch_ids:
         promo = "<p>No candidate promoted.</p>"
-    cands = "".join(_candidate_html(c, detail=False) for c in g.candidates)
+    cands = "".join(
+        _candidate_html(c, detail=False, source=data.thresholds_source) for c in g.candidates
+    )
     return (
         f"<section id='gen-{_e(g.gen)}'><h2>{_e(title)}{link}</h2>"
         f"<p>Batches: {_e(', '.join(map(str, g.batch_ids)) or 'none')}. "
@@ -226,7 +231,7 @@ def _index(data: ReportData) -> str:
         f"<th>spend</th></tr>{rows}</table>"
         f"<p class='muted'>{_e(_SPEND_NOTE)}</p>"
         "<p class='muted'>Promoted rows show the recorded decision's numbers. Other candidates "
-        "show delta and p recomputed from archived runs with the default thresholds "
+        f"show delta and p recomputed from archived runs with {_e(data.thresholds_source)} "
         f"({_thresholds(data.thresholds)}) and a fixed seed; the archive does not store the "
         "run's thresholds or seed, so these are not the recorded decision. No confidence "
         "interval is stored.</p>" + "".join(_gen_section(g, data) for g in data.generations)
@@ -246,7 +251,7 @@ def _promotion_page(g: GenerationReport, data: ReportData) -> str:
     if winner is None:
         body += f"<p>Promoted candidate {_e(g.promotion.cand)} is not in this archive.</p>"
     else:
-        body += _candidate_html(winner, detail=True)
+        body += _candidate_html(winner, detail=True, source=data.thresholds_source)
         if winner.code_exec:
             pattern = _e(CODE_EXEC_PATTERN.pattern)
             body += f"<p class='muted'>Heuristic pattern: <code>{pattern}</code></p>"
@@ -259,6 +264,7 @@ def render(
     *,
     pack: Pack | None = None,
     thresholds: AcceptanceThresholds | None = None,
+    thresholds_source: str | None = None,
     diffs_dir: str | os.PathLike[str] | None = None,
 ) -> Path:
     """Write ``index.html`` and ``gen-N.html`` (one per promotion) into ``out_dir``.
@@ -276,6 +282,8 @@ def render(
         thresholds=thresholds,
         diffs_dir=None if diffs_dir is None else Path(diffs_dir),
     )
+    if thresholds_source is not None:
+        data = replace(data, thresholds_source=thresholds_source)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     for old in out.iterdir():

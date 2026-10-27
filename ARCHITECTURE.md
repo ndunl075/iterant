@@ -72,9 +72,22 @@ v0 picks parents greedily (champion only). In v1, parents are sampled from the a
 ## 4. "Improvement" (acceptance rule)
 
 Accept only if **all** of these hold:
-- **SELECT:** paired per-task gain Δ ≥ δ_min (default 5 pts), and a one-sided paired bootstrap gives p < 0.05.
-- **CONFIRM:** holdout Δ > 0 and p < 0.2. The two stages compound to a ~1% false accept per null candidate.
-- **Guards:** cost per task ≤ +15%, wall time ≤ +25%, refusal and infra-error rate no worse. Every threshold is configurable.
+- **SELECT:** paired per-task gain Δ ≥ δ_min and a one-sided paired sign-flip test gives p < `select_p`.
+- **CONFIRM:** holdout Δ > 0 and p < `holdout_p`. The two stages compound to a few percent false accept per null candidate.
+- **Guards:** cost per task ≤ +15%, wall time ≤ +25%, and refusal and infra-error rates not clearly worse (below). Every threshold is configurable.
+
+δ_min (default 5 pts) is reported as the "minimum gain worth keeping". At the default sizes it is nearly redundant with the p-value, so no preset changes it.
+
+**Presets** (`--preset`, on `estimate`, `aa-test` and `run`; defined in `iterant/stats/presets.py`, the one place). Explicit threshold flags override the preset. The calibration fingerprint covers the preset name and every effective threshold.
+
+| Preset | `select_p` | `holdout_p` | `holdout_tasks` | Use |
+|---|---|---|---|---|
+| `balanced` (default) | 0.10 | 0.5 | 40 | Real gains of ~8 pts or more are accepted about half the time or better at the default sizes; A/A false accept stays under 5%. |
+| `strict` | 0.05 | 0.2 | 80 | The original p-values (~1% false accept per null candidate); needs a bigger holdout and more tasks to accept real gains. |
+
+**A refusal is the refusing arm's failure.** A run whose final attempt (after the one §6 retry) is a refusal scores 0.0 for its arm, in either arm, and the task pair is kept, not dropped. A candidate that refuses on its worst tasks therefore pays for them in delta instead of shedding them. Only an infra error that survives its retry drops the pair, and more than 10% of pairs dropped rejects the candidate.
+
+**The refusal and infra guards are a secondary, noise-tolerant signal.** They use each arm's *first-attempt* rates (the final rate after the retry is about r², which hides a real excess). The candidate is vetoed only when both hold: a one-sided conditional binomial test (the candidate's events out of both arms' events, under H0 weighted by the arms' run counts) gives p < `noise_guard_p` (0.05), and its rate exceeds the champion's by more than `noise_guard_margin` (2 pts). At equal rates the veto rate stays under about 10%; a 2% → 7% refusal candidate is still rejected most of the time. A single infra error is within noise and is not vetoed (the 10% drop cap bounds what shedding can do).
 
 Calibration gates (`iterant estimate` and `iterant aa-test`; both must pass before a real run):
 - **A/A test.** Resample a pool of champion reps: false accepts ≤ 5%. If it fails, the stats or the pack are broken; stop.
@@ -89,7 +102,9 @@ Calibration gates (`iterant estimate` and `iterant aa-test`; both must pass befo
 
   Defaults are `select` 80 × k=2 and `holdout` 40 × k=2. If the pack is too small for the gain the user wants, `estimate` says so up front.
 
-Overfitting control: every holdout query is logged. After 20 queries, Iterant warns and asks for fresh holdout tasks. `test` is touched only for reports.
+`estimate` also prints the estimated chance of accepting a true gain of +3, +5, +8 and +12 pts under the active preset (a closed-form model of the full rule at the measured discordance; `iterant/stats/power.py`) and the A/A false-accept estimate. If +8 would be accepted less than 30% of the time, it warns that the pack is too small and says how many more tasks or reps reach 50%.
+
+Overfitting control: every holdout query is logged. After 20 queries (`holdout_query_warn`), Iterant warns and asks for fresh holdout tasks. After 60 (`holdout_query_max`) it is a hard stop: a generation that would be query 61 refuses to start (checked when the batch opens, before PROPOSE, and again before CONFIRM), with a message to raise `--holdout-query-max` to continue or start a fresh archive with refreshed holdout tasks. Nothing is rejected. The count covers the whole archive, so adding or rotating holdout tasks alone does not reset it; the two exits are raising the limit or a fresh archive. The limits are not part of the calibration fingerprint. `test` is touched only for reports.
 
 Sampling params are gone from the API, so runs are inherently noisy. Repeats and paired stats are mandatory, not optional.
 
@@ -159,7 +174,7 @@ Request rules for Iterant's own calls (Claude API as of 2026-10):
 - No `temperature`/`top_p`/`top_k`, no prefill, no forced `tool_choice` (use `auto` + `strict: true`).
 - Stream long requests. Pass thinking blocks back unchanged. History is append-only.
 - Put `cache_control` on the stable prefix and check that `usage.cache_read_input_tokens` > 0.
-- Refusals: always check `stop_reason`. Proposer and auditor use `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`). **Target-agent traffic is never rerouted**, because a silent model swap corrupts the measurement. A refused run counts as `infra_err`: retry it once, then drop that task pair from both arms. Track refusal rate; self-improvement content may trip the Sonnet `frontier_llm` classifier.
+- Refusals: always check `stop_reason`. Proposer and auditor use `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`). **Target-agent traffic is never rerouted**, because a silent model swap corrupts the measurement. A refused run is retried once; if the retry is refused too, the run scores 0.0 for the arm that refused (the pair is kept, see §4). An infra error is retried once, then that task pair is dropped from both arms. Track refusal rate; self-improvement content may trip the Sonnet `frontier_llm` classifier.
 
 `claude` profile spend for the reference agent is an estimate, measured by the first user who opts in:
 - Target agent: ~$0.01–0.03 per run.

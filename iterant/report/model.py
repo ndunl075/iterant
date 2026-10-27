@@ -136,6 +136,8 @@ class ReportData:
     unattributed_usd_micros: int  # total minus the per-generation sums
     holdout_queries: int
     warnings: tuple[str, ...]
+    # where ``thresholds`` came from, for the page: the archive does not store them
+    thresholds_source: str = "the default thresholds (balanced preset)"
 
 
 def _connect(db: Path) -> sqlite3.Connection:

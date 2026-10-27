@@ -247,7 +247,9 @@ def test_run_score_null_iff_failed() -> None:
 
 def test_thresholds_defaults() -> None:
     t = AcceptanceThresholds()
-    assert (t.delta_min, t.select_p, t.holdout_p) == (0.05, 0.05, 0.2)
+    assert (t.delta_min, t.select_p, t.holdout_p) == (0.05, 0.10, 0.5)  # the balanced preset
+    assert (t.noise_guard_p, t.noise_guard_margin) == (0.05, 0.02)
+    assert t.holdout_query_max == 3 * t.holdout_query_warn
     assert (t.max_cost_increase, t.max_wall_increase) == (0.15, 0.25)
     assert (t.select_tasks, t.select_reps, t.holdout_tasks, t.holdout_reps) == (80, 2, 40, 2)
     assert (t.holdout_query_warn, t.max_diff_lines, t.smoke_tasks) == (20, 400, 5)

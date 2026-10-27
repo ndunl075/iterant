@@ -38,7 +38,16 @@ from iterant.contracts import (
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import Budget, OrchestratorConfig, Outcomes, WriterLock
 from iterant.packs import tasks_in, verify
-from iterant.stats import Estimate, accepted, decide_confirm, decide_select, estimate
+from iterant.stats import (
+    DEFAULT_PRESET,
+    Estimate,
+    accepted,
+    decide_confirm,
+    decide_select,
+    estimate,
+    rule_reps_needed,
+    rule_tasks_needed,
+)
 from iterant.stats.pairing import final_attempts
 
 CALIBRATION_DB = Path(".iterant") / "calibration.db"
@@ -229,8 +238,45 @@ def pack_warnings(
     return out
 
 
+POWER_WARN_GAIN = 0.08  # warn when the rule rarely accepts a true gain this large...
+POWER_WARN_BELOW = 0.30  # ...(below this chance)
+POWER_TARGET = 0.50
+
+
+def power_warnings(est: Estimate, t: AcceptanceThresholds, preset: str) -> list[str]:
+    """Plain warning when the pack is too small to accept a real +8 pt gain."""
+    at = dict(est.power_table).get(POWER_WARN_GAIN)
+    if at is None or at >= POWER_WARN_BELOW:
+        return []
+    tasks = rule_tasks_needed(POWER_WARN_GAIN, est.discordance, t, POWER_TARGET)
+    reps = rule_reps_needed(POWER_WARN_GAIN, est.discordance, t, POWER_TARGET)
+    fix: list[str] = []
+    if tasks is not None:
+        hold = max(1, round(tasks * t.holdout_tasks / t.select_tasks))
+        fix.append(f"about {tasks} select tasks (and {hold} holdout tasks) at {t.select_reps} reps")
+    if reps is not None:
+        fix.append(f"{reps} reps per task at the current task counts")
+    msg = (
+        f"the pack is too small: a true +{POWER_WARN_GAIN * 100:.0f} pt gain would be accepted "
+        f"only {at:.0%} of the time under the {preset} preset."
+    )
+    if fix:
+        msg += f" Reaching {POWER_TARGET:.0%} needs {' or '.join(fix)}."
+    else:
+        msg += f" Even a very large pack or many reps would not reach {POWER_TARGET:.0%}."
+    if preset == "strict":
+        msg += " The strict preset needs more tasks than balanced: consider --preset balanced."
+    return [msg]
+
+
 def format_estimate(
-    est: Estimate, pack: Pack, t: AcceptanceThresholds, *, split: Split, reps: int
+    est: Estimate,
+    pack: Pack,
+    t: AcceptanceThresholds,
+    *,
+    split: Split,
+    reps: int,
+    preset: str = DEFAULT_PRESET,
 ) -> str:
     se = (est.score_variance / est.n_tasks) ** 0.5 if est.n_tasks else 0.0
     gain = est.select_detectable_gain * 100
@@ -250,7 +296,17 @@ def format_estimate(
         f"CONFIRM {hold:.1f} pts ({t.holdout_tasks} tasks x {t.holdout_reps} reps)",
         f"  cost per candidate      ${est.usd_per_candidate:.2f} "
         "(both arms through CONFIRM, plus smoke; excludes proposer and auditor)",
+        f"  minimum gain worth keeping  {t.delta_min * 100:.0f} pts (delta_min)",
+        f"Chance of accepting a true gain under the {preset} preset "
+        f"(select p {t.select_p}, holdout p {t.holdout_p}; an approximation: a normal model "
+        "that ignores the guards and runs a little above the simulator):",
     ]
+    for g, pw in est.power_table:
+        lines.append(f"  +{g * 100:.0f} pts  {pw:.0%}")
+    lines.append(
+        f"  A/A false-accept estimate  {est.aa_false_accept:.1%} (nominal upper bound; "
+        "`iterant aa-test` measures it)"
+    )
     return "\n".join(lines)
 
 
@@ -286,8 +342,9 @@ def cmd_estimate(args: argparse.Namespace, factory: RuntimeFactory) -> int:
             "check the target image, the run command and the grader image",
             EXIT_INFRA,
         ) from exc
-    print(format_estimate(est, project.pack, eff, split=split, reps=reps))
+    print(format_estimate(est, project.pack, eff, split=split, reps=reps, preset=settings.preset))
     warnings = pack_warnings(est, project.pack, settings.thresholds, sampled_split=split)
+    warnings += power_warnings(est, eff, settings.preset)
     for w in warnings:
         print(f"WARNING: {w}")
     if not warnings:
@@ -378,12 +435,39 @@ AA_TEST = "aa-test"
 _OK_STATES = {ESTIMATE: ("pass", "warn"), AA_TEST: ("pass",)}
 
 
+# Limits that do not change what a calibration measures.
+_NOT_CALIBRATION = ("holdout_query_warn", "holdout_query_max")
+
+
+def _calibration_thresholds(t: AcceptanceThresholds) -> dict[str, object]:
+    d: dict[str, object] = json.loads(json.dumps(asdict(t)))
+    for name in _NOT_CALIBRATION:
+        d.pop(name, None)
+    return d
+
+
+def recorded_thresholds(repo: Path) -> AcceptanceThresholds | None:
+    """The thresholds the last calibration record (estimate, else aa-test) ran under, or None.
+    The record omits the limits that do not affect calibration, so those take their defaults."""
+    records = _load(repo)
+    for kind in (ESTIMATE, AA_TEST):
+        fp = _as_map(_as_map(records.get(kind)).get("fingerprint"))
+        raw = _as_map(fp.get("thresholds"))
+        if raw:
+            try:
+                return AcceptanceThresholds(**raw)  # pyright: ignore[reportArgumentType]
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def fingerprint(settings: Settings, project: Project) -> dict[str, object]:
     """Everything a calibration result depends on. A record only counts for an identical one."""
     cfg = json.dumps(asdict(project.config), sort_keys=True, default=str)
     return {
         "pack_hash": project.pack.content_hash,
-        "thresholds": json.loads(json.dumps(asdict(settings.thresholds))),
+        "preset": settings.preset,
+        "thresholds": _calibration_thresholds(settings.thresholds),
         "profile": settings.profile.value,
         "backend": settings.backend,
         "grader_image": project.pack.grader_image,
@@ -467,10 +551,17 @@ def calibration_status(
         old = _as_map(fields.get("fingerprint"))
         if old != fp:
             changed = sorted(k for k in fp if old.get(k) != fp[k]) or ["record"]
-            problems.append(
+            msg = (
                 f"`iterant {kind}` was run for something else ({', '.join(changed)} changed): "
                 "rerun it"
             )
+            if "preset" in changed or "thresholds" in changed:
+                msg += (
+                    f". The active preset is {fp.get('preset')!r}; the default `balanced` "
+                    "(select p 0.10, holdout p 0.5) is looser than the old default "
+                    "(0.05, 0.2). Pass `--preset strict` for the stricter p-values"
+                )
+            problems.append(msg)
             continue
         state = fields.get("state")
         if state not in _OK_STATES[kind]:

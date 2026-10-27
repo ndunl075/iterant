@@ -21,8 +21,10 @@ def test_pairs_by_task_and_averages_reps(mk: MakeRun) -> None:
     assert p.n_dropped == 0
 
 
-def test_drops_task_from_both_arms_when_either_side_refused_after_retry(mk: MakeRun) -> None:
-    cand = [mk("a", None, refusal=True), mk("b", 1.0), mk("c", 1.0)]
+def test_drops_task_from_both_arms_when_either_side_infra_errored_after_retry(
+    mk: MakeRun,
+) -> None:
+    cand = [mk("a", None, infra=True), mk("b", 1.0), mk("c", 1.0)]
     champ = [mk("a", 0.0, cand="h"), mk("b", None, cand="h", infra=True), mk("c", 0.0, cand="h")]
     p = pair_runs(cand, champ)
     assert p.task_ids == ("c",)
@@ -31,14 +33,33 @@ def test_drops_task_from_both_arms_when_either_side_refused_after_retry(mk: Make
     assert len(p.candidate_runs) == len(p.champion_runs) == 1
 
 
+def test_a_refusal_after_retry_scores_zero_for_the_refusing_arm_and_keeps_the_pair(
+    mk: MakeRun,
+) -> None:
+    # candidate refuses on "a" (it would have scored 1.0 elsewhere): 0.0 vs the champion's 1.0
+    cand = [mk("a", None, refusal=True), mk("b", 1.0)]
+    champ = [mk("a", 1.0, cand="h"), mk("b", 0.0, cand="h")]
+    p = pair_runs(cand, champ)
+    assert p.task_ids == ("a", "b") and p.n_dropped == 0
+    assert p.deltas == (-1.0, 1.0)
+    # the champion refusing is symmetric: its arm scores 0.0
+    cand = [mk("a", 1.0), mk("b", 1.0)]
+    champ = [mk("a", None, cand="h", refusal=True), mk("b", 1.0, cand="h")]
+    p = pair_runs(cand, champ)
+    assert p.deltas == (1.0, 0.0) and p.n_dropped == 0
+    # a refused first try with a clean retry is just the retry
+    cand = [mk("a", None, refusal=True, attempt=0), mk("a", 1.0, attempt=1)]
+    assert pair_runs(cand, [mk("a", 0.0, cand="h")]).deltas == (1.0,)
+
+
 def test_retry_replaces_failed_first_attempt(mk: MakeRun) -> None:
     cand = [mk("a", None, infra=True, attempt=0), mk("a", 1.0, attempt=1)]
     champ = [mk("a", 0.0, cand="h")]
     p = pair_runs(cand, champ)
     assert p.deltas == (1.0,)
     assert p.n_dropped == 0
-    # a retry that fails again drops the task
-    cand2 = [mk("a", 1.0, attempt=0), mk("a", None, refusal=True, attempt=1)]
+    # an infra error on the retry drops the task
+    cand2 = [mk("a", 1.0, attempt=0), mk("a", None, infra=True, attempt=1)]
     assert pair_runs(cand2, champ).dropped_tasks == ("a",)
 
 

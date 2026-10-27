@@ -15,6 +15,7 @@ from iterant.orchestrator import (
     Outcomes,
     WriterLock,
 )
+from iterant.orchestrator.loop import HoldoutLimitReached
 from tests.orchestrator.test_errors import solver_with
 
 
@@ -143,6 +144,39 @@ def test_a_holdout_warning_is_surfaced_after_too_many_queries(world):
     second = world.orchestrator(thresholds=t).run_generation()
     assert not first.warnings
     assert any("holdout" in w for w in second.warnings)
+
+
+def test_the_holdout_query_limit_is_a_hard_stop_after_the_warning(world):
+    world.queue(
+        world.proposal("v0", "v1", "h1"),
+        world.proposal("v1", "v2", "h2"),
+        world.proposal("v2", "v3", "h3"),
+    )
+    t = dataclasses.replace(world.THRESHOLDS, holdout_query_warn=1, holdout_query_max=2)
+    first = world.orchestrator(thresholds=t).run_generation()  # query 1
+    second = world.orchestrator(thresholds=t).run_generation()  # query 2: warns, still runs
+    assert not first.warnings
+    assert any("holdout" in w for w in second.warnings)
+    calls = len(world.proposer.calls)
+    with pytest.raises(HoldoutLimitReached, match="queried 2 times.*limit 2") as info:
+        world.orchestrator(thresholds=t).run_generation()  # would be query 3
+    assert "--holdout-query-max" in str(info.value) and "fresh archive" in str(info.value)
+    assert "resume" not in str(info.value)
+    # it stops when the batch opens: no PROPOSE, GATE, SMOKE or SELECT was paid for
+    assert len(world.proposer.calls) == calls
+    with Archive.open(world.repo) as db:
+        assert db.holdout_query_count() == 2
+        assert not [c for c in db.iter_candidates() if c.id.startswith("b3-")]
+    # raising the limit lets the generation run
+    more = dataclasses.replace(t, holdout_query_max=3)
+    assert world.orchestrator(thresholds=more).run_generation().batch_id == 3
+
+
+def test_a_limit_of_one_still_allows_the_first_holdout_query(world):
+    world.queue(world.proposal("v0", "v1", "h1"))
+    t = dataclasses.replace(world.THRESHOLDS, holdout_query_warn=1, holdout_query_max=1)
+    res = world.orchestrator(thresholds=t).run_generation()
+    assert res.batch_id == 1 and res.promoted == "b1-0"
 
 
 def test_run_keys_are_still_what_resume_matches_on(world):

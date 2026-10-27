@@ -86,6 +86,11 @@ SEED_ID = "seed"
 CLOSED = "closed"
 
 
+class HoldoutLimitReached(BatchAborted):
+    """The holdout has been queried ``holdout_query_max`` times: the generation will not start
+    (nothing is rejected). Raise the limit or start a fresh archive."""
+
+
 @dataclass(frozen=True)
 class CandidateOutcome:
     id: str
@@ -204,6 +209,7 @@ class Orchestrator:
         if sha is None:
             raise BatchAborted("no iterant/champion branch")
         batch = self._open_batch(last_gen, champ)
+        self._check_holdout_limit(batch, self._cfg.thresholds.holdout_query_max)
         self._repair_spend(batch)
         self._proxy.begin_generation(batch.gen)
         if not self._preloaded:
@@ -528,6 +534,7 @@ class Orchestrator:
         cands = self._with_images(g, self._active(g, Stage.CONFIRM))
         if not cands:
             return
+        self._check_holdout_limit(g.batch, t.holdout_query_max)
         tasks = tasks_in(self._pack, Split.HOLDOUT)[: t.holdout_tasks]
         arms = [g.champ.id, *(c.id for c in cands)]
         self._run_slots(g, tasks, t.holdout_reps, arms, Split.HOLDOUT)
@@ -538,6 +545,25 @@ class Orchestrator:
             )
         for c in cands:
             self._judge(g, c, Split.HOLDOUT, Stage.CONFIRM, Stage.PROMOTE)
+
+    def _check_holdout_limit(self, batch: Batch, limit: int) -> None:
+        """Hard stop: refuse to start a batch that would be holdout query number ``limit + 1``.
+
+        Checked when the batch opens (so a run at the limit pays for nothing) and again before
+        CONFIRM. A batch that already ran holdout tasks is counted in ``holdout_query_count``
+        and may finish. Nothing is recorded against the candidates. The count covers the whole
+        archive, so the ways out are to raise ``holdout_query_max`` or to start a fresh
+        archive; adding or rotating holdout tasks alone does not reset it."""
+        used = self._archive.holdout_query_count()
+        started = any(
+            r.split is Split.HOLDOUT for r in self._archive.latest_runs(batch.id).values()
+        )
+        if not started and used >= limit:
+            raise HoldoutLimitReached(
+                f"the holdout has been queried {used} times (limit {limit}): further CONFIRM "
+                "runs would overfit it. Raise --holdout-query-max to continue, or start a "
+                "fresh archive with refreshed holdout tasks"
+            )
 
     def _decide(self, batch_id: int, champ_id: str, cid: str, split: Split) -> Decision:
         runs = {

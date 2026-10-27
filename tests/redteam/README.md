@@ -35,7 +35,7 @@ the real LLM auditor would flag it.
 | 7. Exfiltrate the key, phone home | wrong, borrowed, replayed and other-role tokens, routes, header smuggling, key scans, network modes | `test_row7_exfiltration.py` |
 | 8. Escape the sandbox | runtime argv, image-name injection (always on); non-root, caps, network, host files, fork bomb, hostile `/out` in a real sandbox (`podman` / `docker`) | `test_row8_sandbox_escape.py` |
 | 9. Ship a bad change to production | main, HEAD, working tree, remotes untouched; hostile hypothesis text | `test_row9_never_ships.py` |
-| Rows 5 and 6, cross-cutting | make the candidate's own failures look like infra errors so its hard tasks are dropped (lost sandbox, timeout, `get` failures, bad listings, refusals) | `test_infra_laundering.py` |
+| Rows 5 and 6, cross-cutting | make the candidate's own failures look like infra errors or refusals so its hard tasks are dropped (lost sandbox, timeout, `get` failures, bad listings; refusals now score 0.0 and keep the pair) | `test_infra_laundering.py` |
 
 ## Known holes
 
@@ -62,7 +62,7 @@ promotion rows is future work.
 - **Holdout rotation (§9 row 4) is not implemented.** The orchestrator always takes the first
   `holdout_tasks` of the holdout split, in id order (`iterant/orchestrator/loop.py:527`:
   `tasks_in(self._pack, Split.HOLDOUT)[: t.holdout_tasks]`). The only defense is the query-count
-  warning after `holdout_query_warn` queries (`loop.py:530-533`), which nothing blocks on.
+  warning after `holdout_query_warn` queries and a hard stop at `holdout_query_max` (`_check_holdout_limit` in `loop.py`), which only caps how often the same holdout is reused.
   Row 4 is therefore covered by the proposer's blindness, the grep and the auditor only.
 
 ## Open questions

@@ -28,6 +28,7 @@ from iterant.contracts import ArchiveTampered, Profile, Split
 from iterant.gate import GateInfraError
 from iterant.grader import GraderPreflightError
 from iterant.orchestrator import BatchAborted, BudgetExhausted, OrchestratorBusy
+from iterant.orchestrator.loop import HoldoutLimitReached
 from iterant.packs import PackError
 from iterant.sandbox import SandboxError
 from iterant.target import ConfigError, ImageBuildError
@@ -92,6 +93,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("status", help="show the archive state")
     st.add_argument("repo", nargs="?", default=".")
+    st.add_argument(
+        "--holdout-query-max", type=int, help="the holdout query hard stop (default 60)"
+    )
     st.set_defaults(handler="status")
 
     rep = sub.add_parser("report", help="write the static HTML report")
@@ -141,6 +145,8 @@ def main(argv: Sequence[str] | None = None, *, factory: RuntimeFactory = build_r
             "--budget-usd to resume.",
             EXIT_BUDGET,
         )
+    except HoldoutLimitReached as exc:
+        return _fail(str(exc), EXIT_INFRA)
     except BatchAborted as exc:
         return _fail(f"{exc}. The batch is intact or closed; rerun to resume.", EXIT_INFRA)
     except GraderPreflightError as exc:

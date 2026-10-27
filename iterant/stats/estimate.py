@@ -8,7 +8,9 @@ from dataclasses import dataclass
 
 from iterant.contracts import AcceptanceThresholds, RunResult
 from iterant.stats.pairing import final_attempts
-from iterant.stats.power import smallest_detectable_gain
+from iterant.stats.power import rule_power, smallest_detectable_gain
+
+POWER_GAINS = (0.03, 0.05, 0.08, 0.12)  # true gains the power table reports
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,9 @@ class Estimate:
     select_detectable_gain: float
     holdout_detectable_gain: float
     usd_per_candidate: float
+    # (true gain, chance the full rule accepts it) under the thresholds given
+    power_table: tuple[tuple[float, float], ...] = ()
+    aa_false_accept: float = 0.0  # chance the full rule accepts a candidate with no real gain
 
 
 def _var(xs: Sequence[float]) -> float:
@@ -89,4 +94,6 @@ def estimate(
             t.holdout_tasks, disc, t.holdout_reps, t.holdout_p, target_power
         ),
         usd_per_candidate=usd_per_run * (2 * arm_runs + t.smoke_tasks),
+        power_table=tuple((g, rule_power(g, disc, t)) for g in POWER_GAINS),
+        aa_false_accept=rule_power(0.0, disc, t),
     )

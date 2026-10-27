@@ -55,13 +55,22 @@ def test_a_second_infra_error_drops_the_pair_from_both_arms(world):
 
 
 def test_an_infra_error_only_the_candidate_hit_does_not_pass_the_infra_guard(world):
-    world.solver = solver_with(lambda a, t, n: "infra" if (a, t) == ("b1-0", "se09") else "")
+    # five of ten tasks (0 of 10 for the champion): clear on first-try rates (p = 0.031)
+    hit = {f"se0{i}" for i in range(5, 10)}
+    world.solver = solver_with(lambda a, t, n: "infra" if a == "b1-0" and t in hit else "")
     world.queue(world.proposal("v0", "v1", "h"))
     res = world.orchestrator().run_generation()
 
     [cand] = res.candidates
     assert (cand.stage, cand.status) == (Stage.SELECT, Status.REJECTED)
-    assert any("infra" in n for n in cand.notes)
+    assert any("first-try infra-error rate" in n for n in cand.notes)
+
+
+def test_a_single_infra_error_on_one_candidate_task_is_noise_not_a_veto(world):
+    # the noise-tolerant guard (W3): 1 event is not significant, and 1 of 10 dropped is allowed
+    world.solver = solver_with(lambda a, t, n: "infra" if (a, t) == ("b1-0", "se09") else "")
+    world.queue(world.proposal("v0", "v1", "h"))
+    assert world.orchestrator().run_generation().promoted == "b1-0"
 
 
 def test_a_refusal_is_retried_once_and_tracked_apart_from_infra(world):
@@ -107,7 +116,8 @@ def test_refusals_never_trip_the_infra_abort(world):
     world.solver = solver_with(lambda a, t, n: "refuse" if a == "champ" else "")
     world.queue(world.proposal("v0", "v1", "h"))
     res = world.orchestrator(max_infra_rate=0.4).run_generation()  # does not raise
-    assert res.promoted is None  # the stats drop the pairs and reject the candidate
+    # the champion's refusals score 0.0 (symmetric with the candidate's), so the pairs are kept
+    assert res.stopped == "done"
 
 
 def test_a_candidates_own_infra_errors_do_not_abort_the_batch(world):

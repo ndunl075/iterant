@@ -1,14 +1,15 @@
 """Render the archive as static HTML: ``index.html`` plus one ``gen-N.html`` per promotion.
 
 Stdlib only, inline CSS, no scripts, no external fetches. Every value that came from the
-archive, a diff or a hypothesis goes through ``_e`` (``html.escape``), and a CSP meta tag
-forbids scripts as a second layer.
+archive, a diff, a hypothesis or a pack goes through ``_e`` (``html.escape``), and a CSP
+meta tag forbids scripts as a second layer.
 """
 
 from __future__ import annotations
 
 import html
 import os
+import re
 from pathlib import Path
 from typing import Final
 
@@ -30,10 +31,10 @@ _CSS: Final = (
     "pre{background:#f4f5f6;padding:.6rem;overflow:auto;font-size:13px}"
     ".banner{background:#fff3cd;border:2px solid #b58100;padding:.6rem 1rem;font-weight:600}"
     ".flag{background:#fde0dc;border:1px solid #b3261e;padding:.1rem .4rem}"
-    ".ok{color:#1a7f37}.bad{color:#b3261e}.muted{color:#5b636b}"
-    "code{background:#f4f5f6;padding:0 .2rem}"
+    ".muted{color:#5b636b}code{background:#f4f5f6;padding:0 .2rem}"
 )
 _CSP: Final = "default-src 'none'; style-src 'unsafe-inline'"
+_STALE: Final = re.compile(r"gen-\d+\.html")
 
 
 def _e(value: object) -> str:
@@ -53,13 +54,11 @@ def _page(title: str, body: str) -> str:
     )
 
 
-def _banner(pack: Pack | None) -> str:
-    if pack is None:
-        return (
-            '<p class="muted">Pack policy not supplied to the report: whether the agent may '
-            "execute code is unknown here.</p>"
-        )
-    if pack.code_exec_policy == "advisory-forbidden":
+def _banner(data: ReportData) -> str:
+    """Fails closed: no usable pack means a prominent warning, never silence."""
+    if data.pack is None:
+        return f'<p class="banner">{_e(data.pack_warning)}</p>'
+    if data.pack.code_exec_policy == "advisory-forbidden":
         return (
             '<p class="banner">This pack forbids the agent from executing code '
             "(agent_code_exec_policy = advisory-forbidden), but that is NOT enforced. "
@@ -94,71 +93,84 @@ def _arms(arms: tuple[ArmStats, ...]) -> str:
 def _stage_html(ev: StageEvidence | None, label: str) -> str:
     if ev is None:
         return f"<h4>{_e(label)}</h4><p class='muted'>not reached</p>"
-    src = "as stored in the promotions row" if ev.stored else "recomputed from archived runs"
+    if ev.stored:
+        src = "recorded decision, as stored in the promotions row"
+    else:
+        src = (
+            "recomputed with default thresholds and a fixed seed, NOT the recorded decision; "
+            "no verdict is implied"
+        )
     delta = "n/a" if ev.delta is None else f"{ev.delta:+.4f}"
     p = "n/a" if ev.p is None else f"{ev.p:.4f}"
     tasks = "" if ev.n_tasks is None else f", {ev.n_tasks} paired tasks, {ev.n_dropped} dropped"
-    if ev.accepted is None:
-        verdict = ""
-    else:
-        cls, word = ("ok", "passes") if ev.accepted else ("bad", "fails")
-        verdict = f' <span class="{cls}">{word} thresholds + guards (recomputed)</span>'
-    detail = "".join(f"<li>{_e(d)}</li>" for d in ev.detail)
-    ul = f"<ul>{detail}</ul>" if detail else ""
+    note = f"<p class='muted'>{_e(ev.note)}</p>" if ev.note else ""
     return (
-        f"<h4>{_e(label)}</h4><p>delta vs parent {_e(delta)}, one-sided p {_e(p)}{_e(tasks)}"
-        f"{verdict} <span class='muted'>({_e(src)})</span></p>{ul}{_arms(ev.arms)}"
+        f"<h4>{_e(label)}</h4><p>delta vs parent {_e(delta)}, one-sided p {_e(p)}{_e(tasks)} "
+        f"<span class='muted'>({_e(src)})</span></p>{note}{_arms(ev.arms)}"
     )
 
 
 def _diff_html(c: CandidateReport) -> str:
     note = f"<p class='muted'>{_e(c.diff_note)}</p>" if c.diff_note else ""
-    body = f"<pre>{_e(c.diff)}</pre>" if c.diff else "<p class='muted'>(empty diff)</p>"
+    body = f"<pre>{_e(c.diff)}</pre>" if c.diff else "<p class='muted'>(no diff text)</p>"
     return note + body
-
-
-def _exec_flag(c: CandidateReport) -> str:
-    if not c.code_exec:
-        return ""
-    return (
-        '<p><span class="flag">Possible code execution added</span> '
-        "(heuristic pattern match on added lines, may miss or over-flag).</p>"
-    )
 
 
 def _candidate_html(c: CandidateReport, *, detail: bool) -> str:
     k = c.cand
-    flag = _exec_flag(c) if k.status.value == "promoted" else ""
+    promoted = k.status.value == "promoted"
+    flags = ""
+    if promoted and c.diff_missing:
+        flags += (
+            '<p class="banner">The diff of this promoted candidate is missing from the diff '
+            "store: what was promoted cannot be shown here.</p>"
+        )
+    if promoted and c.code_exec:
+        flags += (
+            '<p><span class="flag">Possible code execution added</span> '
+            "(heuristic pattern match on added lines, may miss or over-flag).</p>"
+        )
     head = (
         f"<h3>{_e(k.id)} <span class='muted'>(parent {_e(k.parent)}, {_e(k.status.value)} at "
-        f"{_e(k.stage.value)}, {_e(_usd(k.usd_micros))})</span></h3>"
-        f"<p>Hypothesis: {_e(k.hypothesis)}</p>{flag}"
+        f"{_e(k.stage.value)}, run spend {_e(_usd(k.usd_micros))})</span></h3>"
+        f"<p>Hypothesis: {_e(k.hypothesis)}</p>{flags}"
     )
     ev = _stage_html(c.select, "SELECT") + _stage_html(c.confirm, "CONFIRM")
-    diff = f"<h4>Diff</h4>{_diff_html(c)}"
     if detail:
-        return head + ev + diff
+        return head + ev + f"<h4>Diff</h4>{_diff_html(c)}"
     return head + ev + f"<details><summary>Diff</summary>{_diff_html(c)}</details>"
 
 
-def _pack_line(gen: GenerationReport, pack: Pack | None) -> str:
+def _pack_line(g: GenerationReport, data: ReportData) -> str:
     parts: list[str] = []
-    for h in gen.pack_hashes:
-        name = "name not recorded in archive"
-        if pack is not None and pack.content_hash == h:
-            name = f"{pack.name} {pack.version}"
+    for h in g.pack_hashes:
+        name = "name unknown"
+        if data.pack is not None and data.pack.content_hash == h:
+            name = f"{data.pack.name} {data.pack.version}"
         parts.append(f"{_e(name)} (<code>{_e(h)}</code>)")
-    return "; ".join(parts) or "no batch"
+    line = "; ".join(parts) or "no batch"
+    if g.pack_matches is False:
+        line += (
+            ' <span class="banner">PACK HASH MISMATCH: part of this generation ran on a '
+            "different pack than the one supplied; its name and policy do not apply here.</span>"
+        )
+    return line
 
 
 def _gen_section(g: GenerationReport, data: ReportData) -> str:
     title = "gen-0 (seed champion)" if g.gen == 0 else f"gen-{g.gen}"
-    link = f' <a href="gen-{g.gen}.html">evidence page</a>' if g.promotion else ""
+    link = f' <a href="gen-{_e(g.gen)}.html">evidence page</a>' if g.promotion else ""
     roles = ", ".join(f"{_e(r)} {_e(_usd(u))}" for r, u in g.by_role)
     spend = (
         f"<p>Spend {_e(_usd(g.usd_micros))} ({_e(g.in_tok)} in / {_e(g.out_tok)} out tokens)"
         f"{f' by role: {roles}' if roles else ''}.</p>"
     )
+    many = ""
+    if len(g.batch_ids) > 1:
+        many = (
+            f"<p class='muted'>{_e(len(g.batch_ids))} batches share this generation number "
+            "(earlier ones were abandoned or restarted); all are listed.</p>"
+        )
     promo = ""
     if g.promotion:
         p = g.promotion
@@ -173,8 +185,17 @@ def _gen_section(g: GenerationReport, data: ReportData) -> str:
     return (
         f"<section id='gen-{_e(g.gen)}'><h2>{_e(title)}{link}</h2>"
         f"<p>Batches: {_e(', '.join(map(str, g.batch_ids)) or 'none')}. "
-        f"Pack: {_pack_line(g, data.pack)}</p>{promo}{spend}{cands}</section>"
+        f"Pack: {_pack_line(g, data)}</p>{many}{promo}{spend}{cands}</section>"
     )
+
+
+_SPEND_NOTE: Final = (
+    "Spend comes from the proxy log. Per generation it is the calls of that generation's "
+    "batches plus run-less calls (proposer, analyst, auditor) made from its first batch until "
+    "the next generation's first batch. Run-less calls before the first batch belong to no "
+    "generation, so the total can exceed the per-generation sum. A candidate's own figure is "
+    "run spend only (its target runs), not proposer, analyst or auditor calls."
+)
 
 
 def _index(data: ReportData) -> str:
@@ -196,16 +217,19 @@ def _index(data: ReportData) -> str:
     warn = "".join(f"<p class='banner'>{_e(w)}</p>" for w in data.warnings)
     body = (
         "<h1>Iterant evidence report</h1>"
-        f"{_banner(data.pack)}{warn}"
-        f"<p>Total spend {_e(_usd(data.total_usd_micros))}; holdout queried "
+        f"{_banner(data)}{warn}"
+        f"<p>Total spend {_e(_usd(data.total_usd_micros))} (of which "
+        f"{_e(_usd(data.unattributed_usd_micros))} in no generation); holdout queried "
         f"{_e(data.holdout_queries)} times.</p>"
         f"<h2>Lineage</h2><p>{lineage}</p>"
         "<table><tr><th>gen</th><th>champion</th><th>SELECT delta</th><th>CONFIRM delta</th>"
         f"<th>spend</th></tr>{rows}</table>"
-        f"<p class='muted'>Thresholds (defaults assumed; the archive does not store the run's "
-        f"config): {_thresholds(data.thresholds)} Recomputed p-values use a fixed seed and may "
-        "differ slightly from the orchestrator's. No confidence interval is stored.</p>"
-        + "".join(_gen_section(g, data) for g in data.generations)
+        f"<p class='muted'>{_e(_SPEND_NOTE)}</p>"
+        "<p class='muted'>Promoted rows show the recorded decision's numbers. Other candidates "
+        "show delta and p recomputed from archived runs with the default thresholds "
+        f"({_thresholds(data.thresholds)}) and a fixed seed; the archive does not store the "
+        "run's thresholds or seed, so these are not the recorded decision. No confidence "
+        "interval is stored.</p>" + "".join(_gen_section(g, data) for g in data.generations)
     )
     return _page("Iterant evidence report", body)
 
@@ -215,9 +239,9 @@ def _promotion_page(g: GenerationReport, data: ReportData) -> str:
     winner = next((c for c in g.candidates if c.cand.id == g.promotion.cand), None)
     body = (
         f"<p><a href='index.html'>&larr; report</a></p><h1>gen-{_e(g.gen)}</h1>"
-        f"{_banner(data.pack)}<p>Pack: {_pack_line(g, data.pack)}</p>"
+        f"{_banner(data)}<p>Pack: {_pack_line(g, data)}</p>"
         f"<p>Spend {_e(_usd(g.usd_micros))} ({_e(g.in_tok)} in / {_e(g.out_tok)} out tokens).</p>"
-        f"<p class='muted'>Thresholds: {_thresholds(data.thresholds)}</p>"
+        f"<p class='muted'>{_e(_SPEND_NOTE)}</p>"
     )
     if winner is None:
         body += f"<p>Promoted candidate {_e(g.promotion.cand)} is not in this archive.</p>"
@@ -235,17 +259,28 @@ def render(
     *,
     pack: Pack | None = None,
     thresholds: AcceptanceThresholds | None = None,
+    diffs_dir: str | os.PathLike[str] | None = None,
 ) -> Path:
     """Write ``index.html`` and ``gen-N.html`` (one per promotion) into ``out_dir``.
 
-    Returns the path of ``index.html``. ``archive_path`` is ``<repo>/.iterant/archive.db``;
-    diffs are read from ``<repo>/.iterant/diffs``. The archive stores pack hashes but not
-    pack names or policy, so pass ``pack`` to show the name and the advisory-forbidden banner,
-    and ``thresholds`` if the run did not use the defaults.
+    Returns the path of ``index.html``. The archive is opened read-only. Diffs are read from
+    ``diffs_dir`` (default ``diffs/`` beside the archive file, i.e. ``<repo>/.iterant/diffs``).
+    The archive stores pack hashes but not pack names or policy, so pass ``pack`` to show the
+    name and the advisory-forbidden banner; without a pack whose hash matches a batch the
+    report carries a prominent warning instead. Stale ``gen-N.html`` files in ``out_dir`` are
+    removed first.
     """
-    data = collect(Path(archive_path), pack=pack, thresholds=thresholds)
+    data = collect(
+        Path(archive_path),
+        pack=pack,
+        thresholds=thresholds,
+        diffs_dir=None if diffs_dir is None else Path(diffs_dir),
+    )
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    for old in out.iterdir():
+        if _STALE.fullmatch(old.name) and (old.is_file() or old.is_symlink()):
+            old.unlink()
     for g in data.generations:
         if g.promotion is not None:
             (out / f"gen-{g.gen}.html").write_text(_promotion_page(g, data), encoding="utf-8")

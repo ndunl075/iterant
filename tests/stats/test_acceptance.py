@@ -127,13 +127,23 @@ def test_infra_guard_vetoes_a_clear_first_try_excess(mk: MakeRun) -> None:
 
 
 def test_one_extra_refusal_is_noise_not_a_veto(mk: MakeRun) -> None:
-    # 1 of 41 vs 0 of 41: excess 2.4 pts, but p ~ 0.5: not significant
+    # 1 of 41 vs 0 of 41 first tries: excess 2.4 pts, but p ~ 0.5: not significant
     cand, champ = arms(mk, [0.2, 0.1] * 20)
-    cand.append(mk("x", None, refusal=True))  # refused twice would drop it; once is enough
+    cand.append(mk("x", None, refusal=True))
     champ.append(mk("x", 0.5, cand="h"))
     d = decide_select(cand, champ, seed=0)
-    assert d.n_dropped == 1 and Reason.REFUSAL_GUARD not in d.reasons
-    assert Reason.TOO_MANY_DROPPED not in d.reasons and d.accepted
+    assert d.n_dropped == 0 and Reason.REFUSAL_GUARD not in d.reasons and d.accepted
+
+
+def test_a_refused_task_scores_zero_it_is_not_dropped(mk: MakeRun) -> None:
+    """4 refusals the retry did not clear: each is a 0.0 against the champion's 0.5, so the
+    candidate pays for them in delta instead of shedding the tasks."""
+    cand, champ = arms(mk, [0.0] * 40)
+    for i in range(4):
+        cand[i] = mk(f"t{i}", None, refusal=True)
+    d = decide_select(cand, champ, seed=0)
+    assert d.n_dropped == 0 and d.n_tasks == 40
+    assert round(d.delta, 6) == round(-4 * 0.5 / 40, 6)
 
 
 def test_equal_first_try_rates_are_fine(mk: MakeRun) -> None:
@@ -207,8 +217,8 @@ def test_cost_guard_counts_retried_attempts(mk: MakeRun) -> None:
 def test_too_many_dropped_tasks_rejects(mk: MakeRun) -> None:
     gains = [0.2, 0.1] * 20
     cand, champ = arms(mk, gains)
-    for i in range(5):  # 5 of 45 tasks (11%) refused in the candidate
-        cand.append(mk(f"x{i}", None, refusal=True))
+    for i in range(5):  # 5 of 45 tasks (11%) infra-errored in the candidate
+        cand.append(mk(f"x{i}", None, infra=True))
         champ.append(mk(f"x{i}", 0.5, cand="h"))
     d = decide_select(cand, champ, seed=0)
     assert Reason.TOO_MANY_DROPPED in d.reasons and d.n_dropped == 5

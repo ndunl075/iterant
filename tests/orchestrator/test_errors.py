@@ -116,7 +116,8 @@ def test_refusals_never_trip_the_infra_abort(world):
     world.solver = solver_with(lambda a, t, n: "refuse" if a == "champ" else "")
     world.queue(world.proposal("v0", "v1", "h"))
     res = world.orchestrator(max_infra_rate=0.4).run_generation()  # does not raise
-    assert res.promoted is None  # the stats drop the pairs and reject the candidate
+    # the champion's refusals score 0.0 (symmetric with the candidate's), so the pairs are kept
+    assert res.stopped == "done"
 
 
 def test_a_candidates_own_infra_errors_do_not_abort_the_batch(world):

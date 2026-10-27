@@ -15,7 +15,7 @@ from iterant.stats.signflip import DEFAULT_RESAMPLES, paired_signflip
 # exact boundary (115 vs 100 * 1.15 must pass).
 _EPS = 1e-9
 
-# More refused/infra-errored task pairs than this share of all tasks rejects the
+# More infra-errored task pairs than this share of all tasks rejects the
 # candidate: a verdict on few surviving tasks is not a verdict on the pack.
 MAX_DROPPED_FRACTION = 0.10
 
@@ -166,7 +166,7 @@ def _decide(
         fails.append(
             (
                 Reason.TOO_MANY_DROPPED,
-                f"{pairing.n_dropped} of {n_all} tasks dropped (refused/infra-error) "
+                f"{pairing.n_dropped} of {n_all} tasks dropped (infra-error) "
                 f"> {MAX_DROPPED_FRACTION:.0%}",
             )
         )

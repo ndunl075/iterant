@@ -298,11 +298,15 @@ def format_estimate(
         "(both arms through CONFIRM, plus smoke; excludes proposer and auditor)",
         f"  minimum gain worth keeping  {t.delta_min * 100:.0f} pts (delta_min)",
         f"Chance of accepting a true gain under the {preset} preset "
-        f"(select p {t.select_p}, holdout p {t.holdout_p}; estimate):",
+        f"(select p {t.select_p}, holdout p {t.holdout_p}; an approximation: a normal model "
+        "that ignores the guards and runs a little above the simulator):",
     ]
     for g, pw in est.power_table:
         lines.append(f"  +{g * 100:.0f} pts  {pw:.0%}")
-    lines.append(f"  A/A false-accept estimate  {est.aa_false_accept:.1%}")
+    lines.append(
+        f"  A/A false-accept estimate  {est.aa_false_accept:.1%} (nominal upper bound; "
+        "`iterant aa-test` measures it)"
+    )
     return "\n".join(lines)
 
 
@@ -431,13 +435,39 @@ AA_TEST = "aa-test"
 _OK_STATES = {ESTIMATE: ("pass", "warn"), AA_TEST: ("pass",)}
 
 
+# Limits that do not change what a calibration measures.
+_NOT_CALIBRATION = ("holdout_query_warn", "holdout_query_max")
+
+
+def _calibration_thresholds(t: AcceptanceThresholds) -> dict[str, object]:
+    d: dict[str, object] = json.loads(json.dumps(asdict(t)))
+    for name in _NOT_CALIBRATION:
+        d.pop(name, None)
+    return d
+
+
+def recorded_thresholds(repo: Path) -> AcceptanceThresholds | None:
+    """The thresholds the last calibration record (estimate, else aa-test) ran under, or None.
+    The record omits the limits that do not affect calibration, so those take their defaults."""
+    records = _load(repo)
+    for kind in (ESTIMATE, AA_TEST):
+        fp = _as_map(_as_map(records.get(kind)).get("fingerprint"))
+        raw = _as_map(fp.get("thresholds"))
+        if raw:
+            try:
+                return AcceptanceThresholds(**raw)  # pyright: ignore[reportArgumentType]
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def fingerprint(settings: Settings, project: Project) -> dict[str, object]:
     """Everything a calibration result depends on. A record only counts for an identical one."""
     cfg = json.dumps(asdict(project.config), sort_keys=True, default=str)
     return {
         "pack_hash": project.pack.content_hash,
         "preset": settings.preset,
-        "thresholds": json.loads(json.dumps(asdict(settings.thresholds))),
+        "thresholds": _calibration_thresholds(settings.thresholds),
         "profile": settings.profile.value,
         "backend": settings.backend,
         "grader_image": project.pack.grader_image,
@@ -521,10 +551,17 @@ def calibration_status(
         old = _as_map(fields.get("fingerprint"))
         if old != fp:
             changed = sorted(k for k in fp if old.get(k) != fp[k]) or ["record"]
-            problems.append(
+            msg = (
                 f"`iterant {kind}` was run for something else ({', '.join(changed)} changed): "
                 "rerun it"
             )
+            if "preset" in changed or "thresholds" in changed:
+                msg += (
+                    f". The active preset is {fp.get('preset')!r}; the default `balanced` "
+                    "(select p 0.10, holdout p 0.5) is looser than the old default "
+                    "(0.05, 0.2). Pass `--preset strict` for the stricter p-values"
+                )
+            problems.append(msg)
             continue
         state = fields.get("state")
         if state not in _OK_STATES[kind]:

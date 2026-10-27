@@ -8,7 +8,7 @@ import pytest
 
 from iterant.cli.calibrate import fingerprint, power_warnings
 from iterant.cli.main import build_parser, main
-from iterant.cli.settings import Settings, load_project, settings_from_args
+from iterant.cli.settings import Settings, load_project, preset_from_args, settings_from_args
 from iterant.contracts import RunKey, RunResult, Split
 from iterant.stats import PRESETS, Estimate, estimate
 
@@ -21,7 +21,8 @@ def _settings(*argv: str) -> Settings:
 def test_every_threshold_command_takes_preset(command: str) -> None:
     ns = build_parser().parse_args([command, ".", "--preset", "strict"])
     assert ns.preset == "strict"
-    assert build_parser().parse_args([command, "."]).preset == "balanced"
+    assert build_parser().parse_args([command, "."]).preset is None  # means balanced
+    assert preset_from_args(build_parser().parse_args([command, "."])) == "balanced"
 
 
 def test_default_is_balanced_and_strict_applies() -> None:

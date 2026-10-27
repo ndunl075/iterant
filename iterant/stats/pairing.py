@@ -15,7 +15,8 @@ class Pairing:
     """Per-task paired gains. ``deltas[i]`` is candidate minus champion for ``task_ids[i]``.
 
     ``dropped_tasks`` lists tasks removed from both arms because a final run (highest
-    attempt) of either arm was refused or infra-errored. ``candidate_runs`` and
+    attempt) of either arm was infra-errored. A final refusal is not a drop: it scores 0.0
+    for the arm that refused. ``candidate_runs`` and
     ``champion_runs`` are the final attempts of the kept tasks; ``*_attempts`` are
     every attempt of those tasks (retries included), which is what the cost and wall
     guards must count.
@@ -85,6 +86,12 @@ def check_same_batch(
             raise ValueError(f"expected only {split.value} runs, got {sorted(map(str, bad))}")
 
 
+def _score(r: RunResult) -> float:
+    """A refusal that survived its retry is the refusing arm's failure: it scores 0.0 (in
+    either arm), so refusing on its worst tasks gains a candidate nothing."""
+    return 0.0 if r.score is None else r.score
+
+
 def pair_runs(
     candidate: Sequence[RunResult],
     champion: Sequence[RunResult],
@@ -93,10 +100,10 @@ def pair_runs(
 ) -> Pairing:
     """Pair the two arms by task, averaging scores over reps.
 
-    A task is dropped from both arms when any final run of either arm is refused or
-    infra-errored. Raises ``ValueError`` if the arms are not from one batch (or not
-    all from ``split``), if an arm mixes candidates or both arms are the same
-    candidate, or if a task, or a (task, rep), has runs in only one arm.
+    A task is dropped from both arms when any final run of either arm is infra-errored; a
+    final refusal scores 0.0 for its arm and the pair is kept. Raises ``ValueError`` if the
+    arms are not from one batch (or not all from ``split``), if an arm mixes candidates or
+    both arms are the same candidate, or if a task, or a (task, rep), has runs in only one arm.
     """
     check_same_batch(candidate, champion, split)
     c_ids = {r.key.cand for r in candidate}
@@ -129,11 +136,11 @@ def pair_runs(
     champ_att: list[RunResult] = []
     for task in sorted(cand):
         c_runs, h_runs = cand[task], champ[task]
-        if any(r.score is None for r in (*c_runs, *h_runs)):
-            dropped.append(task)
+        if any(r.score is None and not r.refusal for r in (*c_runs, *h_runs)):
+            dropped.append(task)  # an infra error that survived its retry
             continue
-        c_mean = math.fsum(r.score for r in c_runs if r.score is not None) / len(c_runs)
-        h_mean = math.fsum(r.score for r in h_runs if r.score is not None) / len(h_runs)
+        c_mean = math.fsum(_score(r) for r in c_runs) / len(c_runs)
+        h_mean = math.fsum(_score(r) for r in h_runs) / len(h_runs)
         kept.append(task)
         deltas.append(c_mean - h_mean)
         cand_kept.extend(c_runs)

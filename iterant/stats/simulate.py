@@ -64,6 +64,9 @@ class SimConfig:
     infra_rate: float = 0.0  # too, unless its candidate_* rate below is set)
     candidate_refusal_rate: float | None = None
     candidate_infra_rate: float | None = None
+    # Selective refuser: per stage, the candidate refuses (both attempts) on up to this many
+    # (task, rep) slots where it failed and the champion passed, i.e. it tries to shed its losses.
+    selective_refusals: int = 0
     cost_multiplier: float = 1.0  # candidate usd_micros relative to champion
     wall_multiplier: float = 1.0  # candidate wall_s relative to champion
     thresholds: AcceptanceThresholds = field(default_factory=AcceptanceThresholds)
@@ -161,6 +164,7 @@ def _attempt(
     split: Split,
     passed: bool,
     candidate: bool,
+    force_refusal: bool = False,
 ) -> RunResult:
     refusal_rate, infra_rate = cfg.refusal_rate, cfg.infra_rate
     cost, wall = 1000, 10.0
@@ -171,7 +175,7 @@ def _attempt(
             infra_rate = cfg.candidate_infra_rate
         cost, wall = round(cost * cfg.cost_multiplier), wall * cfg.wall_multiplier
     u = rng.random()
-    refusal = u < refusal_rate
+    refusal = force_refusal or u < refusal_rate
     infra = not refusal and u < refusal_rate + infra_rate
     bad = refusal or infra
     return RunResult(
@@ -197,20 +201,24 @@ def _runs(
 ) -> tuple[list[RunResult], list[RunResult]]:
     cand: list[RunResult] = []
     champ: list[RunResult] = []
+    shed = cfg.selective_refusals
     for i, (p, q) in enumerate(probs):
         for rep in range(reps):
             u_h = rng.random()
             u_c = u_h if rng.random() < cfg.arm_coupling else rng.random()
+            refuse = shed > 0 and u_h < p and not u_c < q  # a slot the candidate would lose
+            shed -= refuse
             for arm, out, passed, is_cand in (
                 (_CHAMP, champ, u_h < p, False),
                 (_CAND, cand, u_c < q, True),
             ):
                 key = RunKey(batch, arm, f"t{i}", rep, 0)
-                r = _attempt(rng, cfg, key, split, passed, is_cand)
+                force = is_cand and refuse
+                r = _attempt(rng, cfg, key, split, passed, is_cand, force)
                 out.append(r)
                 if r.score is None:  # one retry of a refused / errored run
                     retry = replace(key, attempt=1)
-                    out.append(_attempt(rng, cfg, retry, split, passed, is_cand))
+                    out.append(_attempt(rng, cfg, retry, split, passed, is_cand, force))
     return cand, champ
 
 

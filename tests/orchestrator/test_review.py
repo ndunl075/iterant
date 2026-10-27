@@ -157,14 +157,17 @@ def test_the_holdout_query_limit_is_a_hard_stop_after_the_warning(world):
     second = world.orchestrator(thresholds=t).run_generation()  # query 2: warns, still runs
     assert not first.warnings
     assert any("holdout" in w for w in second.warnings)
-    with pytest.raises(HoldoutLimitReached, match="queried 2 times.*limit 2.*Refresh or rotate"):
+    calls = len(world.proposer.calls)
+    with pytest.raises(HoldoutLimitReached, match="queried 2 times.*limit 2") as info:
         world.orchestrator(thresholds=t).run_generation()  # would be query 3
+    assert "--holdout-query-max" in str(info.value) and "fresh archive" in str(info.value)
+    assert "resume" not in str(info.value)
+    # it stops when the batch opens: no PROPOSE, GATE, SMOKE or SELECT was paid for
+    assert len(world.proposer.calls) == calls
     with Archive.open(world.repo) as db:
-        assert db.holdout_query_count() == 2  # CONFIRM never ran
-        assert [c.status for c in db.iter_candidates() if c.id.startswith("b3-")] == [
-            Status.ACTIVE
-        ]  # nothing was rejected: the batch is resumable
-    # raising the limit (or refreshing the holdout) lets the same batch finish
+        assert db.holdout_query_count() == 2
+        assert not [c for c in db.iter_candidates() if c.id.startswith("b3-")]
+    # raising the limit lets the generation run
     more = dataclasses.replace(t, holdout_query_max=3)
     assert world.orchestrator(thresholds=more).run_generation().batch_id == 3
 

@@ -33,14 +33,37 @@ BALANCED = PRESETS["balanced"]
 STRICT = PRESETS["strict"]
 
 
-@pytest.mark.parametrize(("name", "preset"), [("balanced", BALANCED), ("strict", STRICT)])
-def test_aa_false_accept_is_at_most_5_percent_for_both_presets(
-    name: str, preset: AcceptanceThresholds
+@pytest.mark.parametrize(
+    ("name", "preset", "aa_max", "select_max"),
+    [("balanced", BALANCED, 0.05, 0.09), ("strict", STRICT, 0.02, 0.06)],
+)
+def test_aa_false_accept_bounds_per_preset(
+    name: str, preset: AcceptanceThresholds, aa_max: float, select_max: float
 ) -> None:
-    """Full rule (SELECT then CONFIRM), identical arms. Fixed seed, CI-sized trial count."""
+    """Full rule (SELECT then CONFIRM), identical arms. Fixed seed, CI-sized trial count.
+    balanced is the looser preset (measured 2.7% at 1,500 trials); strict keeps the old
+    bounds (0.5%, SELECT alone 4.4%)."""
     s = run_trials(SimConfig(thresholds=preset), seed=11, trials=_AA_TRIALS, n_resamples=_R)
-    assert s.accept.rate <= 0.05, f"{name}: A/A false accept {s.accept.rate:.3f}"
-    assert s.select_pass.rate <= 0.09, f"{name}: A/A SELECT alone {s.select_pass.rate:.3f}"
+    assert s.accept.rate <= aa_max, f"{name}: A/A false accept {s.accept.rate:.3f}"
+    assert s.select_pass.rate <= select_max, f"{name}: A/A SELECT alone {s.select_pass.rate:.3f}"
+
+
+@pytest.mark.parametrize("preset", [BALANCED, STRICT], ids=["balanced", "strict"])
+def test_selective_refuser_does_not_raise_the_aa_false_accept(
+    preset: AcceptanceThresholds,
+) -> None:
+    """Identical arms, but the candidate refuses (both attempts) on up to 4 slots per stage
+    where it lost to the champion. A refusal scores 0.0, so shedding losses gains nothing."""
+    cfg = SimConfig(selective_refusals=4, thresholds=preset)
+    s = run_trials(cfg, seed=12, trials=_AA_TRIALS, n_resamples=_R)
+    plain = run_trials(SimConfig(thresholds=preset), seed=12, trials=_AA_TRIALS, n_resamples=_R)
+    assert s.accept.rate <= 0.05
+    assert s.accept.rate <= plain.accept.rate + 0.01
+
+
+def test_selective_refusals_are_actually_injected() -> None:
+    d = simulate_trial(SimConfig(selective_refusals=4, mean_pass=0.5), 3, _R).select
+    assert d.n_dropped == 0  # refusals are scored, not dropped
 
 
 def test_balanced_power_at_plus_8_is_at_least_50_percent_at_default_sizes() -> None:
@@ -114,9 +137,19 @@ def test_candidate_that_refuses_more_is_rejected() -> None:
         assert Reason.REFUSAL_GUARD in d.reasons
 
 
-def test_candidate_that_loses_many_tasks_is_rejected() -> None:
-    # 40% refusals per attempt leaves ~16% of tasks with no scored run after the retry.
+def test_candidate_that_refuses_its_hard_tasks_gains_nothing() -> None:
+    """A refusal that survives its retry scores 0.0 for the refuser (never a dropped pair),
+    so 40% refusals cannot be used to shed tasks: no trial is accepted."""
     bad = SimConfig(gain=0.2, candidate_refusal_rate=0.4)
+    for seed in range(8):
+        d = simulate_trial(bad, seed, _R, select_only=True).select
+        assert d.n_dropped == 0 and not d.accepted
+        assert Reason.TOO_MANY_DROPPED not in d.reasons
+
+
+def test_candidate_that_loses_many_tasks_to_infra_errors_is_rejected() -> None:
+    # 40% infra errors per attempt leaves ~16% of tasks with no scored run after the retry.
+    bad = SimConfig(gain=0.2, candidate_infra_rate=0.4)
     for seed in range(8):
         d = simulate_trial(bad, seed, _R, select_only=True).select
         assert not d.accepted

@@ -9,6 +9,7 @@ from pathlib import Path
 from iterant.archive import Archive, ArchiveError, ArchiveNotInitialized, archive_path
 from iterant.cli.errors import EXIT_ERROR, EXIT_OK, CliError
 from iterant.cli.lock import cli_lock
+from iterant.cli.settings import thresholds_from_args
 from iterant.contracts import AcceptanceThresholds, ArchiveTampered, Batch, Candidate, open_archive
 from iterant.orchestrator import OrchestratorBusy
 from iterant.orchestrator.loop import CLOSED, SEED_ID
@@ -41,7 +42,7 @@ def _members(cands: list[Candidate], batch_id: int) -> list[Candidate]:
     return [c for c in cands if c.id.startswith(f"b{batch_id}-")]
 
 
-def render_status(repo: Path) -> str:
+def render_status(repo: Path, thresholds: AcceptanceThresholds | None = None) -> str:
     path = archive_path(repo)
     try:
         archive = Archive.open_path(path, create_schema=False)
@@ -85,8 +86,8 @@ def render_status(repo: Path) -> str:
         if real
         else f"batches: {len(batches)}; candidates: 0"
     )
-    defaults = AcceptanceThresholds()
-    warn, hard = defaults.holdout_query_warn, defaults.holdout_query_max
+    t = thresholds or AcceptanceThresholds()
+    warn, hard = t.holdout_query_warn, t.holdout_query_max
     lines.append(
         f"holdout queries: {holdout_queries} (warns after {warn}, stops at {hard})"
         + (": add fresh holdout tasks" if holdout_queries > warn else "")
@@ -106,5 +107,5 @@ def render_status(repo: Path) -> str:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    print(render_status(Path(args.repo)))
+    print(render_status(Path(args.repo), thresholds_from_args(args)))
     return EXIT_OK

@@ -99,7 +99,7 @@ def add_threshold_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--preset",
         choices=sorted(PRESETS),
-        default=DEFAULT_PRESET,
+        default=None,
         help="acceptance preset (default balanced: select p 0.10, holdout p 0.5; strict: "
         "p 0.05 / 0.2 with 80 holdout tasks). The flags below override the preset",
     )
@@ -122,7 +122,7 @@ def add_threshold_arguments(p: argparse.ArgumentParser) -> None:
     )
 
 
-_OVERRIDES = (
+OVERRIDE_FLAGS = (
     "select_tasks",
     "select_reps",
     "holdout_tasks",
@@ -142,7 +142,9 @@ def preset_from_args(args: argparse.Namespace) -> str:
 def thresholds_from_args(args: argparse.Namespace) -> AcceptanceThresholds:
     """The preset's thresholds, with every explicitly given flag replacing the preset's value."""
     chosen = {
-        name: getattr(args, name) for name in _OVERRIDES if getattr(args, name, None) is not None
+        name: getattr(args, name)
+        for name in OVERRIDE_FLAGS
+        if getattr(args, name, None) is not None
     }
     try:
         return preset_thresholds(preset_from_args(args), **chosen)

@@ -279,9 +279,11 @@ def test_env_like_files_stay_out_of_the_upload(
 def test_long_context_line_is_fine_long_added_line_is_not(
     repo: Path, run_gate: RunGate, edit: Edit
 ) -> None:
-    (repo / "prompts" / "system.md").write_text("word " * 1000 + "\nend\n", encoding="utf-8")
-    assert run_gate(edit("prompts/system.md", "word " * 1000 + "\nnew end\n")).passed
-    (repo / "prompts" / "system.md").write_text("a\n", encoding="utf-8")
+    doc = repo / "prompts" / "system.md"
+    long_line = "word " * 999 + "word"
+    doc.write_text(long_line + "\nend\n", encoding="utf-8", newline="\n")
+    assert run_gate(edit("prompts/system.md", long_line + "\nnew end\n")).passed
+    doc.write_text("a\n", encoding="utf-8", newline="\n")
     assert (
         run_gate(edit("prompts/system.md", "w " * 6000 + "\n")).findings[0].startswith("diff-size:")
     )

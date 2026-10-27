@@ -45,7 +45,10 @@ from iterant.sandbox.container import PROXY_ENV
 
 _LIST_TIMEOUT_S = 30.0
 _PROBE_TIMEOUT_S = 10.0
-_TTL_MARGIN_S = 120.0
+# A get stalled on a FIFO ends at the container backend's 120 s IO timeout; the margin keeps
+# the sandbox alive past that, plus the probe and some slack.
+_IO_TIMEOUT_S = 120.0
+_TTL_MARGIN_S = _IO_TIMEOUT_S + _PROBE_TIMEOUT_S + 60.0
 # One record per entry: type, hard-link count, size, path relative to the out dir, NUL-ended.
 _LIST_CMD = r"find {out} -mindepth 1 -printf '%y\t%n\t%s\t%P\0'"
 _TASK_REF = re.compile(r"(?<![\w./-])/task(?=/)")
@@ -72,15 +75,6 @@ def sandbox_ttl(cfg: OrchestratorConfig) -> float:
     return cfg.run_timeout_s + _LIST_TIMEOUT_S + cfg.read_budget_s + _TTL_MARGIN_S
 
 
-def _answers(sandbox: Sandbox) -> bool:
-    """True if the sandbox still runs a trivial command: the runtime is fine."""
-    try:
-        res = sandbox.exec("true", _PROBE_TIMEOUT_S)
-    except Exception:
-        return False
-    return res.exit_code == 0 and not (res.timed_out or res.sandbox_lost or res.truncated)
-
-
 def read_out(
     sandbox: Sandbox,
     out_dir: str,
@@ -93,8 +87,9 @@ def read_out(
     Lists with ``find`` (types, link counts and sizes are checked before anything is read),
     then fetches regular single-link files one by one within ``budget_s``. Raises
     ``OutputRejected`` when the output breaks a rule, cannot be read, or takes too long (the
-    agent's doing); ``SandboxLost`` if the sandbox is gone; another ``SandboxError`` only when
-    the sandbox stopped answering for reasons the agent cannot cause (an infra error).
+    agent's doing); ``SandboxLost`` if the sandbox is gone; any other ``SandboxError`` is
+    re-raised for the caller to judge: only a fresh sandbox, out of the agent's reach, can say
+    whether the runtime is down or the agent broke this one.
     """
     deadline = clock() + budget_s
     listing = sandbox.exec(_LIST_CMD.format(out=out_dir), _LIST_TIMEOUT_S)
@@ -131,11 +126,7 @@ def read_out(
             files[rel] = sandbox.get(f"{out_dir}/{rel}")
         except (FileNotFoundError, IsADirectoryError) as exc:
             raise OutputRejected("output changed while reading") from exc
-        except SandboxLost:
-            raise
-        except SandboxError as exc:
-            if _answers(sandbox):  # the runtime is fine, so the file is the problem
-                raise OutputRejected("unreadable output") from exc
+        except SandboxError:
             raise
     return files
 
@@ -168,6 +159,27 @@ class RunExecutor:
         self._run = run_command
         self._read_input = read_input
         self._cfg = config
+
+    def _runtime_healthy(self, image: str) -> bool:
+        """Judge the runtime from outside the agent's reach: a FRESH sandbox from the same
+        image must start and run a trivial command."""
+        cfg = self._cfg
+        try:
+            probe = self._backend.create(
+                image, cfg.cpu, cfg.mem, cfg.disk, _PROBE_TIMEOUT_S + 50.0, "default-deny"
+            )
+        except Exception:
+            return False
+        try:
+            res = probe.exec("true", _PROBE_TIMEOUT_S)
+            return res.exit_code == 0 and not (res.timed_out or res.sandbox_lost or res.truncated)
+        except Exception:
+            return False
+        finally:
+            try:
+                probe.destroy()
+            except Exception:
+                pass
 
     def execute(self, key: RunKey, task: Task, image: str) -> Executed:
         start = time.monotonic()
@@ -232,6 +244,10 @@ class RunExecutor:
             except SandboxLost:
                 return finish(0.0, wall=agent_wall, fault="lost")
             except Exception:
+                if agent_wall is not None and self._runtime_healthy(image):
+                    # the agent ran and a fresh sandbox is fine, so it broke this one
+                    # (a delayed fork bomb, chmod 000, a FIFO ...): the candidate's doing
+                    return finish(0.0, wall=agent_wall, fault="bad-output")
                 return finish(None, infra=True, wall=agent_wall)
         finally:
             self._proxy.sessions.revoke_run(key)

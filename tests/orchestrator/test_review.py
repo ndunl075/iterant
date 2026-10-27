@@ -8,7 +8,13 @@ import pytest
 
 from iterant.archive import Archive
 from iterant.contracts import RunKey, Stage, Status
-from iterant.orchestrator import OrchestratorBusy, WriterLock
+from iterant.orchestrator import (
+    Orchestrator,
+    OrchestratorBusy,
+    OrchestratorConfig,
+    Outcomes,
+    WriterLock,
+)
 from tests.orchestrator.test_errors import solver_with
 
 
@@ -70,6 +76,40 @@ def test_smoke_kills_a_crash_or_timeout_the_champion_did_not_have(world):
     [c] = res.candidates
     assert (c.stage, c.status) == (Stage.SMOKE, Status.REJECTED)
     assert c.notes and c.notes[0].startswith("smoke:")
+
+
+def test_smoke_fails_closed_when_the_outcome_store_is_lost(world):
+    world.queue(world.proposal("v0", "v1", "h"))
+    (world.repo / ".iterant").mkdir(exist_ok=True)
+    real = Outcomes.recorded
+    Outcomes.recorded = lambda self, b, c: set()  # type: ignore[method-assign]
+    try:
+        res = world.orchestrator().run_generation()
+    finally:
+        Outcomes.recorded = real  # type: ignore[method-assign]
+    [c] = res.candidates
+    assert (c.stage, c.status) == (Stage.SMOKE, Status.REJECTED)
+
+
+def test_a_pack_at_the_repo_root_is_refused(world):
+    with pytest.raises(ValueError, match="repo root"):
+        Orchestrator(
+            **{**world.orch_kwargs(), "pack_root": world.repo},
+            config=OrchestratorConfig(thresholds=world.THRESHOLDS),
+        )
+
+
+def test_the_sandbox_ttl_outlasts_a_stalled_get(world):
+    from iterant.orchestrator.runs import sandbox_ttl
+
+    cfg = OrchestratorConfig(run_timeout_s=10, read_budget_s=50)
+    assert sandbox_ttl(cfg) >= 10 + 30 + 50 + 120 + 10  # + backend IO timeout + probe
+
+
+def test_the_analyst_is_not_called_when_its_worst_case_exceeds_the_budget(world):
+    world.queue(world.proposal("v0", "v1", "h"))
+    res = world.orchestrator(budget_usd_micros=world.PROPOSER_CAP + 5_000).run_generation()
+    assert res.stopped == "budget" and not world.redactions
 
 
 def test_smoke_forgives_a_fault_the_champion_shares(world):

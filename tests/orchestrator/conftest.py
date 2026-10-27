@@ -48,6 +48,7 @@ from iterant.sandbox import SandboxError, SandboxLost
 HAIKU = "claude-haiku-5-5"
 OPUS = "claude-opus-5-5"
 PROPOSER_CAP = 50_000
+ANALYST_CAP = 60_000
 PROPOSER_COST = 17_500  # 1000 in + 500 out at $5 / $25 per Mtok
 GRADER_IMAGE = "docker.io/library/python@sha256:" + "cd" * 32
 RUN_COST = 4500  # 2000 input + 500 output tokens at $1 / $5 per Mtok
@@ -89,6 +90,7 @@ class FakeSandbox:
     net: NetMode
     files: dict[str, bytes] = field(default_factory=lambda: {})
     lost: bool = False
+    ran_agent: bool = False
     destroyed: int = 0
 
     def _alive(self) -> None:
@@ -123,12 +125,13 @@ class FakeSandbox:
             good = self.files.get("/work/out/answer.txt") == b"ok"
             return ExecResult(0, json.dumps({"v": 1 if good else 0}), "", False, 0.1)
         if cmd == "true":
-            if self.world.runtime_down:
+            if self.world.runtime_down or (self.world.agent_sandbox_broken and self.ran_agent):
                 raise SandboxError("runtime is down")
             return ok
         if cmd.startswith("find "):
             return self._list()
         if "ANTHROPIC_API_KEY" in cmd:
+            self.ran_agent = True
             return self._agent(cmd, timeout)
         raise AssertionError(f"unexpected command {cmd!r}")
 
@@ -308,6 +311,7 @@ class World:
     RUN_COST = RUN_COST
     PROPOSER_COST = PROPOSER_COST
     PROPOSER_CAP = PROPOSER_CAP
+    ANALYST_CAP = ANALYST_CAP
     RUN_CAP = RUN_CAP
 
     @staticmethod
@@ -337,6 +341,7 @@ class World:
         self.put_fails = False
         self.get_fails = False
         self.runtime_down = False
+        self.agent_sandbox_broken = False  # the agent wrecked ITS sandbox, not the runtime
         self.redactions: list[list[str]] = []
         self.listing: str | None = None
         self.proposer = FakeProposer(self)
@@ -394,6 +399,12 @@ class World:
                     max_usd_micros_per_run=PROPOSER_CAP,
                     max_usd_micros_per_gen=100_000_000,
                 ),
+                Role.ANALYST: RoleCap(
+                    OPUS,
+                    "high",
+                    max_usd_micros_per_run=ANALYST_CAP,
+                    max_usd_micros_per_gen=100_000_000,
+                ),
             },
         )
         return Proxy(
@@ -414,11 +425,14 @@ class World:
 
     def orchestrator(self, **cfg: Any) -> Orchestrator:
         """A fresh orchestrator on fresh connections and a fresh proxy: what a restart sees."""
+        cfg.setdefault("thresholds", THRESHOLDS)
+        return Orchestrator(**self.orch_kwargs(), config=OrchestratorConfig(**cfg))
+
+    def orch_kwargs(self) -> dict[str, Any]:
         self.proxy = self._new_proxy()
         archive = Archive.open(self.repo)
         self.archives.append(archive)
-        cfg.setdefault("thresholds", THRESHOLDS)
-        return Orchestrator(
+        return dict(
             repo=self.repo,
             pack=self.pack,
             pack_root=self.pack_root,
@@ -431,7 +445,6 @@ class World:
             gate=self.gate,
             images=self.images,
             digest=self._digest,
-            config=OrchestratorConfig(**cfg),
         )
 
     def _digest(self, redact: Any) -> str:

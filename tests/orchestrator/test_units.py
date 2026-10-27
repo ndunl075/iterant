@@ -71,27 +71,13 @@ def test_read_out_rejects_an_unlistable_or_vanishing_output():
         read_out(ListSandbox("f\t1\t1\tgone\0"), "/o")  # type: ignore[arg-type]
 
 
-def test_read_out_calls_an_unreadable_file_the_agents_when_the_sandbox_answers():
+def test_read_out_reraises_sandbox_errors_for_the_executor_to_judge():
     class Unreadable(ListSandbox):
         def get(self, path: str) -> bytes:
             raise SandboxError("permission denied")
 
-    with pytest.raises(OutputRejected):
-        read_out(Unreadable("f	1	1	a\0"), "/o")  # type: ignore[arg-type]
-
-
-def test_read_out_lets_sandbox_errors_through_as_infra_when_the_runtime_is_down():
-    class Down(ListSandbox):
-        def exec(self, cmd: str, timeout: float) -> ExecResult:
-            if cmd == "true":
-                raise SandboxError("runtime gone")
-            return super().exec(cmd, timeout)
-
-        def get(self, path: str) -> bytes:
-            raise SandboxError("runtime gone")
-
     with pytest.raises(SandboxError) as info:
-        read_out(Down("f	1	1	a\0"), "/o")  # type: ignore[arg-type]
+        read_out(Unreadable("f	1	1	a\0"), "/o")  # type: ignore[arg-type]
     assert not isinstance(info.value, OutputRejected)
 
 

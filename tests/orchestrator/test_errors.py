@@ -157,6 +157,15 @@ def test_a_get_failure_the_agent_can_cause_scores_zero_when_the_sandbox_still_an
     assert (r.score, r.infra_err) == (0.0, False)
 
 
+def test_a_wrecked_agent_sandbox_is_judged_by_a_fresh_one_not_by_itself(world):
+    world.solver = lambda arm, t, n: "ok"
+    world.get_fails = True
+    world.agent_sandbox_broken = True  # the in-sandbox probe fails; a fresh sandbox is fine
+    r = world.executor().execute(RunKey(1, "c", "se00", 0), task(world), "img:c").result
+    assert (r.score, r.infra_err) == (0.0, False)
+    assert len(world.backend.sandboxes) == 2  # the agent's and the fresh probe (no grading)
+
+
 def test_a_get_failure_is_infra_only_if_the_runtime_is_down(world):
     world.solver = lambda arm, t, n: "ok"
     world.get_fails = True

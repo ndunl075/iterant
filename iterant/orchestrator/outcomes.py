@@ -42,6 +42,15 @@ class Outcomes:
                 (key.batch, key.cand, key.task, key.rep, key.attempt, fault or ""),
             )
 
+    def recorded(self, batch: int, cand: str) -> set[tuple[str, int]]:
+        """``(task, rep)`` of every slot with any outcome note, fault or not."""
+        with closing(self._connect()) as con:
+            rows = con.execute(
+                "SELECT DISTINCT task, rep FROM outcomes WHERE batch = ? AND cand = ?",
+                (batch, cand),
+            ).fetchall()
+        return {(str(r[0]), int(r[1])) for r in rows}
+
     def faults(self, batch: int, cand: str) -> dict[tuple[str, int], str]:
         """``{(task, rep): fault}`` for the final attempt of each slot that had a fault."""
         with closing(self._connect()) as con:

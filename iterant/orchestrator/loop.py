@@ -173,6 +173,8 @@ class Orchestrator:
             )
         except ValueError:
             self._pack_rel = None  # the pack lives outside the repo
+        if self._pack_rel == ".":
+            raise ValueError("the pack root must not be the repo root: the proposer would see it")
 
     # --- entry point --------------------------------------------------------------
 
@@ -421,6 +423,7 @@ class Orchestrator:
 
     def _propose_one(self, g: _Gen, cid: str) -> None:
         if g.digest is None:
+            g.budget.check(self._worst(Role.ANALYST))
             g.digest = self._digest(self._redactions())
         with tempfile.TemporaryDirectory(prefix="iterant-propose-") as tmp:
             full = export_commit(self._repo, g.champ_sha, Path(tmp) / "full")
@@ -488,6 +491,10 @@ class Orchestrator:
         for c in cands:
             # §3: kill on any crash or timeout the champion didn't have on the same task.
             mine = self._outcomes.faults(g.batch.id, c.id)
+            # fail closed: a slot that ran but has no outcome record counts as a fault
+            for task in tasks:
+                if (task.id, 0) not in self._outcomes.recorded(g.batch.id, c.id):
+                    mine[(task.id, 0)] = "no-record"
             new = sorted(
                 f"{task}: {fault}"
                 for (task, rep), fault in mine.items()

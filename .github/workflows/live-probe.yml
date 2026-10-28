@@ -1,0 +1,111 @@
+name: live-probe
+on:
+  push:
+    branches: ['probe/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MODEL: qwen2.5:14b
+jobs:
+  estimate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { version: "0.12.21", enable-cache: true }
+      - run: uv sync --locked
+      - name: Tool versions
+        run: podman --version; podman info | head -20; df -h /; free -m; nproc
+      - name: Install Ollama and pull model
+        run: bash .github/scripts/setup.sh
+      - name: Prepare agent repo
+        run: |
+          rm -rf "$RUNNER_TEMP/agent"
+          cp -r examples/reference-agent "$RUNNER_TEMP/agent"
+          cd "$RUNNER_TEMP/agent"
+          sed -i "s|^name = \".*\"|name = \"$MODEL\"|" iterant.toml
+          git init -q && git config user.email p@p && git config user.name probe
+          git add -A && git commit -qm baseline
+      - name: estimate
+        run: |
+          source .github/scripts/lib.sh
+          run estimate uv run iterant estimate $FLAGS --split select --tasks 80 --reps 2 "$A"
+      - name: Pack state
+        if: always()
+        run: |
+          echo "$RUNNER_TEMP/agent" > logs/agent-path.txt
+          cp "$RUNNER_TEMP/agent/.iterant/calibration.json" logs/ || true
+          tar -czpf "$RUNNER_TEMP/state.tgz" -C "$RUNNER_TEMP" agent
+          ls -la "$RUNNER_TEMP/state.tgz"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: state-estimate, path: "${{ runner.temp }}/state.tgz", retention-days: 7 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: logs-estimate, path: logs/ }
+
+  aatest:
+    needs: estimate
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { version: "0.12.21", enable-cache: true }
+      - run: uv sync --locked
+      - uses: actions/download-artifact@v4
+        with: { name: state-estimate, path: "${{ runner.temp }}/dl" }
+      - name: Restore state at the same path
+        run: |
+          tar -xzpf "$RUNNER_TEMP/dl/state.tgz" -C "$RUNNER_TEMP"
+          ls -la "$RUNNER_TEMP/agent" "$RUNNER_TEMP/agent/.iterant"
+          cat "$RUNNER_TEMP/agent/.iterant/calibration.json"; echo
+          git -C "$RUNNER_TEMP/agent" status --short | head
+          git -C "$RUNNER_TEMP/agent" log --oneline | head
+      - name: Install Ollama and pull model
+        run: bash .github/scripts/setup.sh
+      - name: aa-test
+        run: |
+          source .github/scripts/lib.sh
+          run aatest uv run iterant aa-test $FLAGS "$A"
+      - name: Pack state
+        if: always()
+        run: tar -czpf "$RUNNER_TEMP/state.tgz" -C "$RUNNER_TEMP" agent
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: state-aatest, path: "${{ runner.temp }}/state.tgz", retention-days: 7 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: logs-aatest, path: logs/ }
+
+  run:
+    needs: aatest
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { version: "0.12.21", enable-cache: true }
+      - run: uv sync --locked
+      - uses: actions/download-artifact@v4
+        with: { name: state-aatest, path: "${{ runner.temp }}/dl" }
+      - name: Restore state at the same path
+        run: |
+          tar -xzpf "$RUNNER_TEMP/dl/state.tgz" -C "$RUNNER_TEMP"
+          cat "$RUNNER_TEMP/agent/.iterant/calibration.json"; echo
+      - name: Install Ollama and pull model
+        run: bash .github/scripts/setup.sh
+      - name: run, status, report
+        run: |
+          source .github/scripts/lib.sh
+          run run uv run iterant run $FLAGS --generations 1 "$A"
+          run status uv run iterant status "$A"
+          run report uv run iterant report "$A"
+          cp -r "$A/.iterant/report" logs/report 2>/dev/null
+          cp -r "$A/.iterant" logs/iterant-dir 2>/dev/null
+          true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: logs-run, path: logs/ }

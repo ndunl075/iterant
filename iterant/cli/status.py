@@ -17,6 +17,7 @@ from iterant.contracts import (
     ArchiveTampered,
     Batch,
     Candidate,
+    Promotion,
     Split,
     open_archive,
 )
@@ -87,6 +88,20 @@ def _members(cands: list[Candidate], batch_id: int) -> list[Candidate]:
     return [c for c in cands if c.id.startswith(f"b{batch_id}-")]
 
 
+def batch_champion_id(archive: Archive, batch: Batch, promo: Promotion | None) -> str:
+    """The champion arm of ``batch``: the champion when the batch opened. If the batch itself
+    promoted (``promo.gen`` is the batch's generation) the current champion is its winner, a
+    candidate of the batch, so the arm is the winner's parent."""
+    if promo is None:
+        return SEED_ID
+    if promo.gen >= batch.gen:
+        winner = archive.get_candidate(promo.cand)
+        if winner is not None and winner.parent is not None:
+            return winner.parent
+        return SEED_ID
+    return promo.cand
+
+
 def render_status(
     repo: Path,
     thresholds: AcceptanceThresholds | None = None,
@@ -120,7 +135,9 @@ def render_status(
             [
                 r
                 for r in archive.runs_for_candidate(
-                    promo.cand if promo else SEED_ID, batch=batches[-1].id, latest_only=False
+                    batch_champion_id(archive, batches[-1], promo),
+                    batch=batches[-1].id,
+                    latest_only=False,
                 )
                 if r.key.attempt == 0 and r.split is not Split.TRAIN
             ]

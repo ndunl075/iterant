@@ -40,7 +40,12 @@ class UnknownRow(ArchiveError, LookupError):
 
 
 class SchemaVersionError(ArchiveError):
-    """The database was written by a newer Iterant than this one understands."""
+    """The database was written by a newer Iterant than this one understands.
+    ``found`` is the archive's schema version when known."""
+
+    def __init__(self, message: str, found: int | None = None) -> None:
+        super().__init__(message)
+        self.found = found
 
 
 class PackHashMismatch(ArchiveError):

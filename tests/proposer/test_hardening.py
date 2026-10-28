@@ -134,3 +134,37 @@ def test_timeout_message_names_the_limit() -> None:
         for c in conns:
             c.close()
         srv.close()
+
+
+def test_proposer_calls_never_exceed_max_turns_and_each_call_gets_its_own_token(
+    repo: Path,
+    config,  # type: ignore[no-untyped-def]
+) -> None:
+    """Production issues one single-use call token per request (``_FreshTokenClient``), so the
+    budget is max_turns calls in total, nudges included."""
+    from iterant.cli.runtime import PROPOSER_MAX_TURNS, _FreshTokenClient  # pyright: ignore
+
+    issued: list[str] = []
+
+    def issue() -> str:
+        issued.append(f"tok{len(issued)}")
+        return issued[-1]
+
+    with FakeLLM() as fake:
+        fake.add(None, anthropic_message("prose"))  # prose forever: 1 call plus 2 nudges
+        client = _FreshTokenClient(fake.base_url, issue)
+        proposer = EditingProposer(
+            client, config, model=OPUS, effort="high", max_turns=PROPOSER_MAX_TURNS
+        )
+        assert proposer.propose("seed", repo, "d", []) is None
+        assert len(fake.requests) == len(issued) == 3 <= PROPOSER_MAX_TURNS
+
+    # With fewer turns than 1 + MAX_NUDGES the cap binds: calls equal max_turns exactly.
+    issued.clear()
+    with FakeLLM() as fake:
+        fake.add(None, anthropic_message("prose"))
+        small = EditingProposer(
+            _FreshTokenClient(fake.base_url, issue), config, model=OPUS, effort="high", max_turns=2
+        )
+        assert small.propose("seed", repo, "d", []) is None
+        assert len(fake.requests) == len(issued) == 2

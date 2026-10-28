@@ -2,7 +2,8 @@
 
 Tools: ``list_files``, ``read_file``, ``write_file``, ``finish``. Writes are checked against the
 genome by ``Workspace``; the returned diff covers exactly the files written. Each model call
-is one proxy call, so the call token needs ``uses >= max_turns``.
+is one proxy call and nudges count within ``max_turns``, so a proposer run makes at most
+``max_turns`` calls; the CLI issues a fresh single-use call token per call.
 """
 
 from __future__ import annotations

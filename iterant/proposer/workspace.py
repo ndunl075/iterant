@@ -175,16 +175,19 @@ class Workspace:
             if full.is_dir():
                 raise ToolError(f"{norm} is a directory")
             norm = self._canonical(norm, full)
-            if full.exists() and norm not in self._originals and not self._was_read(full):
-                raise ToolError(
-                    f"refused: read_file {norm} before rewriting it (it already exists)"
-                )
             if norm not in self._originals:
                 if full.exists():
+                    data_before = full.read_bytes()
                     try:
-                        self._originals[norm] = full.read_bytes().decode("utf-8")
+                        text_before = data_before.decode("utf-8")
                     except UnicodeDecodeError as exc:
                         raise ToolError(f"{norm} is not UTF-8 text; it cannot be edited") from exc
+                    # A file read() refuses as too large can never be read: don't demand it.
+                    if len(data_before) <= MAX_READ_BYTES and not self._was_read(full):
+                        raise ToolError(
+                            f"refused: read_file {norm} before rewriting it (it already exists)"
+                        )
+                    self._originals[norm] = text_before
                 else:
                     self._originals[norm] = None
                 added = norm

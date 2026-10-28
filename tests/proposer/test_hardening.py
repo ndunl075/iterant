@@ -72,11 +72,12 @@ def test_refusal_names_editable_files(repo: Path, config) -> None:  # type: igno
 def test_prose_reply_gets_nudged_then_edits(repo: Path, config) -> None:  # type: ignore[no-untyped-def]
     with FakeLLM() as fake:
         fake.add(lambda b: len(b["messages"]) == 1, anthropic_message("I would change it"))
+        fake.add(lambda b: len(b["messages"]) == 3, use("read_file", path="agent/loop.py"))
         fake.add(
-            lambda b: len(b["messages"]) == 3,
+            lambda b: len(b["messages"]) == 5,
             use("write_file", path="agent/loop.py", content="def run():\n    return 2\n"),
         )
-        fake.add(lambda b: len(b["messages"]) == 5, use("finish", hypothesis="h"))
+        fake.add(lambda b: len(b["messages"]) == 7, use("finish", hypothesis="h"))
         proposal = make(fake, config).propose("seed", repo, "d", [])
         assert fake.requests[1].body["messages"][2] == {"role": "user", "content": NUDGE}
     assert proposal is not None and "return 2" in proposal.diff
@@ -98,13 +99,14 @@ def test_nudges_count_within_max_turns(repo: Path, config) -> None:  # type: ign
 
 def test_no_nudge_after_a_write(repo: Path, config) -> None:  # type: ignore[no-untyped-def]
     with FakeLLM() as fake:
+        fake.add(lambda b: len(b["messages"]) == 1, use("read_file", path="agent/loop.py"))
         fake.add(
-            lambda b: len(b["messages"]) == 1,
+            lambda b: len(b["messages"]) == 3,
             use("write_file", path="agent/loop.py", content="y = 1\n"),
         )
-        fake.add(lambda b: len(b["messages"]) == 3, anthropic_message("done"))
+        fake.add(lambda b: len(b["messages"]) == 5, anthropic_message("done"))
         proposal = make(fake, config).propose("seed", repo, "d", [])
-        assert len(fake.requests) == 2
+        assert len(fake.requests) == 3
     assert proposal is not None
 
 

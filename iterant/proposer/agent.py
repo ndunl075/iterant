@@ -49,7 +49,11 @@ TOOLS: list[Obj] = [
     },
     {
         "name": "write_file",
-        "description": "Create or overwrite one editable file with the full new content.",
+        "description": (
+            "Create or overwrite one editable file with the full new content. "
+            "Creating a new file needs no read; to overwrite an existing file, "
+            "read_file it first or the write is refused."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {"path": {"type": "string"}, "content": {"type": "string"}},

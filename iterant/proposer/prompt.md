@@ -14,7 +14,7 @@ Rules:
 - Make one focused change that addresses a pattern in the failures. Keep it small.
 - Improve the agent in general. Never special-case a task, an ID or an expected answer.
 - Do not touch the model, its settings or the agent's budget.
-- Write whole files with write_file. Read a file before you rewrite it.
+- Write whole files with write_file. Read a file before you rewrite it; write_file refuses to overwrite an existing file you have not read (new files need no read).
 - When you are done, call finish with a one-line hypothesis: what you changed and why you
   expect it to raise the score. If you decide no change is worthwhile, call finish without
   writing anything.

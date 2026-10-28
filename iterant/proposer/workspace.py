@@ -61,6 +61,7 @@ class Workspace:
         self._genome = genome
         self._hidden = tuple(tuple(p.casefold() for p in h.split("/")) for h in hidden)
         self._originals: dict[str, str | None] = {}
+        self._read: set[str] = set()  # files read successfully this session
 
     # --- helpers ------------------------------------------------------------------
 
@@ -147,9 +148,11 @@ class Workspace:
         if len(data) > MAX_READ_BYTES:
             raise ToolError(f"file is larger than {MAX_READ_BYTES} bytes")
         try:
-            return data.decode("utf-8")
+            text = data.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ToolError("file is not UTF-8 text") from exc
+        self._read.add(self._norm(path))
+        return text
 
     def write(self, path: str, content: str) -> str:
         norm = self._norm(path)
@@ -174,10 +177,17 @@ class Workspace:
             norm = self._canonical(norm, full)
             if norm not in self._originals:
                 if full.exists():
+                    data_before = full.read_bytes()
                     try:
-                        self._originals[norm] = full.read_bytes().decode("utf-8")
+                        text_before = data_before.decode("utf-8")
                     except UnicodeDecodeError as exc:
                         raise ToolError(f"{norm} is not UTF-8 text; it cannot be edited") from exc
+                    # A file read() refuses as too large can never be read: don't demand it.
+                    if len(data_before) <= MAX_READ_BYTES and not self._was_read(full):
+                        raise ToolError(
+                            f"refused: read_file {norm} before rewriting it (it already exists)"
+                        )
+                    self._originals[norm] = text_before
                 else:
                     self._originals[norm] = None
                 added = norm
@@ -188,6 +198,13 @@ class Workspace:
                 del self._originals[added]  # the write is atomic: nothing changed, not touched
             raise ToolError(f"cannot write {norm}: {exc.strerror or type(exc).__name__}") from exc
         return f"wrote {norm} ({len(data)} bytes)"
+
+    def _was_read(self, full: Path) -> bool:
+        for known in self._read:
+            other = self._root / known
+            if other.exists() and os.path.samefile(full, other):
+                return True
+        return False
 
     def _canonical(self, norm: str, full: Path) -> str:
         """The key already used for this file, if ``norm`` names the same file by another

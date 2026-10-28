@@ -8,7 +8,7 @@ import traceback
 from collections.abc import Callable, Sequence
 
 from iterant.analyst import LLMError
-from iterant.archive import ArchiveError, GitRefError, SchemaVersionError
+from iterant.archive import SCHEMA_VERSION, ArchiveError, GitRefError, SchemaVersionError
 from iterant.cli.calibrate import cmd_aa_test, cmd_estimate
 from iterant.cli.errors import (
     EXIT_BUDGET,
@@ -163,7 +163,7 @@ def main(argv: Sequence[str] | None = None, *, factory: RuntimeFactory = build_r
     except ArchiveTampered as exc:
         return _fail(f"archive integrity check failed: {exc}", EXIT_ERROR)
     except SchemaVersionError as exc:
-        if exc.found is None:
+        if exc.found is None or exc.found <= SCHEMA_VERSION:
             return _fail(f"SchemaVersionError: {exc}", EXIT_ERROR)
         return _fail(_NEWER_ARCHIVE.format(exc.found), EXIT_ERROR)
     except (PackError, ArchiveError, GitRefError) as exc:

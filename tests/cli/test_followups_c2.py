@@ -84,3 +84,15 @@ def test_status_refusals_use_the_arm_the_latest_batch_ran_against_after_a_promot
         # A later batch (gen above the promotion) is judged against the current champion.
         later = type(batch)(2, promo.gen + 1, batch.pack_hash, batch.started_at)
         assert batch_champion_id(archive, later, promo) == promo.cand
+
+
+def test_a_negative_user_version_does_not_claim_a_newer_iterant(world, capsys) -> None:  # type: ignore[no-untyped-def]
+    _run_once(world)
+    capsys.readouterr()
+    con = sqlite3.connect(archive_path(world.repo))
+    con.execute("PRAGMA user_version = -3")
+    con.commit()
+    con.close()
+    world.queue.append(None)
+    assert world.cli("run", str(world.repo), *world.RUN_SMALL) != 0
+    assert "newer Iterant" not in capsys.readouterr().err

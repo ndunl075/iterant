@@ -158,3 +158,13 @@ def test_proposer_calls_never_exceed_max_turns_and_each_call_gets_its_own_token(
         )
         assert proposer.propose("seed", repo, "d", []) is None
         assert len(fake.requests) == len(issued) == 3 <= PROPOSER_MAX_TURNS
+
+    # With fewer turns than 1 + MAX_NUDGES the cap binds: calls equal max_turns exactly.
+    issued.clear()
+    with FakeLLM() as fake:
+        fake.add(None, anthropic_message("prose"))
+        small = EditingProposer(
+            _FreshTokenClient(fake.base_url, issue), config, model=OPUS, effort="high", max_turns=2
+        )
+        assert small.propose("seed", repo, "d", []) is None
+        assert len(fake.requests) == len(issued) == 2

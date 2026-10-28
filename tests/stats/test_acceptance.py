@@ -250,7 +250,9 @@ def test_missing_rep_in_one_arm_raises(mk: MakeRun) -> None:
 
 
 def _refusing(mk: MakeRun, n: int, refused: int, cand: str = "x") -> list[RunResult]:
-    return [mk(f"t{i}", None if i < refused else 0.5, cand=cand, refusal=i < refused) for i in range(n)]
+    return [
+        mk(f"t{i}", None if i < refused else 0.5, cand=cand, refusal=i < refused) for i in range(n)
+    ]
 
 
 def test_refusal_creep_is_caught_against_the_seed_but_not_step_by_step(mk: MakeRun) -> None:

@@ -224,7 +224,13 @@ def decide_select(
     seed; the candidate's first-try refusal rate is also checked against them.
     """
     return _decide(
-        Split.SELECT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples, anchor
+        Split.SELECT,
+        candidate,
+        champion,
+        thresholds or AcceptanceThresholds(),
+        seed,
+        n_resamples,
+        anchor,
     )
 
 
@@ -241,7 +247,13 @@ def decide_confirm(
     holdout runs of both arms. Use a different ``seed`` than SELECT's (see
     ``decide_select``)."""
     return _decide(
-        Split.HOLDOUT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples, anchor
+        Split.HOLDOUT,
+        candidate,
+        champion,
+        thresholds or AcceptanceThresholds(),
+        seed,
+        n_resamples,
+        anchor,
     )
 
 

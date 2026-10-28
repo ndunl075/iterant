@@ -138,6 +138,26 @@ def _guards(
     return out
 
 
+def _anchor_refusal_guard(
+    candidate: Sequence[RunResult], anchor: Sequence[RunResult], t: AcceptanceThresholds
+) -> list[tuple[Reason, str]]:
+    """The refusal guard against a fixed reference (the seed champion), with the same noise
+    tolerance. Each champion comparison allows ``noise_guard_margin`` more refusals, so over
+    many generations the rate could ratchet up; this one does not move."""
+    k_c, m_c = _first_try_events(candidate, "refusal")
+    k_a, m_a = _first_try_events(anchor, "refusal")
+    veto, p, excess = noise_veto(k_c, m_c, k_a, m_a, t)
+    if not veto:
+        return []
+    return [
+        (
+            Reason.REFUSAL_GUARD,
+            f"first-try refusal rate {k_c / m_c:.1%} worse than the seed champion "
+            f"{k_a / m_a:.1%} (+{excess * 100:.1f} pts, p={p:.3f})",
+        )
+    ]
+
+
 def _decide(
     stage: Split,
     candidate: Sequence[RunResult],
@@ -145,6 +165,7 @@ def _decide(
     t: AcceptanceThresholds,
     seed: int,
     n_resamples: int,
+    anchor: Sequence[RunResult] | None = None,
 ) -> Decision:
     pairing = pair_runs(candidate, champion, split=stage)
     boot = paired_signflip(pairing.deltas, seed=seed, n_resamples=n_resamples)
@@ -171,6 +192,8 @@ def _decide(
             )
         )
     fails.extend(_guards(pairing, candidate, champion, t))
+    if anchor is not None:
+        fails.extend(_anchor_refusal_guard(candidate, anchor, t))
     return Decision(
         stage=stage,
         accepted=not fails,
@@ -190,16 +213,18 @@ def decide_select(
     *,
     seed: int,
     n_resamples: int = DEFAULT_RESAMPLES,
+    anchor: Sequence[RunResult] | None = None,
 ) -> Decision:
     """SELECT: ``delta >= delta_min`` and ``p < select_p``, plus the guards.
 
     ``candidate`` and ``champion`` are the two arms' runs (all attempts) from one batch
     of ``select`` tasks. ``seed`` should be derived per stage and per candidate, so
     SELECT and CONFIRM never reuse one random stream. Production uses the default
-    ``n_resamples``.
+    ``n_resamples``. ``anchor``: the seed champion's runs, when the champion is not the
+    seed; the candidate's first-try refusal rate is also checked against them.
     """
     return _decide(
-        Split.SELECT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples
+        Split.SELECT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples, anchor
     )
 
 
@@ -210,12 +235,13 @@ def decide_confirm(
     *,
     seed: int,
     n_resamples: int = DEFAULT_RESAMPLES,
+    anchor: Sequence[RunResult] | None = None,
 ) -> Decision:
     """CONFIRM: holdout ``delta > 0`` and ``p < holdout_p``, plus the guards, on fresh
     holdout runs of both arms. Use a different ``seed`` than SELECT's (see
     ``decide_select``)."""
     return _decide(
-        Split.HOLDOUT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples
+        Split.HOLDOUT, candidate, champion, thresholds or AcceptanceThresholds(), seed, n_resamples, anchor
     )
 
 

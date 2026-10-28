@@ -247,3 +247,25 @@ def test_missing_rep_in_one_arm_raises(mk: MakeRun) -> None:
     many = [mk(f"u{i}", 1.0) for i in range(15)]
     with pytest.raises(ValueError, match="and 5 more"):
         decide_select(cand + many, champ, seed=0)
+
+
+def _refusing(mk: MakeRun, n: int, refused: int, cand: str = "x") -> list[RunResult]:
+    return [mk(f"t{i}", None if i < refused else 0.5, cand=cand, refusal=i < refused) for i in range(n)]
+
+
+def test_refusal_creep_is_caught_against_the_seed_but_not_step_by_step(mk: MakeRun) -> None:
+    """Each generation refuses 2 points more than its champion (within the noise margin),
+    so the champion comparison never vetoes; the seed anchor does, at gen 3."""
+    n = 200
+    seed_runs = _refusing(mk, n, 0, "seed")
+    champ = seed_runs
+    verdicts: list[bool] = []
+    for gen in (1, 2, 3, 4):
+        cand = _refusing(mk, n, 4 * gen, f"g{gen}")  # 2% per generation (n=200)
+        base = decide_select(cand, champ, seed=0)
+        assert Reason.REFUSAL_GUARD not in base.reasons  # step-wise: tolerated
+        anchored = decide_select(cand, champ, seed=0, anchor=seed_runs)
+        verdicts.append(Reason.REFUSAL_GUARD in anchored.reasons)
+        champ = cand
+    assert verdicts == [False, True, True, True]  # 2% tolerated, 4%+ is not (margin 2 pts)
+    assert "seed champion" in anchored.detail[-1]

@@ -594,7 +594,12 @@ class Orchestrator:
         tag = f"{self._cfg.seed}:{batch_id}:{cid}:{split.value}"
         seed = int.from_bytes(hashlib.sha256(tag.encode()).digest()[:8], "big")
         decide = decide_select if split is Split.SELECT else decide_confirm
-        return decide(runs[cid], runs[champ_id], self._cfg.thresholds, seed=seed)
+        anchor = (
+            None
+            if champ_id == SEED_ID
+            else self._archive.runs_for_candidate(SEED_ID, split=split, latest_only=False)
+        )
+        return decide(runs[cid], runs[champ_id], self._cfg.thresholds, seed=seed, anchor=anchor)
 
     def _judge(self, g: _Gen, c: Candidate, split: Split, stage: Stage, nxt: Stage) -> None:
         d = self._decide(g.batch.id, g.champ.id, c.id, split)

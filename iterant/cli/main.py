@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 import traceback
 from collections.abc import Callable, Sequence
@@ -164,10 +163,9 @@ def main(argv: Sequence[str] | None = None, *, factory: RuntimeFactory = build_r
     except ArchiveTampered as exc:
         return _fail(f"archive integrity check failed: {exc}", EXIT_ERROR)
     except SchemaVersionError as exc:
-        found = re.search(r"schema version (\d+)", str(exc))
-        if found is None:
+        if exc.found is None:
             return _fail(f"SchemaVersionError: {exc}", EXIT_ERROR)
-        return _fail(_NEWER_ARCHIVE.format(found.group(1)), EXIT_ERROR)
+        return _fail(_NEWER_ARCHIVE.format(exc.found), EXIT_ERROR)
     except (PackError, ArchiveError, GitRefError) as exc:
         return _fail(f"{type(exc).__name__}: {exc}", EXIT_ERROR)
     except KeyboardInterrupt:

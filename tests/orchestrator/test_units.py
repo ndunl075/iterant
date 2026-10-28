@@ -169,3 +169,14 @@ def test_proposer_failure_note_is_clean() -> None:
     for leaked in ("C:\\", "AppData", "/tmp", "127.0.0.1", "http://"):
         assert leaked not in note
     assert proposer_failure_note(ValueError("")) == "proposer failed: ValueError"
+
+
+def test_proposer_failure_note_is_fast_on_huge_unbroken_text() -> None:
+    import time
+
+    from iterant.orchestrator.loop import proposer_failure_note
+
+    start = time.perf_counter()
+    note = proposer_failure_note(RuntimeError("a" * 50_000))
+    assert time.perf_counter() - start < 1.0
+    assert note.startswith("proposer failed: RuntimeError: aaa") and len(note) < 300

@@ -87,6 +87,7 @@ SEED_ID = "seed"
 CLOSED = "closed"
 
 
+_RAW_NOTE_CHARS = 1000
 _URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")
 _ABS_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|(?<![\w.:<-])/)\S*")
 
@@ -94,7 +95,7 @@ _ABS_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|(?<![\w.:<-])/)\S*")
 def proposer_failure_note(exc: BaseException) -> str:
     """One clean line for a failed proposer. The note is fed back to the proposer through the
     history, so URLs and absolute paths (host temp dirs, the proxy address) are removed."""
-    raw = str(exc).strip()
+    raw = str(exc).strip()[:_RAW_NOTE_CHARS]  # bound the regex work (they are quadratic)
     reason = ""
     if raw:
         raw = clean_hypothesis(raw)  # control characters and line breaks become spaces

@@ -101,8 +101,9 @@ def test_newer_schema_version_refused(tmp_path: Path) -> None:
     con = sqlite3.connect(archive_path(tmp_path))
     con.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
     con.close()
-    with pytest.raises(SchemaVersionError):
+    with pytest.raises(SchemaVersionError) as info:
         Archive.open(tmp_path)
+    assert info.value.found == SCHEMA_VERSION + 1
 
 
 def test_foreign_keys_enforced(archive: Archive) -> None:

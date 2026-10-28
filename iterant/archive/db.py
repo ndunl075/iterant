@@ -92,7 +92,8 @@ def _ensure_schema(con: sqlite3.Connection) -> None:
     version = int(row[0])
     if version > SCHEMA_VERSION:
         raise SchemaVersionError(
-            f"archive schema version {version} is newer than supported {SCHEMA_VERSION}"
+            f"archive schema version {version} is newer than supported {SCHEMA_VERSION}",
+            version,
         )
     # All statements are IF NOT EXISTS, so re-running is harmless (idempotent, and
     # safe if two processes initialise at once).
@@ -139,7 +140,7 @@ class Archive:
         try:
             con = open_archive(path)
         except UnsupportedSchemaVersion as exc:
-            raise SchemaVersionError(str(exc)) from exc
+            raise SchemaVersionError(str(exc), exc.version) from exc
         try:
             con.execute(f"PRAGMA busy_timeout = {int(busy_timeout * 1000)}")
             if create_schema:

@@ -46,9 +46,9 @@ jobs:
           set +e
           run() { echo "=== $* ==="; date; "$@" 2>&1 | tee -a "logs/$LOGN.log"; rc=${PIPESTATUS[0]}; echo "EXIT $rc for $LOGN"; echo "$LOGN $rc" >> logs/exitcodes.txt; date; }
           U=http://127.0.0.1:11435/v1
-          LOGN=estimate run uv run iterant estimate --backend podman --openai-base-url $U --llm-timeout 2400 --split select --tasks 80 --reps 1 "$A"
-          LOGN=aatest run uv run iterant aa-test --select-reps 1 --holdout-reps 1 --backend podman --openai-base-url $U --llm-timeout 2400 "$A"
-          LOGN=run run uv run iterant run --select-reps 1 --holdout-reps 1 --backend podman --openai-base-url $U --llm-timeout 2400 --generations 1 "$A"
+          LOGN=estimate run uv run iterant estimate --backend podman --openai-base-url $U --llm-timeout 2400 --split select --tasks 80 --reps 2 "$A"
+          LOGN=aatest run uv run iterant aa-test --backend podman --openai-base-url $U --llm-timeout 2400 "$A"
+          LOGN=run run uv run iterant run --backend podman --openai-base-url $U --llm-timeout 2400 --generations 1 "$A"
           LOGN=status run uv run iterant status "$A"
           LOGN=report run uv run iterant report "$A"
           cp -r "$A/.iterant/report" logs/report 2>/dev/null
